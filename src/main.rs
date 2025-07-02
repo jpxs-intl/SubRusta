@@ -114,21 +114,30 @@ async fn main() {
                 send_packet_to_socket(&send_sock, src, &app_state, &res).await;
             }
 
-            if let PacketType::ServerboundJoinRequest(ref _request) = packet_type && !app_state.connections.contains_key(&src) {
-                let connection = ClientConnection::from_address(src, send_sock.clone());
+            if let PacketType::ServerboundJoinRequest(ref request) = packet_type {
+                println!(
+                    "[SERVER] Got connection from {:?} with name {} - Sending sync!",
+                    src, request.player_name
+                );
 
                 let res = ClientboundInitialSyncPacket {
                     round_number: 1,
                     weekly_enabled: false,
                     weekday: 0,
                     map_to_load: "round".to_string(),
-                    sun_angle: 25,
-                    sun_axial_tilt: 25,
+                    sun_angle: 1000,
+                    sun_axial_tilt: 1000,
                     versus_movedelay: None,
                 };
 
-                connection.send_data(res.encode(&app_state));
-                app_state.connections.insert(src, connection);
+                if let Some(connection) = app_state.connections.get(&src) {
+                    connection.send_data(res.encode(&app_state));
+                } else {
+                    let connection = ClientConnection::from_address(src, send_sock.clone());
+
+                    connection.send_data(res.encode(&app_state));
+                    app_state.connections.insert(src, connection);
+                }
             }
         }
 
@@ -146,21 +155,21 @@ async fn main() {
 
             app_state.broadcast(game.encode(&app_state));
 
+            let mut to_remove = vec![];
+            for connection in app_state.connections.iter() {
+                if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
+                    to_remove.push(connection.address);
+
+                    println!("[SERVER] Player {} disconnected.", connection.address);
+                }
+            }
+
+            for conn in to_remove {
+                app_state.connections.remove(&conn);
+            }
+
             network_tick += 1;
             last_tick = SystemTime::now();
-        }
-
-        let mut to_remove = vec![];
-        for connection in app_state.connections.iter() {
-            if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
-                to_remove.push(connection.address);
-
-                println!("[SERVER] Player {} disconnected.", connection.address);
-            }
-        }
-
-        for conn in to_remove {
-            app_state.connections.remove(&conn);
         }
     }
 }

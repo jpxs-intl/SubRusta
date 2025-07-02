@@ -1,5 +1,5 @@
 admin_password=admin
-gamemode=eliminator
+gamemode=round
 help=true
 manual_hands=false
 master_server_url=ms.jpxs.io

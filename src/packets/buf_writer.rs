@@ -19,7 +19,7 @@ impl AlexBufWriter {
         }
     }
 
-    pub fn write_bits(&mut self, value: u32, bit_count: u32) {
+    pub fn write_bits(&mut self, value: i32, bit_count: u32) {
         if bit_count == 0 || bit_count > 32 {
             return;
         }
@@ -28,7 +28,7 @@ impl AlexBufWriter {
         let masked_value = if bit_count == 32 {
             value
         } else {
-            value & ((1u32 << bit_count) - 1)
+            value & ((1i32 << bit_count) - 1)
         };
 
         let mut remaining_bits = bit_count;
@@ -46,7 +46,7 @@ impl AlexBufWriter {
             let bits_to_write = remaining_bits.min(bits_available_in_byte as u32);
 
             // Extract the bits to write to this byte
-            let bits_for_this_byte = data_to_write & ((1u32 << bits_to_write) - 1);
+            let bits_for_this_byte = data_to_write & ((1i32 << bits_to_write) - 1);
             
             // Write the bits to the current byte
             self.buf[byte_index] |= (bits_for_this_byte as u8) << bit_offset_in_byte;
@@ -59,7 +59,7 @@ impl AlexBufWriter {
     }
 
     pub fn write_byte(&mut self, byte: u8) {
-        self.write_bits(byte as u32, 8);
+        self.write_bits(byte as i32, 8);
     }
 
     pub fn write_bytes(&mut self, bytes: &[u8]) {

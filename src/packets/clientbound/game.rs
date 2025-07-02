@@ -26,13 +26,31 @@ impl Encodable for ClientboundGamePacket {
         writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
-        writer.write_bits(self.game_state.clone() as u32, 4);
+        writer.write_bits(self.game_state.clone() as i32, 4);
         
         if self.game_state == GameState::Intermission {
             for status in self.ready_status.unwrap().iter() {
-                writer.write_bits(*status as u32, 1);
+                writer.write_bits(*status as i32, 1);
             }
         }
+
+        if self.game_state == GameState::Intermission || self.game_state == GameState::Restarting {
+            for _ in 1..=3 {
+                writer.write_bits(0, 16);
+                writer.write_bits(0, 16);
+            }
+        }
+
+        writer.write_bits(0, 24);
+        writer.write_bits(0, 16);
+        writer.write_bits(1000, 30);
+
+        for _ in 1..=5 {
+            writer.write_bits(0, 6);
+        }
+
+        writer.write_bits(-1, 8);
+        writer.write_bits(-1, 10);
 
         writer.into_vec()
     }
