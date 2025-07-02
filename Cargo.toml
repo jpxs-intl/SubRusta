@@ -1,0 +1,16 @@
+[package]
+name = "rosa2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+binrw = "0.15.0"
+crossbeam = "0.8.4"
+dashmap = { version = "6.1.0", features = ["serde"] }
+dirs-next = "2.0.0"
+rand = "0.9.1"
+reqwest = "0.12.20"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+serde_repr = "0.1.20"
+tokio = { version = "1.45.1", features = ["full"] }

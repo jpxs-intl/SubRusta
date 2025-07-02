@@ -1,0 +1,13 @@
+admin_password=admin
+gamemode=world
+help=true
+manual_hands=false
+master_server_url=ms.jpxs.io
+max_players=16
+port=27584
+round_time=300
+server_name=NOT A REAL SERVER!!!
+server_password=
+voice_boost=0
+voice_chat=false
+voice_min=1000

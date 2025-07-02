@@ -1,0 +1,154 @@
+use std::{array, net::SocketAddr, sync::Arc, thread::sleep, time::{Duration, SystemTime}};
+
+use crossbeam::channel::{unbounded, Sender};
+use dashmap::DashMap;
+use tokio::net::UdpSocket;
+use crate::{config::config_main::ConfigMain, connection::ClientConnection, masterserver::MasterServer, packets::{clientbound::{game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, initial_sync::ClientboundInitialSyncPacket, server_info::ServerInfo}, Encodable, GameMode, GameState, PacketType}, srk_parser::SrkData};
+
+extern crate serde_repr;
+
+pub mod masterserver;
+pub mod packets;
+pub mod srk_parser;
+pub mod config;
+pub mod connection;
+
+pub static SERVER_IDENTIFIER: u32 = 80085;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub masterserver: MasterServer,
+    pub srk_data: SrkData,
+    pub config: ConfigMain,
+    pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
+}
+
+impl AppState {
+    pub fn broadcast(&self, data: Vec<u8>) {
+        let connections = self.connections.iter();
+
+        for val in connections {
+            val.send_data(data.clone());
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Connection {
+    pub address: SocketAddr
+}
+
+#[tokio::main]
+async fn main() {
+    let config = ConfigMain::read_from_file();
+
+    let mut masterserver = MasterServer::init(&config).await;
+    masterserver.connect().await;
+
+    let srk_data = SrkData::read_from_file();
+
+    let app_state = AppState {
+        masterserver: masterserver.clone(),
+        srk_data,
+        config: config.clone(),
+        connections: Arc::new(DashMap::new()),
+    };
+
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", app_state.config.port)).await.expect("Failed to bind socket");
+    let recv_sock = Arc::new(socket);
+
+    println!("[SERVER] Listening on {}", recv_sock.local_addr().unwrap());
+
+    let send_sock = make_sender(recv_sock.clone());
+
+    tokio::spawn(async move {
+        loop {
+            masterserver.send([b'@'; 1024]).await;
+
+            sleep(Duration::from_secs(15));
+        }
+    });
+
+    let mut packet_buf = [0; 1024];
+    let mut last_tick = SystemTime::now();
+    let mut network_tick: u32 = 1;
+
+    loop {
+        let (size, src) = recv_sock.recv_from(&mut packet_buf).await.expect("Failed to receive data");
+
+        let packet_type = packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state);
+
+        if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
+            let res = ServerInfo {
+                timestamp: request.timestamp,
+                current_players: 0,
+                address: "32.220.197.217".to_string(),
+                build: 0x8e,
+            };
+
+            send_packet_to_socket(&send_sock, src, &app_state, &res).await;
+        }
+
+        if let PacketType::ServerboundJoinRequest(ref request) = packet_type {
+            let connection = ClientConnection::from_address(src, send_sock.clone());
+
+            let res = ClientboundInitialSyncPacket { 
+                round_number: 1, 
+                weekly_enabled: false, 
+                weekday: 0, 
+                map_to_load: "round".to_string(), 
+                sun_angle: 25, 
+                sun_axial_tilt: 25, 
+                versus_movedelay: None 
+            };
+
+            connection.send_data(res.encode(&app_state));
+            app_state.connections.insert(src, connection);
+        }
+
+        /*if last_tick.elapsed().unwrap().as_millis() > 16 {
+            let game = ClientboundGamePacket {
+                round_number: 1,
+                network_tick,
+                game_state: GameState::Intermission,
+                ready_status: Some(array::from_fn(|_| false)),
+                corporation_money: Some(ClientboundGamePacketCorporationMoney {
+                    corporation_bonus: 0,
+                    corporation_versus_money: 0
+                }),
+            };
+
+            app_state.broadcast(game.encode(&app_state));
+
+            network_tick += 1;
+            last_tick = SystemTime::now();
+        }*/
+    }
+}
+
+pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
+    let encoded_packet = packet.encode(state);
+
+    let header = b"7DFP";
+    let mut data = Vec::with_capacity(header.len() + encoded_packet.len());
+    data.extend_from_slice(header);
+    data.extend_from_slice(&encoded_packet[..encoded_packet.len()]);
+
+    socket.send((data, address)).expect("Failed to send packet to channel");
+}
+
+fn make_sender(send_sock: Arc<UdpSocket>) -> Sender<(Vec<u8>, SocketAddr)> {
+    let (tx, rx) = unbounded::<(Vec<u8>, SocketAddr)>();
+
+    tokio::spawn(async move {
+        loop {
+            let data = rx.recv();
+
+            if let Ok(data) = data {
+                let res = send_sock.send_to(&data.0, data.1).await;
+            }
+        }
+    });
+
+    tx
+}
