@@ -58,6 +58,15 @@ impl AlexBufWriter {
         }
     }
 
+    pub fn write_string(&mut self, string: String) {
+        let mut output = [0; 32];
+        let bytes = string.as_bytes();
+        let len = bytes.len().min(32);
+        output[..len].copy_from_slice(&bytes[..len]);
+        
+        self.write_bytes(&output);
+    }
+
     pub fn write_byte(&mut self, byte: u8) {
         self.write_bits(byte as i32, 8);
     }

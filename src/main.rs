@@ -106,7 +106,7 @@ async fn main() {
             if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
                 let res = ServerInfo {
                     timestamp: request.timestamp,
-                    current_players: 0,
+                    current_players: 44,
                     address: "32.220.197.217".to_string(),
                     build: 0x8e,
                 };

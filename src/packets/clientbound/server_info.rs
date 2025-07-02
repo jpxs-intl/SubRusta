@@ -1,4 +1,4 @@
-use crate::{packets::{utils::{least_significant, limited_string, most_significant, broken_bit}, Encodable}, AppState, SERVER_IDENTIFIER};
+use crate::{packets::{buf_writer::AlexBufWriter, utils::{least_significant, most_significant}, Encodable}, AppState, SERVER_IDENTIFIER};
 
 pub struct ServerInfo {
     pub timestamp: u32,
@@ -9,28 +9,28 @@ pub struct ServerInfo {
 
 impl Encodable for ServerInfo {
     fn encode(&self, state: &AppState) -> Vec<u8> {
-            let mut buf = vec![0x01];
+            let mut writer = AlexBufWriter::new();
+            writer.write_byte(0x01);
+            writer.write_byte(0x26);
+            writer.write_bytes(&self.timestamp.to_le_bytes());
 
-            buf.push(0x26); // Version 38e
-            buf.extend_from_slice(&self.timestamp.to_le_bytes()); // timestamp
+            writer.write_bits(state.config.gamemode.clone() as i32, 4);
+            writer.write_bits(least_significant(self.current_players) as i32, 4);
+            writer.write_bits(most_significant(self.current_players) as i32, 4);
+            writer.write_bits(least_significant(state.config.max_players) as i32, 4);
+            writer.write_bits(most_significant(state.config.max_players) as i32,4);
+            writer.write_bits(9, 4);
 
-            buf.push(broken_bit(state.config.gamemode.clone() as u8, least_significant(self.current_players)));
-            buf.push(broken_bit(most_significant(self.current_players), least_significant(state.config.max_players)));
-            buf.push(broken_bit(most_significant(state.config.max_players), 0));
+            writer.write_string(state.config.server_name.clone());
+            writer.write_bytes(&SERVER_IDENTIFIER.to_le_bytes());
+            writer.write_bytes(&self.address.split('.').map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>());
+            writer.write_bytes(&state.config.port.to_le_bytes());
 
-            // Server Identification
-            buf.extend_from_slice(&limited_string(&state.config.server_name)); // 32 bytes of string data
-            buf.extend_from_slice(&SERVER_IDENTIFIER.to_le_bytes()); // Identifier
+            writer.write_bits(0b0000100, 7);
+            writer.write_bits(!state.config.server_password.is_empty() as i32, 1);
 
-            // Connection Info
-            let bytes = self.address.split('.').map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>();
-            buf.extend_from_slice(&bytes);
-            buf.extend_from_slice(&state.config.port.to_le_bytes());
+            writer.write_bytes(&[0x8e, 0x00]);
 
-            // Next the build is the first 7 and is_passworded is the last bit
-            buf.push(0b0000100 << 1 | (!state.config.server_password.is_empty()) as u8 & 0b1); // is_passworded + build
-            buf.extend_from_slice(&[0x8e, 0x00]);
-
-            buf
+            writer.into_vec()
     }
 }
