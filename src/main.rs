@@ -103,10 +103,18 @@ async fn main() {
                 connection.last_packet = SystemTime::now();
             }
 
+            if let PacketType::ServerboundLeave = packet_type && let Some(connection) = app_state.connections.get(&src) {
+                    connection.kill_thread();
+
+                    drop(connection);
+
+                    app_state.connections.remove(&src);
+                }
+
             if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
                 let res = ServerInfo {
                     timestamp: request.timestamp,
-                    current_players: 44,
+                    current_players: app_state.connections.len() as u8,
                     address: "32.220.197.217".to_string(),
                     build: 0x8e,
                 };

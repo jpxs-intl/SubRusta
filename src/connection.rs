@@ -35,6 +35,12 @@ impl ClientConnection {
         conn
     }
 
+    pub fn kill_thread(&self) {
+        if let Some(handle) = self.tx_handle.as_ref() {
+            handle.abort();
+        }
+    }
+
     fn do_sending(&self) {
         loop {
             let bytes = self.tx_receiver.recv();

@@ -1,4 +1,4 @@
-use crate::packets::{utils::{limited_string, broken_bit}, Encodable, GameMode};
+use crate::packets::{buf_writer::AlexBufWriter, Encodable, GameMode};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundInitialSyncPacket {
@@ -13,20 +13,23 @@ pub struct ClientboundInitialSyncPacket {
 
 impl Encodable for ClientboundInitialSyncPacket {
     fn encode(&self, state: &crate::AppState) -> Vec<u8> {
-        let mut buf = vec![0x06];
-        buf.extend_from_slice(&self.round_number.to_le_bytes());
+        let mut writer = AlexBufWriter::new();
 
-        buf.push(broken_bit(self.weekly_enabled as u8, state.config.gamemode.clone() as u8));
-        //buf.push(broken_bit(state.config.gamemode.clone() as u8, self.weekly_enabled as u8));
-        buf.push(self.weekday);
-        buf.extend_from_slice(&limited_string(&self.map_to_load));
-        buf.extend_from_slice(&self.sun_angle.to_le_bytes());
-        buf.extend_from_slice(&self.sun_axial_tilt.to_le_bytes());
+        writer.write_byte(0x06);
+        writer.write_bytes(&self.round_number.to_le_bytes());
+        writer.write_bits(state.config.gamemode.clone() as i32, 4);
+        writer.write_bits(self.weekly_enabled as i32, 4);
+        writer.write_byte(self.weekday);
+
+        writer.write_string("round".to_string());
+
+        writer.write_bytes(&self.sun_angle.to_le_bytes());
+        writer.write_bytes(&self.sun_axial_tilt.to_le_bytes());
 
         if state.config.gamemode == GameMode::Versus {
-            buf.push(self.versus_movedelay.unwrap_or(0));
+            writer.write_byte(self.versus_movedelay.unwrap_or(0));
         }
 
-        buf
+        writer.into_vec()
     }
 }
