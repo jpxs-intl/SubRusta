@@ -1,7 +1,7 @@
 use crate::packets::{
-    buf_reader::AlexBufReader, serverbound::game::{actions::{
+    buf_reader::AlexBufReader, serverbound::game::actions::{
         decode_actions, ServerboundGameAction
-    }, opus::{decode_voice_data, ServerboundGameVoiceData}}, Decodable
+    }, Decodable
 };
 
 pub mod actions;
@@ -40,13 +40,13 @@ pub struct ServerboundGamePacket {
     pub num_actions: u8,         // 8 bits
 
     pub actions: Vec<ServerboundGameAction>,
-    pub voice_data: ServerboundGameVoiceData,
+    //pub voice_data: ServerboundGameVoiceData,
 
-    pub spectating_human_id: u8, // 8 bits
-    pub unk: u16,                // 11 bits
-    pub unk1: u8,                // 8 bits
-    pub unk2: u32,           // 4 bytes
-    pub unk3: u32,           // 4 bytes
+    //pub spectating_human_id: u8, // 8 bits
+    //pub unk: u16,                // 11 bits
+    //pub unk1: u8,                // 8 bits
+    //pub unk2: u32,           // 4 bytes
+    //pub unk3: u32,           // 4 bytes
 }
 
 impl Decodable for ServerboundGamePacket {
@@ -80,14 +80,14 @@ impl Decodable for ServerboundGamePacket {
         let num_actions = reader.boundscheck_read_bits(8);
 
         let actions = decode_actions(&mut reader, packet_action_count);
-        let voice_data = decode_voice_data(&mut reader);
+        //let voice_data = decode_voice_data(&mut reader);
 
-        let spectating_human_id = reader.boundscheck_read_bits(8);
+        //let spectating_human_id = reader.boundscheck_read_bits(8);
 
-        let unk = reader.boundscheck_read_bits(11);
-        let unk1 = reader.boundscheck_read_bits(8);
-        let unk2 = reader.read_u32();
-        let unk3 = reader.read_u32();
+        //let unk = reader.boundscheck_read_bits(11);
+        //let unk1 = reader.boundscheck_read_bits(8);
+        //let unk2 = reader.read_u32();
+        //let unk3 = reader.read_u32();
 
         Self {
             round_num,
@@ -116,12 +116,12 @@ impl Decodable for ServerboundGamePacket {
             packet_action_count,
             num_actions: num_actions as u8,
             actions,
-            voice_data,
-            spectating_human_id: spectating_human_id as u8,
-            unk: unk as u16,
-            unk1: unk1 as u8,
-            unk2,
-            unk3,
+            //voice_data,
+            //spectating_human_id: spectating_human_id as u8,
+            //unk: unk as u16,
+            //unk1: unk1 as u8,
+            //unk2,
+            //unk3,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::packets::{Encodable, GameState};
+use crate::packets::{buf_writer::AlexBufWriter, Encodable, GameState};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -21,18 +21,19 @@ pub struct ClientboundGamePacketCorporationMoney {
 
 impl Encodable for ClientboundGamePacket {
     fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
-        let mut buf = vec![0x05];
-        buf.extend_from_slice(&self.round_number.to_le_bytes());
-        buf.extend_from_slice(&self.network_tick.to_le_bytes());
+        let mut writer = AlexBufWriter::new();
+    
+        writer.write_byte(0x05);
+        writer.write_bytes(&self.round_number.to_le_bytes());
+        writer.write_bytes(&self.network_tick.to_le_bytes());
+        writer.write_bits(self.game_state.clone() as u32, 4);
         
         if self.game_state == GameState::Intermission {
-            let compressed_readies = self.ready_status.unwrap().iter().enumerate().fold(0u32, |acc, (i, &ready)| {
-                acc | ((ready as u32) << i)
-            });
-
-            buf.extend_from_slice(&compressed_readies.to_le_bytes());
+            for status in self.ready_status.unwrap().iter() {
+                writer.write_bits(*status as u32, 1);
+            }
         }
 
-        buf
+        writer.into_vec()
     }
 }

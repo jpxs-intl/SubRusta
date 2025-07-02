@@ -1,17 +1,36 @@
-use std::{array, net::SocketAddr, sync::Arc, thread::sleep, time::{Duration, SystemTime}};
+use std::{
+    array,
+    net::SocketAddr,
+    sync::Arc,
+    thread::sleep,
+    time::{Duration, SystemTime},
+};
 
-use crossbeam::channel::{unbounded, Sender};
+use crate::{
+    config::config_main::ConfigMain,
+    connection::ClientConnection,
+    masterserver::MasterServer,
+    packets::{
+        Encodable, GameState, PacketType,
+        clientbound::{
+            game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney},
+            initial_sync::ClientboundInitialSyncPacket,
+            server_info::ServerInfo,
+        },
+    },
+    srk_parser::SrkData,
+};
+use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
 use tokio::net::UdpSocket;
-use crate::{config::config_main::ConfigMain, connection::ClientConnection, masterserver::MasterServer, packets::{clientbound::{game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, initial_sync::ClientboundInitialSyncPacket, server_info::ServerInfo}, Encodable, GameMode, GameState, PacketType}, srk_parser::SrkData};
 
 extern crate serde_repr;
 
+pub mod config;
+pub mod connection;
 pub mod masterserver;
 pub mod packets;
 pub mod srk_parser;
-pub mod config;
-pub mod connection;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 
@@ -35,7 +54,7 @@ impl AppState {
 
 #[derive(Debug, Clone)]
 pub struct Connection {
-    pub address: SocketAddr
+    pub address: SocketAddr,
 }
 
 #[tokio::main]
@@ -54,7 +73,9 @@ async fn main() {
         connections: Arc::new(DashMap::new()),
     };
 
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", app_state.config.port)).await.expect("Failed to bind socket");
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", app_state.config.port))
+        .await
+        .expect("Failed to bind socket");
     let recv_sock = Arc::new(socket);
 
     println!("[SERVER] Listening on {}", recv_sock.local_addr().unwrap());
@@ -74,39 +95,44 @@ async fn main() {
     let mut network_tick: u32 = 1;
 
     loop {
-        let (size, src) = recv_sock.recv_from(&mut packet_buf).await.expect("Failed to receive data");
+        if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf) {
+            let packet_type =
+                packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state);
 
-        let packet_type = packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state);
+            if let Some(mut connection) = app_state.connections.get_mut(&src) {
+                connection.last_packet = SystemTime::now();
+            }
 
-        if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
-            let res = ServerInfo {
-                timestamp: request.timestamp,
-                current_players: 0,
-                address: "32.220.197.217".to_string(),
-                build: 0x8e,
-            };
+            if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
+                let res = ServerInfo {
+                    timestamp: request.timestamp,
+                    current_players: 0,
+                    address: "32.220.197.217".to_string(),
+                    build: 0x8e,
+                };
 
-            send_packet_to_socket(&send_sock, src, &app_state, &res).await;
+                send_packet_to_socket(&send_sock, src, &app_state, &res).await;
+            }
+
+            if let PacketType::ServerboundJoinRequest(ref _request) = packet_type && !app_state.connections.contains_key(&src) {
+                let connection = ClientConnection::from_address(src, send_sock.clone());
+
+                let res = ClientboundInitialSyncPacket {
+                    round_number: 1,
+                    weekly_enabled: false,
+                    weekday: 0,
+                    map_to_load: "round".to_string(),
+                    sun_angle: 25,
+                    sun_axial_tilt: 25,
+                    versus_movedelay: None,
+                };
+
+                connection.send_data(res.encode(&app_state));
+                app_state.connections.insert(src, connection);
+            }
         }
 
-        if let PacketType::ServerboundJoinRequest(ref request) = packet_type {
-            let connection = ClientConnection::from_address(src, send_sock.clone());
-
-            let res = ClientboundInitialSyncPacket { 
-                round_number: 1, 
-                weekly_enabled: false, 
-                weekday: 0, 
-                map_to_load: "round".to_string(), 
-                sun_angle: 25, 
-                sun_axial_tilt: 25, 
-                versus_movedelay: None 
-            };
-
-            connection.send_data(res.encode(&app_state));
-            app_state.connections.insert(src, connection);
-        }
-
-        /*if last_tick.elapsed().unwrap().as_millis() > 16 {
+        if last_tick.elapsed().unwrap().as_millis() > 20 {
             let game = ClientboundGamePacket {
                 round_number: 1,
                 network_tick,
@@ -114,7 +140,7 @@ async fn main() {
                 ready_status: Some(array::from_fn(|_| false)),
                 corporation_money: Some(ClientboundGamePacketCorporationMoney {
                     corporation_bonus: 0,
-                    corporation_versus_money: 0
+                    corporation_versus_money: 0,
                 }),
             };
 
@@ -122,11 +148,29 @@ async fn main() {
 
             network_tick += 1;
             last_tick = SystemTime::now();
-        }*/
+        }
+
+        let mut to_remove = vec![];
+        for connection in app_state.connections.iter() {
+            if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
+                to_remove.push(connection.address);
+
+                println!("[SERVER] Player {} disconnected.", connection.address);
+            }
+        }
+
+        for conn in to_remove {
+            app_state.connections.remove(&conn);
+        }
     }
 }
 
-pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
+pub async fn send_packet_to_socket(
+    socket: &Sender<(Vec<u8>, SocketAddr)>,
+    address: SocketAddr,
+    state: &AppState,
+    packet: &dyn Encodable,
+) {
     let encoded_packet = packet.encode(state);
 
     let header = b"7DFP";
@@ -134,7 +178,9 @@ pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, addre
     data.extend_from_slice(header);
     data.extend_from_slice(&encoded_packet[..encoded_packet.len()]);
 
-    socket.send((data, address)).expect("Failed to send packet to channel");
+    socket
+        .send((data, address))
+        .expect("Failed to send packet to channel");
 }
 
 fn make_sender(send_sock: Arc<UdpSocket>) -> Sender<(Vec<u8>, SocketAddr)> {
@@ -145,7 +191,7 @@ fn make_sender(send_sock: Arc<UdpSocket>) -> Sender<(Vec<u8>, SocketAddr)> {
             let data = rx.recv();
 
             if let Ok(data) = data {
-                let res = send_sock.send_to(&data.0, data.1).await;
+                let _res = send_sock.send_to(&data.0, data.1).await;
             }
         }
     });

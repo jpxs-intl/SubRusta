@@ -45,8 +45,8 @@ impl AlexBufReader {
         }
 
         let bytes = self.read_bytes(4, 1);
-        let value = u32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for u32"));
-        value
+        
+        u32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for u32"))
     }
 
     pub fn read_bytes(&mut self, size: usize, count: usize) -> Vec<u8> {
@@ -88,7 +88,7 @@ impl AlexBufReader {
             return None;
         }
 
-        let mut data = 0u32;
+        let mut data: u32;
         let mut remaining_bits = bit_count;
         let mut bits_read = 0u32;
 

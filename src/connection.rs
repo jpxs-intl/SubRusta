@@ -1,32 +1,47 @@
-use std::net::SocketAddr;
-use tokio::task::JoinHandle;
 use crossbeam::channel::{Receiver, Sender};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::SystemTime,
+};
+use tokio::task::JoinHandle;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClientConnection {
-    pub socket: Sender<(Vec<u8>, SocketAddr)>,
+    pub tx_socket: Sender<(Vec<u8>, SocketAddr)>,
+    pub last_packet: SystemTime,
     pub address: SocketAddr,
-    sender: Sender<Vec<u8>>,
-    receiver: Receiver<Vec<u8>>,
-    handle: JoinHandle<()>
+    tx_sender: Sender<Vec<u8>>,
+    tx_receiver: Receiver<Vec<u8>>,
+    tx_handle: Arc<Option<JoinHandle<()>>>,
 }
 
 impl ClientConnection {
-    pub fn from_address(address: SocketAddr, socket: Sender<(Vec<u8>, SocketAddr)>) -> Self {
-        let (sender, receiver) = crossbeam::channel::unbounded();
+    pub fn from_address(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>) -> Self {
+        let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
 
-        let r = receiver.clone();
-        let s = socket.clone();
-        let handle = tokio::spawn(async move {
-            do_sending(r, s, address);
-        });
-
-        ClientConnection {
-            socket,
+        let mut conn = ClientConnection {
+            tx_socket,
+            last_packet: SystemTime::now(),
             address,
-            sender,
-            receiver,
-            handle
+            tx_sender,
+            tx_receiver,
+            tx_handle: Arc::new(None),
+        };
+
+        let c = conn.clone();
+        conn.tx_handle = Arc::new(Some(tokio::spawn(async move { c.do_sending() })));
+
+        conn
+    }
+
+    fn do_sending(&self) {
+        loop {
+            let bytes = self.tx_receiver.recv();
+
+            if let Ok(bytes) = bytes {
+                self.tx_socket.send((bytes, self.address)).unwrap();
+            }
         }
     }
 
@@ -36,17 +51,6 @@ impl ClientConnection {
         vec.extend_from_slice(header);
         vec.extend_from_slice(&data);
 
-        let _ = self.sender.send(vec);
-    }
-}
-
-fn do_sending(receiver: Receiver<Vec<u8>>, socket: Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr) {
-    loop {
-        let bytes = receiver.recv();
-
-        if let Ok(bytes) = bytes {
-            println!("Sending bytes {:?}", bytes);
-            socket.send((bytes, address)).unwrap();
-        }
+        let _ = self.tx_sender.send(vec);
     }
 }

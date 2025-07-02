@@ -1,12 +1,12 @@
 admin_password=admin
-gamemode=world
+gamemode=eliminator
 help=true
 manual_hands=false
 master_server_url=ms.jpxs.io
 max_players=16
 port=27584
 round_time=300
-server_name=NOT A REAL SERVER!!!
+server_name=Plz dont join, game WILL crash.
 server_password=
 voice_boost=0
 voice_chat=false

@@ -6,6 +6,7 @@ pub mod serverbound;
 pub mod clientbound;
 pub mod utils;
 pub mod buf_reader;
+pub mod buf_writer;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -46,7 +47,7 @@ pub enum PacketType {
     ServerboundLeave,
     ServerboundJoinRequest(ServerboundJoinRequest),
     ServerboundInfoRequest(ServerboundInfoRequest),
-    ServerboundGamePacket(ServerboundGamePacket)
+    ServerboundGamePacket(Box<ServerboundGamePacket>)
 }
 
 pub fn decode_packet(mut data: Vec<u8>, state: &AppState) -> PacketType {
@@ -60,7 +61,7 @@ pub fn decode_packet(mut data: Vec<u8>, state: &AppState) -> PacketType {
         0 => PacketType::ServerboundInfoRequest(ServerboundInfoRequest::decode(data, state)),
         2 => PacketType::ServerboundJoinRequest(ServerboundJoinRequest::decode(data, state)),
         7 => PacketType::ServerboundLeave,
-        4 => PacketType::ServerboundGamePacket(ServerboundGamePacket::decode(data, state)),
+        4 => PacketType::ServerboundGamePacket(Box::new(ServerboundGamePacket::decode(data, state))),
         _ => {
             println!("Unknown packet type: {packet_type}");
             println!("Data: {data:?}");
