@@ -9,55 +9,55 @@ impl AlexBufReader {
         Self { buf, pos: 0, bit_pos: 0 }
     }
 
-    pub fn read_special_f32(&mut self) -> f32 {
+    pub fn read_special_f32(&mut self) -> Option<f32> {
         if self.pos + 3 > self.buf.len() {
-            panic!("Not enough data in buffer to read special f32");
+            return None;
         }
 
         let mut arr = [0u8; 4];
-        let bytes = self.read_bytes(3, 1);
+        let bytes = self.read_bytes(3, 1)?;
         arr[0..3].copy_from_slice(&bytes);
 
-        f32::from_le_bytes(arr)        
+        Some(f32::from_le_bytes(arr))
     }
 
-    pub fn read_string(&mut self, size: usize) -> String {
+    pub fn read_string(&mut self, size: usize) -> Option<String> {
         if self.pos + size > self.buf.len() {
-            panic!("Not enough data in buffer to read string of size {size}");
+            return None
         }
 
-        let bytes = self.read_bytes(1, size);
-        String::from_utf8(bytes.to_vec()).expect("Failed to convert bytes to String")
+        let bytes = self.read_bytes(1, size)?;
+        Some(String::from_utf8(bytes.to_vec()).expect("Failed to convert bytes to String"))
     }
 
-    pub fn read_u8(&mut self) -> u8 {
+    pub fn read_u8(&mut self) -> Option<u8> {
         if self.pos >= self.buf.len() {
-            panic!("Not enough data in buffer to read u8");
+            return None;
         }
 
-        let bytes = self.read_bytes(1, 1);
-        bytes[0]
+        let bytes = self.read_bytes(1, 1)?;
+        Some(bytes[0])
     }
 
-    pub fn read_u32(&mut self) -> u32 {
+    pub fn read_u32(&mut self) -> Option<u32> {
         if self.pos + 4 > self.buf.len() {
-            panic!("Not enough data in buffer to read u32");
+            return None;
         }
 
-        let bytes = self.read_bytes(4, 1);
+        let bytes = self.read_bytes(4, 1)?;
         
-        u32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for u32"))
+        Some(u32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for u32")))
     }
 
-    pub fn read_bytes(&mut self, size: usize, count: usize) -> Vec<u8> {
+    pub fn read_bytes(&mut self, size: usize, count: usize) -> Option<Vec<u8>> {
         if self.pos > 65535 {
-            panic!("Buffer overflow: Attempted to read beyond the buffer size");
+            return None;
         }
 
         let bytes_to_read = size * count;
 
         if self.pos + bytes_to_read > self.buf.len() {
-            panic!("Not enough data in buffer to read {bytes_to_read} bytes");
+            return None;
         }
 
         if self.bit_pos > 0 {
@@ -68,15 +68,15 @@ impl AlexBufReader {
         let data = self.buf[self.pos..self.pos + bytes_to_read].to_vec();
         self.pos += bytes_to_read;
 
-        data
+        Some(data)
     }
 
-    pub fn boundscheck_read_bits(&mut self, count: usize) -> u32 {
+    pub fn boundscheck_read_bits(&mut self, count: usize) -> Option<u32> {
         if self.bit_pos <= 65535 && self.bit_pos + (count >> 3) <= self.buf.len() {
-            return self.read_bits(count as u32).unwrap_or(0);
+            return self.read_bits(count as u32)
         }
 
-        0
+        None
     }
 
     pub fn read_bits(&mut self, bit_count: u32) -> Option<u32> {

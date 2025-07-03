@@ -50,36 +50,36 @@ pub struct ServerboundGamePacket {
 }
 
 impl Decodable for ServerboundGamePacket {
-    fn decode(buf: Vec<u8>, _state: &crate::AppState) -> Self {
+    fn decode(buf: Vec<u8>, _state: &crate::AppState) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
-        let round_num = reader.read_u32();
-        let gear_x = reader.read_special_f32();
-        let left_right = reader.read_special_f32();
-        let gear_y = reader.read_special_f32();
-        let forward_back = reader.read_special_f32();
-        let view_yaw_delta = reader.read_special_f32();
-        let view_pitch = reader.read_special_f32();
-        let free_look_yaw = reader.read_special_f32();
-        let free_look_pitch = reader.read_special_f32();
-        let view_yaw = reader.read_special_f32();
-        let unknown = reader.read_special_f32();
-        let view_pitch_delta = reader.read_special_f32();
+        let round_num = reader.read_u32()?;
+        let gear_x = reader.read_special_f32()?;
+        let left_right = reader.read_special_f32()?;
+        let gear_y = reader.read_special_f32()?;
+        let forward_back = reader.read_special_f32()?;
+        let view_yaw_delta = reader.read_special_f32()?;
+        let view_pitch = reader.read_special_f32()?;
+        let free_look_yaw = reader.read_special_f32()?;
+        let free_look_pitch = reader.read_special_f32()?;
+        let view_yaw = reader.read_special_f32()?;
+        let unknown = reader.read_special_f32()?;
+        let view_pitch_delta = reader.read_special_f32()?;
 
-        let input_flags = reader.read_u32();
-        let input_type = reader.boundscheck_read_bits(8) as u8;
-        let zoom_level = reader.boundscheck_read_bits(4) as u8;
-        let recieved_events = reader.boundscheck_read_bits(16) as u16;
+        let input_flags = reader.read_u32()?;
+        let input_type = reader.boundscheck_read_bits(8)? as u8;
+        let zoom_level = reader.boundscheck_read_bits(4)? as u8;
+        let recieved_events = reader.boundscheck_read_bits(16)? as u16;
 
-        let num_sent_objects = reader.read_u32();
-        let camera_x = reader.read_u32() as f32;
-        let camera_y = reader.read_u32() as f32;
-        let camera_z = reader.read_u32() as f32;
+        let num_sent_objects = reader.read_u32()?;
+        let camera_x = reader.read_u32()? as f32;
+        let camera_y = reader.read_u32()? as f32;
+        let camera_z = reader.read_u32()? as f32;
 
-        let packet_action_count = reader.boundscheck_read_bits(4) as u8;
-        let num_actions = reader.boundscheck_read_bits(8);
+        let packet_action_count = reader.boundscheck_read_bits(4)? as u8;
+        let num_actions = reader.boundscheck_read_bits(8)?;
 
-        let actions = decode_actions(&mut reader, packet_action_count);
+        let actions = decode_actions(&mut reader, packet_action_count)?;
         //let voice_data = decode_voice_data(&mut reader);
 
         //let spectating_human_id = reader.boundscheck_read_bits(8);
@@ -89,7 +89,7 @@ impl Decodable for ServerboundGamePacket {
         //let unk2 = reader.read_u32();
         //let unk3 = reader.read_u32();
 
-        Self {
+        Some(Self {
             round_num,
             gear_x,
             left_right,
@@ -122,6 +122,6 @@ impl Decodable for ServerboundGamePacket {
             //unk1: unk1 as u8,
             //unk2,
             //unk3,
-        }
+        })
     }
 }

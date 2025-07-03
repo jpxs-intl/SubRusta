@@ -1,3 +1,5 @@
+#![feature(try_blocks)]
+
 use std::{
     array,
     net::SocketAddr,
@@ -17,6 +19,7 @@ use crate::{
             initial_sync::ClientboundInitialSyncPacket,
             server_info::ServerInfo,
         },
+        masterserver::auth::MasterServerAuthPacket,
     },
     srk_parser::SrkData,
 };
@@ -40,6 +43,7 @@ pub struct AppState {
     pub srk_data: SrkData,
     pub config: ConfigMain,
     pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
+    pub auth_data: Arc<DashMap<u32, MasterServerAuthPacket>>,
 }
 
 impl AppState {
@@ -62,7 +66,6 @@ async fn main() {
     let config = ConfigMain::read_from_file();
 
     let mut masterserver = MasterServer::init(&config).await;
-    masterserver.connect().await;
 
     let srk_data = SrkData::read_from_file();
 
@@ -71,9 +74,10 @@ async fn main() {
         srk_data,
         config: config.clone(),
         connections: Arc::new(DashMap::new()),
+        auth_data: Arc::new(DashMap::new()),
     };
 
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", app_state.config.port))
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port))
         .await
         .expect("Failed to bind socket");
     let recv_sock = Arc::new(socket);
@@ -82,11 +86,13 @@ async fn main() {
 
     let send_sock = make_sender(recv_sock.clone());
 
+    masterserver.connect(send_sock.clone());
+
     tokio::spawn(async move {
         loop {
-            masterserver.send([b'@'; 1024]).await;
+            masterserver.send(vec![b'@']).await;
 
-            sleep(Duration::from_secs(15));
+            sleep(Duration::from_secs(16));
         }
     });
 
@@ -95,37 +101,39 @@ async fn main() {
     let mut network_tick: u32 = 1;
 
     loop {
-        if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf) {
-            let packet_type =
-                packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state);
-
+        if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf) && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state) {
             if let Some(mut connection) = app_state.connections.get_mut(&src) {
                 connection.last_packet = SystemTime::now();
+
+                connection.handle_packet(packet_type.clone(), &app_state).await;
             }
 
             if let PacketType::ServerboundLeave = packet_type && let Some(connection) = app_state.connections.get(&src) {
-                    connection.kill_thread();
+                connection.kill_thread();
 
-                    drop(connection);
+                drop(connection);
 
-                    app_state.connections.remove(&src);
-                }
+                app_state.connections.remove(&src);
+            }
 
             if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
                 let res = ServerInfo {
                     timestamp: request.timestamp,
                     current_players: app_state.connections.len() as u8,
-                    address: "32.220.197.217".to_string(),
+                    address: "217.197.220.32".to_string(),
                     build: 0x8e,
                 };
 
                 send_packet_to_socket(&send_sock, src, &app_state, &res).await;
             }
 
-            if let PacketType::ServerboundJoinRequest(ref request) = packet_type {
+            if let PacketType::ServerboundJoinRequest(ref request) = packet_type
+                && let Some(auth_data) = app_state.auth_data.get(&request.account_id)
+                && auth_data.auth_ticket == request.auth_ticket
+            {
                 println!(
-                    "[SERVER] Got connection from {:?} with name {} - Sending sync!",
-                    src, request.player_name
+                    "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
+                    src, request.player_name, request.auth_ticket
                 );
 
                 let res = ClientboundInitialSyncPacket {
@@ -147,9 +155,13 @@ async fn main() {
                     app_state.connections.insert(src, connection);
                 }
             }
-        }
 
-        if last_tick.elapsed().unwrap().as_millis() > 20 {
+            if let PacketType::MasterServerAuthPacket(ref auth) = packet_type {
+                app_state.auth_data.insert(auth.account_id, auth.clone());
+            }
+        };
+
+        if last_tick.elapsed().unwrap().as_millis() > 16 {
             let game = ClientboundGamePacket {
                 round_number: 1,
                 network_tick,

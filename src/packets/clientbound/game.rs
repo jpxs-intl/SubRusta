@@ -27,30 +27,56 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
         writer.write_bits(self.game_state.clone() as i32, 4);
-        
+
         if self.game_state == GameState::Intermission {
-            for status in self.ready_status.unwrap().iter() {
-                writer.write_bits(*status as i32, 1);
+            for _ in 0..32 {
+                writer.write_bits(0, 1);
             }
         }
 
-        if self.game_state == GameState::Intermission || self.game_state == GameState::Restarting {
-            for _ in 1..=3 {
+        if self.game_state == GameState::Intermission || self.game_state == GameState::InGame {
+            for _ in 0..3 {
                 writer.write_bits(0, 16);
                 writer.write_bits(0, 16);
             }
         }
 
-        writer.write_bits(0, 24);
+        writer.write_bits(0x4b0, 24);
         writer.write_bits(0, 16);
-        writer.write_bits(1000, 30);
+        writer.write_bits(0, 30);
 
-        for _ in 1..=5 {
+        for _ in 0..5 {
             writer.write_bits(0, 6);
         }
 
-        writer.write_bits(-1, 8);
+        writer.write_bits(2, 8);
         writer.write_bits(-1, 10);
+        
+        writer.write_bytes(&10.0_f32.to_le_bytes());
+        writer.write_bytes(&10.0_f32.to_le_bytes());
+        writer.write_bytes(&10.0_f32.to_le_bytes());
+
+        writer.write_bits(1, 1);
+        writer.write_bits(0, 8);
+        writer.write_bits(16, 0);
+
+        writer.write_bytes(&1000_i32.to_le_bytes());
+        writer.write_bytes(&1000_i32.to_le_bytes());
+        writer.write_bytes(&1000_i32.to_le_bytes());
+        writer.write_bytes(&1000_i32.to_le_bytes());
+        writer.write_bytes(&64_i32.to_le_bytes());
+
+        writer.write_bits(300, 16);
+        writer.write_bits(0, 8);
+        writer.write_bits(100,10);
+        writer.write_bits(0, 6);
+        writer.write_bits(0, 8);
+
+        for _ in 0..7 {
+            writer.write_bits(0, 4);
+        }
+
+        writer.write_bits(0, 8);
 
         writer.into_vec()
     }

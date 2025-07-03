@@ -1,11 +1,13 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr};
+
+use crossbeam::channel::Sender;
 
 use crate::config::config_main::ConfigMain;
 
 #[derive(Clone)]
 pub struct MasterServer {
-    pub address: String,
-    server_socket: Option<Arc<tokio::net::UdpSocket>>,
+    pub address: SocketAddr,
+    server_socket: Option<Sender<(Vec<u8>, SocketAddr)>>,
 }
 
 impl MasterServer {
@@ -44,15 +46,17 @@ impl MasterServer {
 
         let address = format!("{}:{}", split[1], split[2].parse::<i32>().unwrap() + 2);
 
+        let sock_addr = SocketAddr::from_str(&address);
+
         println!("[MasterServer] MasterServer initialized... Waiting for connection...");
 
         MasterServer {
-            address,
+            address: sock_addr.unwrap(),
             server_socket: None,
         }
     }
 
-    pub async fn connect(&mut self) {
+    /*pub async fn connect(&mut self) {
         if self.server_socket.is_none() {
             let socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
                 .await
@@ -66,9 +70,14 @@ impl MasterServer {
 
             self.server_socket = Some(Arc::new(socket));
         }
+    }*/
+
+    pub fn connect(&mut self, tx: Sender<(Vec<u8>, SocketAddr)>) {
+        self.server_socket = Some(tx);
+        println!("[MasterServer] Connected to MasterServer! - Now online!");
     }
 
-    pub async fn send(&self, data: [u8; 1024]) {
+    pub async fn send(&self, data: Vec<u8>) {
         if let Some(socket) = &self.server_socket {
             let header = b"7DFP";
 
@@ -76,10 +85,7 @@ impl MasterServer {
             data_with_header.extend_from_slice(header);
             data_with_header.extend_from_slice(&data);
 
-            socket
-                .send_to(&data_with_header, &self.address)
-                .await
-                .expect("Failed to send data");
+            let _ = socket.send((data_with_header, self.address));
         } else {
             panic!("[MASTERSERVER] Socket is not initialized");
         }

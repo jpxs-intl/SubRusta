@@ -1,10 +1,14 @@
 use crossbeam::channel::{Receiver, Sender};
-use std::{
-    net::SocketAddr,
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
+
+use crate::{
+    AppState,
+    packets::{
+        PacketType,
+        serverbound::game::actions::ServerboundGameAction,
+    },
+};
 
 #[derive(Debug, Clone)]
 pub struct ClientConnection {
@@ -58,5 +62,15 @@ impl ClientConnection {
         vec.extend_from_slice(&data);
 
         let _ = self.tx_sender.send(vec);
+    }
+
+    pub async fn handle_packet(&self, packet: PacketType, state: &AppState) {
+        if let PacketType::ServerboundGamePacket(ref game_packet) = packet {
+            for event in game_packet.actions.clone().into_iter() {
+                if let ServerboundGameAction::Chat(ref chat) = event {
+                    println!("Got message {:?}", chat.message);
+                }
+            }
+        }
     }
 }
