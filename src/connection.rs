@@ -4,7 +4,7 @@ use tokio::task::JoinHandle;
 
 use crate::{
     packets::{
-        serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, PacketType
+        masterserver::auth::MasterServerAuthPacket, serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, PacketType
     }, AppState
 };
 
@@ -22,16 +22,16 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn from_address(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>, req: &ServerboundJoinRequest) -> Self {
+    pub fn from_address(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>, req: &ServerboundJoinRequest, auth: &MasterServerAuthPacket) -> Self {
         let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
 
         let mut conn = ClientConnection {
             tx_socket,
             last_packet: SystemTime::now(),
             address,
-            username: req.player_name.clone(),
-            account_id: req.account_id,
-            phone_number: req.phone_number,
+            username: auth.name.clone(),
+            account_id: auth.account_id,
+            phone_number: auth.phone_number,
             tx_sender,
             tx_receiver,
             tx_handle: Arc::new(None),

@@ -23,7 +23,7 @@ impl Encodable for ClientboundGamePacket {
     fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
         let mut writer = AlexBufWriter::new();
     
-        writer.write_byte(0x05);
+        //writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
         writer.write_bits(self.game_state.clone() as i32, 4);

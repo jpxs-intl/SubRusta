@@ -22,8 +22,8 @@ impl Decodable for ServerboundJoinRequest {
         let player_name = reader.read_string(32)?;
         let avatar_info = reader.read_u32()?;
         let password = reader.read_string(32)?;
-        let phone_number = reader.read_u32()?;
         let protocol_version = reader.read_u8()?;
+        let phone_number = reader.read_u32()?;
 
 
         Some(ServerboundJoinRequest {

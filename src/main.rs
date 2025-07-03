@@ -3,7 +3,7 @@
 use std::{
     array,
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, Mutex},
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -41,7 +41,7 @@ pub static SERVER_IDENTIFIER: u32 = 80085;
 #[derive(Clone)]
 pub struct AppState {
     pub masterserver: MasterServer,
-    pub srk_data: SrkData,
+    pub srk_data: Arc<Mutex<SrkData>>,
     pub config: ConfigMain,
     pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
     pub auth_data: Arc<DashMap<u32, MasterServerAuthPacket>>,
@@ -72,7 +72,7 @@ async fn main() {
 
     let app_state = AppState {
         masterserver: masterserver.clone(),
-        srk_data,
+        srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: Arc::new(DashMap::new()),
         auth_data: Arc::new(DashMap::new()),
@@ -150,7 +150,7 @@ async fn main() {
                 } else {
                     println!(
                         "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
-                        src, request.player_name, request.auth_ticket
+                        src, auth_data.name, request.auth_ticket
                     );
 
                     let res = ClientboundInitialSyncPacket {
@@ -163,11 +163,16 @@ async fn main() {
                         versus_movedelay: None,
                     };
 
+                    {
+                        let mut data = app_state.srk_data.lock().unwrap();
+                        data.create_account(&auth_data);
+                    }
+
                     if let Some(connection) = app_state.connections.get(&src) {
                         connection.send_data(res.encode(&app_state));
                     } else {
                         let connection =
-                            ClientConnection::from_address(src, send_sock.clone(), request);
+                            ClientConnection::from_address(src, send_sock.clone(), request, &auth_data);
 
                         connection.send_data(res.encode(&app_state));
                         app_state.connections.insert(src, connection);
@@ -176,6 +181,7 @@ async fn main() {
             }
 
             if let PacketType::MasterServerAuthPacket(ref auth) = packet_type {
+                println!("[MasterServer] Recieved authentication packet for {} - Auth ticket: {}", auth.name, auth.auth_ticket);
                 app_state.auth_data.insert(auth.account_id, auth.clone());
             }
         };

@@ -1,7 +1,9 @@
 
-use std::{fs::File, path::Path};
+use std::{fs::{File, OpenOptions}, path::Path};
 
 use binrw::{BinRead, BinWrite};
+
+use crate::packets::{masterserver::auth::MasterServerAuthPacket, serverbound::join_request::ServerboundJoinRequest};
 
 #[derive(BinRead, BinWrite, Clone)]
 #[brw(little)]
@@ -16,7 +18,7 @@ pub struct SrkData {
 #[derive(BinRead, BinWrite, Clone)]
 #[brw(little)]
 pub struct SrkPlayerData {
-    pub subrosa_id: u32,
+    pub account_id: u32,
     pub phone_number: u32,
     pub steam_id: u64,
     pub unused_0: u32,
@@ -56,5 +58,58 @@ impl SrkData {
         println!("[SRK] Loaded SRK successfully, found {} players.", data.player_count);
 
         data
+    }
+
+    pub fn create_account(&mut self, data: &MasterServerAuthPacket) {
+        let existing_account = self.players.clone().into_iter().filter(|acc| acc.account_id == data.account_id).collect::<Vec<SrkPlayerData>>();
+
+        let mut name = data.name.clone().into_bytes();
+        name.resize(32, 0);
+
+        if existing_account.is_empty() {
+            let account = SrkPlayerData {
+                account_id: data.account_id,
+                ban_time: 0,
+                phone_number: data.phone_number,
+                steam_id: data.steam_id,
+                corp_rating: 0,
+                crim_rating: 0,
+                money: 0,
+                play_time: 0,
+                player_name: name.try_into().unwrap(),
+                spawn_timer: 0,
+                unused_0: 0,
+                unused_1: 0,
+                unused_2: 0,
+                unused_3: 0
+            };
+
+            self.player_count += 1;
+            self.players.push(account);
+
+            println!("[SRK] Made account for {}", data.name);
+
+            self.save();
+        }
+    }
+
+    pub fn save(&self) {
+        println!("[SRK] Saving server.srk...");
+
+        let file = OpenOptions::new().write(true).create(true).open("server.srk");
+
+        if let Ok(mut file) = file {
+            let res = self.write(&mut file);
+
+            if res.is_err() {
+                println!("[SRK] Failed to save SRK data!");
+            } else {
+                println!("[SRK] Successfully saved SRK data!")
+            }
+
+            return;
+        }
+
+        println!("[SRk] Failed to open SRK file!");
     }
 }

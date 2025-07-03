@@ -27,6 +27,7 @@ impl AlexBufReader {
         }
 
         let bytes = self.read_bytes(1, size)?;
+
         Some(String::from_utf8(bytes.to_vec()).expect("Failed to convert bytes to String").replace('\0', ""))
     }
 
