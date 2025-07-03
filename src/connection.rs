@@ -3,11 +3,9 @@ use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    AppState,
     packets::{
-        PacketType,
-        serverbound::game::actions::ServerboundGameAction,
-    },
+        serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, PacketType
+    }, AppState
 };
 
 #[derive(Debug, Clone)]
@@ -15,19 +13,25 @@ pub struct ClientConnection {
     pub tx_socket: Sender<(Vec<u8>, SocketAddr)>,
     pub last_packet: SystemTime,
     pub address: SocketAddr,
+    pub username: String,
+    pub account_id: u32,
+    pub phone_number: u32,
     tx_sender: Sender<Vec<u8>>,
     tx_receiver: Receiver<Vec<u8>>,
     tx_handle: Arc<Option<JoinHandle<()>>>,
 }
 
 impl ClientConnection {
-    pub fn from_address(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>) -> Self {
+    pub fn from_address(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>, req: &ServerboundJoinRequest) -> Self {
         let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
 
         let mut conn = ClientConnection {
             tx_socket,
             last_packet: SystemTime::now(),
             address,
+            username: req.player_name.clone(),
+            account_id: req.account_id,
+            phone_number: req.phone_number,
             tx_sender,
             tx_receiver,
             tx_handle: Arc::new(None),

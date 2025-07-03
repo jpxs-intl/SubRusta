@@ -49,8 +49,8 @@ pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u8) -> Option<Vec
             }
         });
 
-        if action.is_some() {
-            actions.push(action.unwrap());
+        if let Some(action) = action {
+            actions.push(action)
         }
     }
 

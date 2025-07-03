@@ -17,6 +17,7 @@ use crate::{
         clientbound::{
             game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney},
             initial_sync::ClientboundInitialSyncPacket,
+            kick::ClientboundKickPacket,
             server_info::ServerInfo,
         },
         masterserver::auth::MasterServerAuthPacket,
@@ -101,14 +102,21 @@ async fn main() {
     let mut network_tick: u32 = 1;
 
     loop {
-        if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf) && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state) {
+        if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf)
+            && let Some(packet_type) =
+                packets::decode_packet(packet_buf[..size].to_vec().clone(), &app_state)
+        {
             if let Some(mut connection) = app_state.connections.get_mut(&src) {
                 connection.last_packet = SystemTime::now();
 
-                connection.handle_packet(packet_type.clone(), &app_state).await;
+                connection
+                    .handle_packet(packet_type.clone(), &app_state)
+                    .await;
             }
 
-            if let PacketType::ServerboundLeave = packet_type && let Some(connection) = app_state.connections.get(&src) {
+            if let PacketType::ServerboundLeave = packet_type
+                && let Some(connection) = app_state.connections.get(&src)
+            {
                 connection.kill_thread();
 
                 drop(connection);
@@ -131,28 +139,39 @@ async fn main() {
                 && let Some(auth_data) = app_state.auth_data.get(&request.account_id)
                 && auth_data.auth_ticket == request.auth_ticket
             {
-                println!(
-                    "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
-                    src, request.player_name, request.auth_ticket
-                );
+                if !app_state.config.server_password.is_empty()
+                    && request.password != app_state.config.server_password
+                {
+                    let res = ClientboundKickPacket {
+                        reason: "You sent an incorrect password, loser.".to_string(),
+                    };
 
-                let res = ClientboundInitialSyncPacket {
-                    round_number: 1,
-                    weekly_enabled: false,
-                    weekday: 0,
-                    map_to_load: "round".to_string(),
-                    sun_angle: 1000,
-                    sun_axial_tilt: 1000,
-                    versus_movedelay: None,
-                };
-
-                if let Some(connection) = app_state.connections.get(&src) {
-                    connection.send_data(res.encode(&app_state));
+                    send_packet_to_socket(&send_sock, src, &app_state, &res).await;
                 } else {
-                    let connection = ClientConnection::from_address(src, send_sock.clone());
+                    println!(
+                        "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
+                        src, request.player_name, request.auth_ticket
+                    );
 
-                    connection.send_data(res.encode(&app_state));
-                    app_state.connections.insert(src, connection);
+                    let res = ClientboundInitialSyncPacket {
+                        round_number: 1,
+                        weekly_enabled: false,
+                        weekday: 0,
+                        map_to_load: "round".to_string(),
+                        sun_angle: 1000,
+                        sun_axial_tilt: 1000,
+                        versus_movedelay: None,
+                    };
+
+                    if let Some(connection) = app_state.connections.get(&src) {
+                        connection.send_data(res.encode(&app_state));
+                    } else {
+                        let connection =
+                            ClientConnection::from_address(src, send_sock.clone(), request);
+
+                        connection.send_data(res.encode(&app_state));
+                        app_state.connections.insert(src, connection);
+                    }
                 }
             }
 
@@ -180,7 +199,10 @@ async fn main() {
                 if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
                     to_remove.push(connection.address);
 
-                    println!("[SERVER] Player {} disconnected.", connection.address);
+                    println!(
+                        "[SERVER] {} on address {} disconnected.",
+                        connection.username, connection.address
+                    );
                 }
             }
 
