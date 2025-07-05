@@ -63,7 +63,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bytes(&0u32.to_le_bytes()); // Head vel Z
 
         writer.write_bits(0, 1); // Can see manager tab
-        writer.write_bits(2, 8); // Player menu tab
+        writer.write_bits(0, 8); // Player menu tab
         writer.write_bits(0, 16);
 
         writer.write_bytes(&3269420775u32.to_le_bytes()); // Money
@@ -118,11 +118,11 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bits(1, 16); // Total number of server events
         writer.write_bits(1, 6); // Packed server event count
-        writer.write_bits(1, 16); // Current event id (num?)
+        writer.write_bits(0, 16); // Current event id (num?)
 
         // This is for the update player event
         writer.write_bits(10, 6); // Type player update
-        writer.write_bits(self.network_tick as i32 - 100, 28); // Tick Created (now, duh?)
+        writer.write_bits(0, 28); // Tick Created (now, duh?)
         /*writer.write_bits(18944, 16); // a
         writer.write_bits(-1, 10); // b
         writer.write_bytes(&3209u32.to_le_bytes()); // c
@@ -132,9 +132,7 @@ impl Encodable for ClientboundGamePacket {
             writer.write_bits(cha.unwrap() as i32, 7);
         }*/
         writer.write_bits(0, 8);
-        writer.write_bits(0, 1);
-
-        writer.write_bits(1, 6);
+        writer.write_bits(1, 1);
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Client pings?
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???

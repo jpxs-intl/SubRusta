@@ -59,6 +59,8 @@ impl AlexBufWriter {
     }
 
     pub fn write_string(&mut self, string: String) {
+        self.pad_to_byte_boundary();
+
         let mut output = [0; 32];
         let bytes = string.as_bytes();
         let len = bytes.len().min(32);
@@ -68,6 +70,8 @@ impl AlexBufWriter {
     }
 
     pub fn write_byte(&mut self, byte: u8) {
+        self.pad_to_byte_boundary();
+
         self.write_bits(byte as i32, 8);
     }
 
