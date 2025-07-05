@@ -63,14 +63,14 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bytes(&0u32.to_le_bytes()); // Head vel Z
 
         writer.write_bits(0, 1); // Can see manager tab
-        writer.write_bits(0, 8); // Player menu tab
+        writer.write_bits(2, 8); // Player menu tab
         writer.write_bits(0, 16);
 
-        writer.write_bytes(&3269420775u32.to_le_bytes()); // Money
+        writer.write_bytes(&32775u32.to_le_bytes()); // Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Budget
         writer.write_bytes(&0u32.to_le_bytes()); // Corporate Rating
-        writer.write_bytes(&0u32.to_le_bytes()); // Criminal Rating
+        writer.write_bytes(&24u32.to_le_bytes()); // Criminal Rating
 
         writer.write_bits(0, 16); // Player spawn timer
         writer.write_bits(0, 8); // Player number of actions
@@ -95,8 +95,8 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(0, 11); // Packed object count
         writer.write_bits(0, 11); // Packed object offset
 
-        writer.write_bits(0, 11); // Text count
-        writer.write_bits(0, 11); // Text offset
+        writer.write_bits(0, 8); // Text count
+        writer.write_bits(0, 8); // Text offset
         
         // For each enabled or just-now enabled unpack slot bits
 
@@ -121,18 +121,18 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(0, 16); // Current event id (num?)
 
         // This is for the update player event
-        writer.write_bits(10, 6); // Type player update
+        writer.write_bits(7, 6); // Type player update
         writer.write_bits(0, 28); // Tick Created (now, duh?)
-        /*writer.write_bits(18944, 16); // a
+        writer.write_bits(18944, 16); // a
         writer.write_bits(-1, 10); // b
         writer.write_bytes(&3209u32.to_le_bytes()); // c
         writer.write_bits(38, 24); // d
         
-        for cha in limited_string("Infinitard.").bytes() {
+        for cha in limited_string("Test player update event.").bytes() {
             writer.write_bits(cha.unwrap() as i32, 7);
-        }*/
-        writer.write_bits(0, 8);
-        writer.write_bits(1, 1);
+        }
+        //writer.write_bits(0, 8);
+        //writer.write_bits(1, 1);
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Client pings?
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???

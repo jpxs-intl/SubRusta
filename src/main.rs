@@ -190,7 +190,7 @@ async fn main() {
             let game = ClientboundGamePacket {
                 round_number: 1,
                 network_tick,
-                game_state: GameState::InGame,
+                game_state: GameState::Intermission,
                 ready_status: Some(array::from_fn(|_| false)),
                 corporation_money: Some(ClientboundGamePacketCorporationMoney {
                     corporation_bonus: 0,
