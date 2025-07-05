@@ -22,6 +22,13 @@ pub enum GameMode {
     None = 8
 }
 
+pub fn get_sun_time(hour: i32, minute: i32) -> i32 {
+    let hour_time: i32 = hour.clamp(0, 24) * 216000;
+    let minute_time: i32 = minute.clamp(0, 59) * 3600;
+
+    hour_time + minute_time
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GameState {

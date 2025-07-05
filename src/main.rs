@@ -154,7 +154,7 @@ async fn main() {
                     );
 
                     let res = ClientboundInitialSyncPacket {
-                        round_number: 1,
+                        round_number: 0,
                         weekly_enabled: false,
                         weekday: 0,
                         map_to_load: "round".to_string(),
@@ -188,7 +188,7 @@ async fn main() {
 
         if last_tick.elapsed().unwrap().as_millis() > 16 {
             let game = ClientboundGamePacket {
-                round_number: 1,
+                round_number: 0,
                 network_tick,
                 game_state: GameState::Intermission,
                 ready_status: Some(array::from_fn(|_| false)),

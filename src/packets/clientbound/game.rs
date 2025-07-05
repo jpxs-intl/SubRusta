@@ -1,4 +1,6 @@
-use crate::packets::{buf_writer::AlexBufWriter, Encodable, GameState};
+use std::io::Read;
+
+use crate::packets::{buf_writer::AlexBufWriter, get_sun_time, utils::limited_string, Encodable, GameState};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -26,30 +28,30 @@ impl Encodable for ClientboundGamePacket {
         writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
-        writer.write_bits(self.game_state.clone() as i32, 4);
+        writer.write_bits((self.game_state.clone() as u8) as i32, 4);
 
         if self.game_state == GameState::Intermission {
             for _ in 0..32 {
-                writer.write_bits(0, 1);
+                writer.write_bits(0, 1); // Player ready
             }
         } else if self.game_state == GameState::Restarting {
             for _ in 0..3 {
-                writer.write_bits(0, 16);
+                writer.write_bits(0, 16); // Individual team bonus money
             }
         }
 
         if self.game_state == GameState::Intermission || self.game_state == GameState::Restarting {
             for _ in 0..3 {
-                writer.write_bits(0, 16);
-                writer.write_bits(0, 16);
+                writer.write_bits(0, 16); // Team bonus money
+                writer.write_bits(0, 16); // Versus total team money.
             }
         }
 
-        writer.write_bits(32, 24); // Game Timer
+        writer.write_bits(7200, 24); // Game Timer
         writer.write_bits(9, 16); // Racing time
-        writer.write_bits(3000, 30); // Sun time
+        writer.write_bits(get_sun_time(12, 60), 30); // Sun time
         
-        for _ in 0..6 {
+        for _ in 0..5 {
             writer.write_bits(0, 6); // Corporation player count, (Goldmen, Monsota, OXS, Nexaco, Pentacom)
         }
 
@@ -64,15 +66,15 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(2, 8); // Player menu tab
         writer.write_bits(0, 16);
 
-        writer.write_bytes(&3000u32.to_le_bytes()); // Money
+        writer.write_bytes(&3269420775u32.to_le_bytes()); // Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Budget
         writer.write_bytes(&0u32.to_le_bytes()); // Corporate Rating
         writer.write_bytes(&0u32.to_le_bytes()); // Criminal Rating
 
-        writer.write_bits(16, 16); // Player spawn timer
-        writer.write_bits(1, 8); // Player number of actions
-        writer.write_bits(10, 10); // Player human oldHealth
+        writer.write_bits(0, 16); // Player spawn timer
+        writer.write_bits(0, 8); // Player number of actions
+        writer.write_bits(0, 10); // Player human oldHealth
         writer.write_bits(0, 6); // Always 0 (thanks alex)
         writer.write_bits(0, 8); // Always 0 (thanks alex)
 
@@ -105,21 +107,37 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(0, 8);        
 
         writer.write_bits(0, 10);
-        writer.write_bits(0, 2);
-        writer.write_bits(0, 2);
-        writer.write_bits(0, 2);
-        writer.write_bits(0, 2);
+        writer.write_bits(2, 2);
+        writer.write_bits(2, 2);
+        writer.write_bits(3, 2);
+        writer.write_bits(1, 2);
 
         for _ in 0..8 {
             writer.write_bits(0, 1); // Voice is active
         }
 
-        writer.write_bits(0, 16); // Total number of server events
-        writer.write_bits(0, 6); // Packed server event count
-        writer.write_bits(0, 16); // Current event id (num?)
+        writer.write_bits(1, 16); // Total number of server events
+        writer.write_bits(1, 6); // Packed server event count
+        writer.write_bits(1, 16); // Current event id (num?)
 
-        writer.write_bytes(&0u32.to_le_bytes()); // Client pings?
-        writer.write_bytes(&0u32.to_le_bytes()); // ???
+        // This is for the update player event
+        writer.write_bits(10, 6); // Type player update
+        writer.write_bits(self.network_tick as i32 - 100, 28); // Tick Created (now, duh?)
+        /*writer.write_bits(18944, 16); // a
+        writer.write_bits(-1, 10); // b
+        writer.write_bytes(&3209u32.to_le_bytes()); // c
+        writer.write_bits(38, 24); // d
+        
+        for cha in limited_string("Infinitard.").bytes() {
+            writer.write_bits(cha.unwrap() as i32, 7);
+        }*/
+        writer.write_bits(0, 8);
+        writer.write_bits(0, 1);
+
+        writer.write_bits(1, 6);
+
+        writer.write_bytes(&self.network_tick.to_le_bytes()); // Client pings?
+        writer.write_bytes(&self.network_tick.to_le_bytes()); // ???
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Current SDL tick?
 
         writer.into_vec()

@@ -23,21 +23,15 @@ pub fn decode_voice_data(reader: &mut AlexBufReader) -> Option<ServerboundGameVo
     });
 
     for frame in &mut frames {
-        println!("Frame num");
-
         frame.index = reader.boundscheck_read_bits(6)? as u8;
         frame.size = reader.boundscheck_read_bits(11)? as u16;
         frame.volume = reader.boundscheck_read_bits(2)? as u8;
-
-        println!("Frame size {}", frame.size);
 
         if frame.size > 0 {
             frame.data = reader.read_bytes(frame.size as usize, 1)?;
         } else {
             frame.data.clear();
         }
-
-        println!("Read frame!");
     }
 
     let is_silenced = reader.boundscheck_read_bits(1)? != 0;

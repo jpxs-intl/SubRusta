@@ -9,6 +9,7 @@ pub fn decode_gamemode_str(mode: &str) -> GameMode {
         "round" => GameMode::Round,
         "world" => GameMode::World,
         "eliminator" => GameMode::Eliminator,
+        "versus" => GameMode::Versus,
         _ => GameMode::Round, // Default to Round if unknown
     }
 }

@@ -21,7 +21,7 @@ impl Encodable for ClientboundInitialSyncPacket {
         writer.write_bits(self.weekly_enabled as i32, 4);
         writer.write_byte(self.weekday);
 
-        writer.write_string("round".to_string());
+        writer.write_string(self.map_to_load.clone());
 
         writer.write_bytes(&self.sun_angle.to_le_bytes());
         writer.write_bytes(&self.sun_axial_tilt.to_le_bytes());
