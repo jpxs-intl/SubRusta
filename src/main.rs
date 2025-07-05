@@ -181,7 +181,7 @@ async fn main() {
             }
 
             if let PacketType::MasterServerAuthPacket(ref auth) = packet_type {
-                println!("[MasterServer] Recieved authentication packet for {} - Auth ticket: {}", auth.name, auth.auth_ticket);
+                println!("[MasterServer] Recieved authentication packet for {} with phone #{} - Auth ticket: {}", auth.name, auth.phone_number, auth.auth_ticket);
                 app_state.auth_data.insert(auth.account_id, auth.clone());
             }
         };

@@ -74,6 +74,10 @@ impl ClientConnection {
                 if let ServerboundGameAction::Chat(ref chat) = event {
                     println!("Got message {:?}", chat.message);
                 }
+
+                if let ServerboundGameAction::Menu(ref menu) = event {
+                    println!("Got menu {:?}", menu);
+                }
             }
         }
     }

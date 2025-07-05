@@ -87,15 +87,11 @@ impl SrkData {
             self.player_count += 1;
             self.players.push(account);
 
-            println!("[SRK] Made account for {}", data.name);
-
             self.save();
         }
     }
 
     pub fn save(&self) {
-        println!("[SRK] Saving server.srk...");
-
         let file = OpenOptions::new().write(true).create(true).open("server.srk");
 
         if let Ok(mut file) = file {
