@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use crate::packets::{
     buf_reader::AlexBufReader, serverbound::game::actions::{
         decode_actions, ServerboundGameAction
@@ -50,7 +52,7 @@ pub struct ServerboundGamePacket {
 }
 
 impl Decodable for ServerboundGamePacket {
-    fn decode(buf: Vec<u8>, _state: &crate::AppState) -> Option<Self> {
+    fn decode(buf: Vec<u8>, src: SocketAddr, state: &crate::AppState) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
         let round_num = reader.read_u32()?;
@@ -80,6 +82,10 @@ impl Decodable for ServerboundGamePacket {
         let num_actions = reader.boundscheck_read_bits(8)?;
 
         let actions = decode_actions(&mut reader, packet_action_count)?;
+
+        if let Some(mut connection) = state.connections.get_mut(&src) {
+            connection.recieved_actions = num_actions
+        }
         //let voice_data = decode_voice_data(&mut reader);
 
         //let spectating_human_id = reader.boundscheck_read_bits(8);

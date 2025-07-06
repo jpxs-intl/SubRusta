@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use crate::{packets::{buf_reader::AlexBufReader, Decodable}, AppState};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,7 +15,7 @@ pub struct ServerboundJoinRequest {
 }
 
 impl Decodable for ServerboundJoinRequest {
-    fn decode(buf: Vec<u8>, _state: &AppState) -> Option<Self> {
+    fn decode(buf: Vec<u8>, src: SocketAddr, _state: &AppState) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
         let version = reader.read_u8()?;

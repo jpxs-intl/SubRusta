@@ -66,6 +66,10 @@ impl AlexBufReader {
             self.bit_pos = 0;
         }
 
+        if self.pos + bytes_to_read > self.buf.len() {
+            return None;
+        }
+
         let data = self.buf[self.pos..self.pos + bytes_to_read].to_vec();
         self.pos += bytes_to_read;
 

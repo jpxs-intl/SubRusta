@@ -4,8 +4,10 @@ use crate::packets::{buf_writer::AlexBufWriter, get_sun_time, utils::limited_str
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
-    pub round_number: u32,
-    pub network_tick: u32,
+    pub client_id: u32,
+    pub received_actions: u32,
+    pub round_number: i32,
+    pub network_tick: i32,
     pub game_state: GameState,
 
     // If gameState is Intermission
@@ -22,7 +24,7 @@ pub struct ClientboundGamePacketCorporationMoney {
 }
 
 impl Encodable for ClientboundGamePacket {
-    fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
+    fn encode(&self, state: &crate::AppState) -> Vec<u8> {
         let mut writer = AlexBufWriter::new();
     
         writer.write_byte(0x05);
@@ -73,7 +75,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bytes(&24u32.to_le_bytes()); // Criminal Rating
 
         writer.write_bits(0, 16); // Player spawn timer
-        writer.write_bits(0, 8); // Player number of actions
+        writer.write_bits(self.received_actions as i32, 8); // Player number of actions
         writer.write_bits(0, 10); // Player human oldHealth
         writer.write_bits(0, 6); // Always 0 (thanks alex)
         writer.write_bits(0, 8); // Always 0 (thanks alex)
@@ -116,23 +118,21 @@ impl Encodable for ClientboundGamePacket {
             writer.write_bits(0, 1); // Voice is active
         }
 
-        writer.write_bits(1, 16); // Total number of server events
-        writer.write_bits(1, 6); // Packed server event count
-        writer.write_bits(0, 16); // Current event id (num?)
+        writer.write_bits(state.events.num_global_events() as i32, 16); // Total number of server events
 
-        // This is for the update player event
-        writer.write_bits(7, 6); // Type player update
-        writer.write_bits(0, 28); // Tick Created (now, duh?)
-        writer.write_bits(18944, 16); // a
-        writer.write_bits(-1, 10); // b
-        writer.write_bytes(&3209u32.to_le_bytes()); // c
-        writer.write_bits(38, 24); // d
-        
-        for cha in limited_string("Test player update event.").bytes() {
-            writer.write_bits(cha.unwrap() as i32, 7);
+        let missing = state.events.get_client_missing_events(self.client_id);
+
+        writer.write_bits(missing.len() as i32, 6); // Packed server event count
+
+        if !missing.is_empty() {
+            writer.write_bits(missing[0].0 as i32, 16); // starting event id
+
+            for event in missing {
+                writer.write_bytes_unaligned(&event.1.encode(state));
+            }
+        } else {
+            writer.write_bits(0, 16);
         }
-        //writer.write_bits(0, 8);
-        //writer.write_bits(1, 1);
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Client pings?
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???

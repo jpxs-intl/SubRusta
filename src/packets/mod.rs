@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{packets::{buf_reader::AlexBufReader, clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::ServerboundGamePacket, info_request::ServerboundInfoRequest, join_request::ServerboundJoinRequest}}, AppState};
@@ -43,8 +45,12 @@ pub trait Encodable {
     fn encode(&self, state: &AppState) -> Vec<u8>;
 }
 
+pub trait StatelessEncodable {
+    fn encode(&self) -> Vec<u8>;
+}
+
 pub trait Decodable: Sized {
-    fn decode(buf: Vec<u8>, state: &AppState) -> Option<Self>;
+    fn decode(buf: Vec<u8>, src: SocketAddr, state: &AppState) -> Option<Self>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +65,7 @@ pub enum PacketType {
     MasterServerAuthPacket(MasterServerAuthPacket)
 }
 
-pub fn decode_packet(data: Vec<u8>, state: &AppState) -> Option<PacketType> {
+pub fn decode_packet(data: Vec<u8>, src: SocketAddr, state: &AppState) -> Option<PacketType> {
     // This is ALWAYS 7DFP\0
     let mut data = data.clone();
     let _header = data.drain(..4).collect::<Vec<u8>>();
@@ -68,12 +74,12 @@ pub fn decode_packet(data: Vec<u8>, state: &AppState) -> Option<PacketType> {
     //println!("Decoding packet type: {packet_type} - With data: {data:?}");
 
     Some(match packet_type {
-        0 => PacketType::ServerboundInfoRequest(ServerboundInfoRequest::decode(data, state)?),
-        2 => PacketType::ServerboundJoinRequest(ServerboundJoinRequest::decode(data, state)?),
+        0 => PacketType::ServerboundInfoRequest(ServerboundInfoRequest::decode(data, src, state)?),
+        2 => PacketType::ServerboundJoinRequest(ServerboundJoinRequest::decode(data, src, state)?),
         7 => PacketType::ServerboundLeave,
-        4 => PacketType::ServerboundGamePacket(Box::new(ServerboundGamePacket::decode(data, state)?)),
+        4 => PacketType::ServerboundGamePacket(Box::new(ServerboundGamePacket::decode(data, src, state)?)),
         b'@' => { PacketType::Unknown }
-        66 => PacketType::MasterServerAuthPacket(MasterServerAuthPacket::decode(data, state)?),
+        66 => PacketType::MasterServerAuthPacket(MasterServerAuthPacket::decode(data, src, state)?),
         _ => {
             println!("Unknown packet type: {packet_type}");
             println!("Data: {data:?}");

@@ -81,6 +81,12 @@ impl AlexBufWriter {
         }
     }
 
+    pub fn write_bytes_unaligned(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_bits(byte as i32, 8);
+        }
+    }
+
     pub fn pad_to_byte_boundary(&mut self) {
         let bit_offset = self.bit_pos % 8;
         if bit_offset != 0 {
