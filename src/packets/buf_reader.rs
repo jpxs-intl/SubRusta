@@ -1,7 +1,7 @@
 pub struct AlexBufReader {
     buf: Vec<u8>,
-    pos: usize,
-    bit_pos: usize,
+    pub pos: usize,
+    pub bit_pos: usize,
 }
 
 impl AlexBufReader {
@@ -28,7 +28,7 @@ impl AlexBufReader {
 
         let bytes = self.read_bytes(1, size)?;
 
-        Some(String::from_utf8(bytes.to_vec()).expect("Failed to convert bytes to String").replace('\0', ""))
+        Some(String::from_utf8(bytes.to_vec()).unwrap_or("".to_string()).replace('\0', ""))
     }
 
     pub fn read_u8(&mut self) -> Option<u8> {

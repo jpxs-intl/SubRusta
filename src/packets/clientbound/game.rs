@@ -8,7 +8,9 @@ pub struct ClientboundGamePacket {
     pub received_actions: u32,
     pub round_number: i32,
     pub network_tick: i32,
+    pub last_sdl_tick: u32,
     pub game_state: GameState,
+    pub menu_type: u8,
 
     // If gameState is Intermission
     pub ready_status: Option<[bool; 32]>,
@@ -65,7 +67,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bytes(&0u32.to_le_bytes()); // Head vel Z
 
         writer.write_bits(0, 1); // Can see manager tab
-        writer.write_bits(2, 8); // Player menu tab
+        writer.write_bits(self.menu_type as i32, 8); // Player menu tab
         writer.write_bits(0, 16);
 
         writer.write_bytes(&32775u32.to_le_bytes()); // Money
@@ -121,7 +123,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(state.events.num_global_events() as i32, 16); // Total number of server events
 
         let missing = state.events.get_client_missing_events(self.client_id);
-
+        
         writer.write_bits(missing.len() as i32, 6); // Packed server event count
 
         if !missing.is_empty() {
@@ -134,9 +136,9 @@ impl Encodable for ClientboundGamePacket {
             writer.write_bits(0, 16);
         }
 
-        writer.write_bytes(&self.network_tick.to_le_bytes()); // Client pings?
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???
-        writer.write_bytes(&self.network_tick.to_le_bytes()); // Current SDL tick?
+        writer.write_bytes(&self.network_tick.to_le_bytes()); // ???
+        writer.write_bytes(&self.last_sdl_tick.to_le_bytes()); // Last client SDK tick
 
         writer.into_vec()
     }

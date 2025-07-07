@@ -18,8 +18,8 @@ pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u8) -> Option<Vec
 
         let action = Some(match action_type {
             0 => ServerboundGameAction::Menu(ServerboundGameActionTypeMenu { 
-                a: reader.read_u8()?, 
-                b: reader.read_u32()?, 
+                menu: reader.read_u8()?, 
+                button: reader.read_u32()?, 
                 c: reader.read_bytes(16, 1)? 
             }),
             1 => {
@@ -59,8 +59,8 @@ pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u8) -> Option<Vec
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerboundGameActionTypeMenu {
-    pub a: u8,
-    pub b: u32,
+    pub menu: u8,
+    pub button: u32,
     pub c: Vec<u8>,
 }
 

@@ -4,7 +4,7 @@ use tokio::task::JoinHandle;
 
 use crate::{
     packets::{
-        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, Encodable, GameState, PacketType
+        clientbound::game::{self, ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, Encodable, GameState, PacketType
     }, AppState
 };
 
@@ -12,6 +12,8 @@ use crate::{
 pub struct ClientConnection {
     pub client_id: u32,
     pub recieved_actions: u32,
+    pub last_sdl_tick: u32,
+    pub last_ping: u32,
     pub tx_socket: Sender<(Vec<u8>, SocketAddr)>,
     pub last_packet: SystemTime,
     pub address: SocketAddr,
@@ -35,6 +37,8 @@ impl ClientConnection {
         let mut conn = ClientConnection {
             client_id: connection_id,
             recieved_actions: 0,
+            last_sdl_tick: 0,
+            last_ping: 0,
             tx_socket,
             last_packet: SystemTime::now(),
             address,
@@ -72,8 +76,10 @@ impl ClientConnection {
         let game = ClientboundGamePacket {
             client_id: self.client_id,
             received_actions: self.recieved_actions,
+            last_sdl_tick: self.last_sdl_tick,
             round_number: 1,
             network_tick: state.network_tick(),
+            menu_type: 2,
             game_state: GameState::Intermission,
             ready_status: Some(array::from_fn(|_| false)),
             corporation_money: Some(ClientboundGamePacketCorporationMoney {
@@ -94,11 +100,14 @@ impl ClientConnection {
         let _ = self.tx_sender.send(vec);
     }
 
-    pub async fn handle_packet(&self, packet: PacketType, state: &AppState) {
+    pub async fn handle_packet(&mut self, packet: PacketType, state: &AppState) {
         if let PacketType::ServerboundGamePacket(ref game_packet) = packet {
             let mut event_data = state.events.players.get_mut(&self.client_id).unwrap();
 
             event_data.recieved_events = game_packet.recieved_events as u32;
+            self.recieved_actions += game_packet.actions.len() as u32;
+            self.last_sdl_tick = game_packet.sdl_tick;
+            self.last_ping = game_packet.packet_count_maybe;
 
             for event in game_packet.actions.clone().into_iter() {
                 if let ServerboundGameAction::Chat(ref chat) = event {

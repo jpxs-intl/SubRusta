@@ -207,11 +207,22 @@ async fn main() {
                 if let Some(connection) = app_state.connections.get(&src) {
                     let event_update = Event::UpdatePlayer(EventUpdatePlayer {
                         tick_created: app_state.network_tick(),
-                        a: 18944,
-                        b: -1,
-                        c: 3209,
-                        d: 38,
-                        name: auth_data.name.clone(),
+                        player_id: connection.client_id,
+                        active: true,
+                        gender: 1,
+                        head: 4,
+                        skin: 2,
+                        hair_color: 2,
+                        hair: 6,
+                        eye_color: 0,
+                        human_id: -1,
+                        is_bot: false,
+                        model: 1,
+                        necklace: 0,
+                        suit_color: 0,
+                        team: 17,
+                        tie_color: 0,
+                        name: "Infinity Dev".to_string(),
                     });
 
                     let event_round = Event::UpdatePlayerRound(EventUpdatePlayerRound {
@@ -222,9 +233,9 @@ async fn main() {
                         tick_created: app_state.network_tick(),
                     });
 
+                    //app_state.events.emit_globally_mult(vec![event_update, event_round]);
                     app_state.events.send_chat(0, &format!("{} joined", auth_data.name), -1, 0, &app_state);
-
-                    app_state.events.emit_globally_mult(vec![event_update, event_round]);
+                    //app_state.events.send_chat(0, "IF your reading this. Kil yourself", -1, 0, &app_state);
                 }
             }
 

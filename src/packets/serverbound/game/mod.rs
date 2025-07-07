@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 
 use crate::packets::{
-    buf_reader::AlexBufReader, serverbound::game::actions::{
+    buf_reader::AlexBufReader, serverbound::game::{actions::{
         decode_actions, ServerboundGameAction
-    }, Decodable
+    }, opus::{decode_voice_data, ServerboundGameVoiceData}}, Decodable
 };
 
 pub mod actions;
@@ -42,18 +42,18 @@ pub struct ServerboundGamePacket {
     pub num_actions: u8,         // 8 bits
 
     pub actions: Vec<ServerboundGameAction>,
-    //pub voice_data: ServerboundGameVoiceData,
+    pub voice_data: ServerboundGameVoiceData,
 
-    //pub spectating_human_id: u8, // 8 bits
-    //pub unk: u16,                // 11 bits
-    //pub unk1: u8,                // 8 bits
-    //pub unk2: u32,           // 4 bytes
-    //pub unk3: u32,           // 4 bytes
+    pub spectating_human_id: u8, // 8 bits
+    pub unk: u16,                // 11 bits
+    pub unk1: u8,                // 8 bits
+    pub packet_count_maybe: u32,           // 4 bytes
+    pub sdl_tick: u32,           // 4 bytes
 }
 
 impl Decodable for ServerboundGamePacket {
     fn decode(buf: Vec<u8>, src: SocketAddr, state: &crate::AppState) -> Option<Self> {
-        let mut reader = AlexBufReader::from_buf(buf);
+        let mut reader = AlexBufReader::from_buf(buf.clone());
 
         let round_num = reader.read_u32()?;
         let gear_x = reader.read_special_f32()?;
@@ -79,21 +79,38 @@ impl Decodable for ServerboundGamePacket {
         let camera_z = reader.read_u32()? as f32;
 
         let packet_action_count = reader.boundscheck_read_bits(4)? as u8;
-        let num_actions = reader.boundscheck_read_bits(8)?;
+        let total_actions = reader.boundscheck_read_bits(8)?; // Acked action count that the server has received.
 
-        let actions = decode_actions(&mut reader, packet_action_count)?;
+        // How do we determine new actions? Well, it aint too hard.
+        // We know:
+        //      How many actions WE have recieved
+        //      How many actions the client received ACKS from us for
+        //      How many actions are in the packet
+        // To determine the starting index of new actions, we need to find the first that we dont know about
+        // So we need to see 
 
-        if let Some(mut connection) = state.connections.get_mut(&src) {
-            connection.recieved_actions = num_actions
+        let mut actions = decode_actions(&mut reader, packet_action_count)?;
+
+        if let Some(connection) = state.connections.get_mut(&src) {            
+            let skip_count = connection.recieved_actions.saturating_sub(total_actions);
+
+            if skip_count > 0 {
+                if skip_count >= actions.len() as u32 {
+                    actions.clear();
+                } else {
+                    actions = actions[skip_count as usize..].to_vec()
+                }
+            }
         }
-        //let voice_data = decode_voice_data(&mut reader);
 
-        //let spectating_human_id = reader.boundscheck_read_bits(8);
+        let voice_data = decode_voice_data(&mut reader)?;
 
-        //let unk = reader.boundscheck_read_bits(11);
-        //let unk1 = reader.boundscheck_read_bits(8);
-        //let unk2 = reader.read_u32();
-        //let unk3 = reader.read_u32();
+        let spectating_human_id = reader.boundscheck_read_bits(8)?;
+
+        let unk = reader.boundscheck_read_bits(11)?;
+        let unk1 = reader.boundscheck_read_bits(8)?;
+        let packet_count_maybe = reader.read_u32()?;
+        let sdl_tick = reader.read_u32()?;
 
         Some(Self {
             round_num,
@@ -120,14 +137,14 @@ impl Decodable for ServerboundGamePacket {
             camera_z,
 
             packet_action_count,
-            num_actions: num_actions as u8,
+            num_actions: total_actions as u8,
             actions,
-            //voice_data,
-            //spectating_human_id: spectating_human_id as u8,
-            //unk: unk as u16,
-            //unk1: unk1 as u8,
-            //unk2,
-            //unk3,
+            voice_data,
+            spectating_human_id: spectating_human_id as u8,
+            unk: unk as u16,
+            unk1: unk1 as u8,
+            packet_count_maybe,
+            sdl_tick,
         })
     }
 }
