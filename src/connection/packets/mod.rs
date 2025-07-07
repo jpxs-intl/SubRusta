@@ -43,7 +43,7 @@ pub fn get_sun_time(hour: i32, minute: i32) -> i32 {
     hour_time + minute_time
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GameState {
     Idle = 0,

@@ -1,24 +1,22 @@
 #![feature(try_blocks)]
 
 use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
 use crate::{
-    app_state::{AppState, LobbyState},
+    app_state::{AppState, ChatType, GameManager},
     config::config_main::ConfigMain,
-    connection::{ClientConnection, packets},
-    events::{EventManager, PlayerEventManager},
+    connection::{packets, ClientConnection, events::{EventManager, PlayerEventManager}},
     masterserver::MasterServer,
     packets::{
-        Encodable, PacketType,
         clientbound::{
             initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket,
             server_info::ServerInfo,
-        },
+        }, Encodable, PacketType
     },
     srk_parser::SrkData,
     voice::{PlayerVoice, VoiceManager},
@@ -33,7 +31,6 @@ pub mod app_state;
 pub mod commands;
 pub mod config;
 pub mod connection;
-pub mod events;
 pub mod masterserver;
 pub mod srk_parser;
 pub mod voice;
@@ -63,9 +60,9 @@ async fn main() {
         voices: VoiceManager::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
-        connections: Arc::new(DashMap::new()),
-        auth_data: Arc::new(DashMap::new()),
-        game_state: RwLock::new(LobbyState::default()),
+        connections: DashMap::new(),
+        auth_data: DashMap::new(),
+        game_state: GameManager::default(),
         for_broadcast: RwLock::new(Vec::new()),
     };
 
@@ -108,6 +105,12 @@ async fn main() {
                 && let Some(connection) = app_state.connections.get(&src)
             {
                 connection.kill_thread();
+
+                app_state.events.players.remove(&connection.client_id);
+                app_state.voices.client_voices.remove(&connection.client_id);
+                
+                println!("[SERVER] {} left!", connection.username);
+                app_state.send_chat(ChatType::Announce, &format!("{} left.", connection.username), -1, -1);
 
                 drop(connection);
 

@@ -1,9 +1,9 @@
-use crate::packets::{buf_writer::AlexBufWriter, EncodableEvent};
+use crate::{app_state::ChatType, packets::{buf_writer::AlexBufWriter, EncodableEvent}};
 
 #[derive(Clone)]
 pub struct EventChat {
     pub tick_created: i32,
-    pub message_type: i32,
+    pub chat_type: ChatType,
     pub message: String,
     pub speaker_id: i32,
     pub volume: i32
@@ -18,7 +18,7 @@ impl EncodableEvent for EventChat {
         message.push('\0');
 
         writer.write_bits(message.len() as i32, 6);
-        writer.write_bits(self.message_type, 4);
+        writer.write_bits(self.chat_type as i32, 4);
         writer.write_bits(self.speaker_id, 10);
         writer.write_bits(self.volume, 4);
 

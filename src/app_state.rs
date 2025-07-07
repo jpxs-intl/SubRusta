@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use crate::{
     config::config_main::ConfigMain,
     connection::ClientConnection,
-    events::{
+    connection::events::{
         event_types::{chat::EventChat, Event}, EventManager
     },
     masterserver::MasterServer,
@@ -17,9 +17,19 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct LobbyState {
-    pub ready: [bool; 32],
-    pub state: GameState,
+pub struct GameManager {
+    pub ready: Mutex<[bool; 32]>,
+    pub state: RwLock<GameState>,
+}
+
+#[derive(Clone, Copy)]
+pub enum ChatType {
+    Announce = 0,
+    Chat = 1,
+    ItemSpeak = 2,
+    EliminatorAnnouncement = 3,
+    AdminChat = 4,
+    PrivateMessage = 5
 }
 
 pub struct AppState {
@@ -31,9 +41,9 @@ pub struct AppState {
     pub config: ConfigMain,
     pub events: EventManager,
     pub voices: VoiceManager,
-    pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
-    pub auth_data: Arc<DashMap<u32, MasterServerAuthPacket>>,
-    pub game_state: RwLock<LobbyState>,
+    pub connections: DashMap<SocketAddr, ClientConnection>,
+    pub auth_data: DashMap<u32, MasterServerAuthPacket>,
+    pub game_state: GameManager,
 
     pub for_broadcast: RwLock<Vec<Vec<u8>>>,
 }
@@ -83,7 +93,7 @@ impl AppState {
     }
 
     pub fn game_state(&self) -> GameState {
-        self.game_state.read().unwrap().state.clone()
+        *self.game_state.state.read().unwrap()
     }
 
     pub fn map_name(&self) -> String {
@@ -98,11 +108,11 @@ impl AppState {
         *self.round_number.read().unwrap()
     }
 
-    pub fn send_chat(&self, message_type: i32, message: &str, speaker_id: i32, volume: i32) {
+    pub fn send_chat(&self, chat_type: ChatType, message: &str, speaker_id: i32, volume: i32) {
         let event = Event::Chat(EventChat {
             tick_created: self.network_tick(),
             message: message.to_string(),
-            message_type,
+            chat_type,
             speaker_id,
             volume,
         });

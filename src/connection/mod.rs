@@ -3,14 +3,15 @@ use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    commands::parse_command, connection::menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}, events::event_types::{
+    app_state::ChatType, commands::parse_command, connection::{events::event_types::{
         update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
-    }, packets::{
+    }, menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}}, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
     }, AppState
 };
 
 pub mod menu;
+pub mod events;
 pub mod packets;
 
 #[derive(Debug, Clone)]
@@ -193,9 +194,10 @@ impl ClientConnection {
 
     pub async fn handle_packet(&mut self, packet: PacketType, state: &AppState) {
         if let PacketType::ServerboundGamePacket(ref game_packet) = packet {
-            let mut event_data = state.events.players.get_mut(&self.client_id).unwrap();
+            if let Some(mut ev) = state.events.players.get_mut(&self.client_id) {
+                ev.recieved_events = game_packet.recieved_events as u32;
+            }
 
-            event_data.recieved_events = game_packet.recieved_events as u32;
             self.recieved_actions += game_packet.actions.len() as u32;
             self.last_sdl_tick = game_packet.sdl_tick;
             self.last_ping = game_packet.packet_count_maybe;
@@ -205,13 +207,7 @@ impl ClientConnection {
                     println!("{} [>] {}", self.username, chat.message);
 
                     if !parse_command(self, chat.message.clone(), state) {
-                        state.events.send_chat(
-                            0,
-                            &chat.message,
-                            self.client_id as i32,
-                            chat.volume as i32,
-                            state,
-                        );
+                        state.send_chat(ChatType::Announce, &chat.message, self.client_id as i32, chat.volume as i32);
                     }
                 }
 

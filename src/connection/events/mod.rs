@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 
-use crate::{events::event_types::{chat::EventChat, Event}, AppState};
+use crate::{app_state::ChatType, connection::events::event_types::{chat::EventChat, Event}, AppState};
 
 pub mod event_types;
 
@@ -22,18 +22,6 @@ impl EventManager {
             players: DashMap::new(),
             global_events: DashMap::new()
         }
-    }
-
-    pub fn send_chat(&self, message_type: i32, message: &str, speaker_id: i32, volume: i32, state: &AppState) {
-        let event = Event::Chat(EventChat {
-            tick_created: state.network_tick(),
-            message: message.to_string(),
-            message_type,
-            speaker_id,
-            volume
-        });
-
-        self.emit_globally(event);
     }
 
     pub fn num_global_events(&self) -> u32 {

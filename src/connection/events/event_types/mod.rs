@@ -1,4 +1,4 @@
-use crate::{events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, EncodableEvent}};
+use crate::{connection::events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, EncodableEvent}};
 
 pub mod bullet_hit;
 pub mod update_vehicle_type_color;

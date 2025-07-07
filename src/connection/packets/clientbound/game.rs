@@ -1,4 +1,4 @@
-use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}, voice::PlayerVoice};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -27,19 +27,24 @@ impl Encodable for ClientboundGamePacket {
         writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
-        writer.write_bits(state.game_state() as i32, 4);
 
-        if state.game_state() == GameState::Intermission {
-            for ready in state.game_state.read().unwrap().ready {
+        let gstate = state.game_state();
+
+        writer.write_bits(gstate as i32, 4);
+
+        if gstate == GameState::Intermission {
+            let ready = state.game_state.ready.lock().unwrap();
+
+            for ready in *ready {
                 writer.write_bits(ready as i32, 1);
             }
-        } else if state.game_state() == GameState::Restarting {
+        } else if gstate == GameState::Restarting {
             for i in 0..3 {
                 writer.write_bits(20 * i, 16); // Individual team bonus money
             }
         }
 
-        if state.game_state() == GameState::Intermission || state.game_state() == GameState::Restarting {
+        if gstate == GameState::Intermission || gstate == GameState::Restarting {
             for i in 0..3 {
                 writer.write_bits(10 * i, 16); // Team bonus money
                 writer.write_bits(10 * i, 16); // Versus total team money.
@@ -114,10 +119,11 @@ impl Encodable for ClientboundGamePacket {
         let voices = state.voices.client_voices.iter();
 
         let mut wrote_count = 0;
-        /*for voice in voices {
+        for voice in voices {
             if voice.enabled && wrote_count < 8 {
                 writer.write_bits(1, 1);
                 writer.write_bits(voice.client_id as i32, 8);
+                writer.write_bits(-1, 8);
                 writer.write_bits(-1, 8);
                 
                 for i in 0..4 {
@@ -132,8 +138,8 @@ impl Encodable for ClientboundGamePacket {
 
                 wrote_count += 1;
             }
-        }*/
-        
+        }
+
         for _ in wrote_count..8 {
             writer.write_bits(0, 1); // Voice is active
         }

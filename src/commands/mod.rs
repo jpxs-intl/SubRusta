@@ -1,4 +1,4 @@
-use crate::{app_state::AppState, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}};
+use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
@@ -30,8 +30,8 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
                 _ => state.game_state()
             };
 
-            let mut write = state.game_state.write().unwrap();
-            write.state = new;
+            let mut write = state.game_state.state.write().unwrap();
+            *write = new;
         }
 
         "menu" => {
@@ -61,6 +61,10 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
             };
 
             state.broadcast(event.encode(state));
+        }
+
+        "test" => {
+            state.send_chat(ChatType::PrivateMessage, "It works!", client.client_id as i32, 0);
         }
 
         _ => return false
