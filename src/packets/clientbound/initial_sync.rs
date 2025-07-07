@@ -5,7 +5,6 @@ pub struct ClientboundInitialSyncPacket {
     pub round_number: u32,
     pub weekly_enabled: bool,
     pub weekday: u8,
-    pub map_to_load: String,
     pub sun_angle: u16,
     pub sun_axial_tilt: u16,
     pub versus_movedelay: Option<u8>,
@@ -17,11 +16,11 @@ impl Encodable for ClientboundInitialSyncPacket {
 
         writer.write_byte(0x06);
         writer.write_bytes(&self.round_number.to_le_bytes());
-        writer.write_bits(state.config.gamemode.clone() as i32, 4);
+        writer.write_bits(state.config.gamemode as i32, 4);
         writer.write_bits(self.weekly_enabled as i32, 4);
         writer.write_byte(self.weekday);
 
-        writer.write_string(self.map_to_load.clone());
+        writer.write_string(state.map_name());
 
         writer.write_bytes(&self.sun_angle.to_le_bytes());
         writer.write_bytes(&self.sun_axial_tilt.to_le_bytes());

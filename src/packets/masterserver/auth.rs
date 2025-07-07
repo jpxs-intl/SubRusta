@@ -12,7 +12,7 @@ pub struct MasterServerAuthPacket {
 }
 
 impl Decodable for MasterServerAuthPacket {
-    fn decode(buf: Vec<u8>, src: SocketAddr, _state: &crate::AppState) -> Option<Self> {
+    fn decode(buf: Vec<u8>, _src: SocketAddr, _state: &crate::AppState) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
         let account_id = reader.read_u32()?;

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{packets::{buf_reader::AlexBufReader, clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::ServerboundGamePacket, info_request::ServerboundInfoRequest, join_request::ServerboundJoinRequest}}, AppState};
+use crate::{packets::{buf_writer::AlexBufWriter, clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::ServerboundGamePacket, info_request::ServerboundInfoRequest, join_request::ServerboundJoinRequest}}, AppState};
 
 pub mod serverbound;
 pub mod clientbound;
@@ -11,7 +11,7 @@ pub mod buf_reader;
 pub mod buf_writer;
 pub mod masterserver;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GameMode {
     Driving = 1,
@@ -24,6 +24,18 @@ pub enum GameMode {
     None = 8
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Team {
+    Goldmen = 0,
+    Monsota = 1,
+    OXS = 2,
+    Nexaco = 3,
+    Pentacom = 4,
+
+    Spectator = 17
+}
+
 pub fn get_sun_time(hour: i32, minute: i32) -> i32 {
     let hour_time: i32 = hour.clamp(0, 24) * 216000;
     let minute_time: i32 = minute.clamp(0, 59) * 3600;
@@ -31,10 +43,11 @@ pub fn get_sun_time(hour: i32, minute: i32) -> i32 {
     hour_time + minute_time
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum GameState {
     Idle = 0,
+    #[default]
     Intermission = 1,
     InGame = 2,
     Restarting = 3,
@@ -43,6 +56,10 @@ pub enum GameState {
 
 pub trait Encodable {
     fn encode(&self, state: &AppState) -> Vec<u8>;
+}
+
+pub trait EncodableEvent {
+    fn encode(&self, state: &AppState, writer: &mut AlexBufWriter);
 }
 
 pub trait StatelessEncodable {

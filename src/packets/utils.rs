@@ -6,10 +6,10 @@ pub fn most_significant(value: u8) -> u8 {
     value >> 4
 }
 
-pub fn limited_string(input: &str) -> [u8; 32] {
-    let mut output = [0; 32];
+pub fn limited_string(input: &str, capacity: usize) -> Vec<u8> {
+    let mut output = vec![0; capacity];
     let bytes = input.as_bytes();
-    let len = bytes.len().min(32);
+    let len = bytes.len().min(capacity);
     output[..len].copy_from_slice(&bytes[..len]);
     output
 }

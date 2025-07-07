@@ -3,7 +3,7 @@ use std::{fs::{File, OpenOptions}, path::Path};
 
 use binrw::{BinRead, BinWrite};
 
-use crate::packets::{masterserver::auth::MasterServerAuthPacket, serverbound::join_request::ServerboundJoinRequest};
+use crate::packets::masterserver::auth::MasterServerAuthPacket;
 
 #[derive(BinRead, BinWrite, Clone)]
 #[brw(little)]
@@ -92,7 +92,7 @@ impl SrkData {
     }
 
     pub fn save(&self) {
-        let file = OpenOptions::new().write(true).create(true).open("server.srk");
+        let file = OpenOptions::new().write(true).create(true).truncate(true).open("server.srk");
 
         if let Ok(mut file) = file {
             let res = self.write(&mut file);

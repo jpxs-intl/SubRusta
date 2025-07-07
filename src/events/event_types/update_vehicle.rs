@@ -1,4 +1,4 @@
-use crate::{packets::{buf_writer::AlexBufWriter, Encodable, StatelessEncodable}, world::Vector};
+use crate::{packets::{buf_writer::AlexBufWriter, EncodableEvent, StatelessEncodable}, world::Vector};
 
 #[derive(Clone)]
 pub struct EventUpdateVehicle {
@@ -10,10 +10,8 @@ pub struct EventUpdateVehicle {
     pub normal: Vector
 }
 
-impl Encodable for EventUpdateVehicle {
-    fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
-        let mut writer = AlexBufWriter::new();
-
+impl EncodableEvent for EventUpdateVehicle {
+    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
         writer.write_bits(4, 6);
         writer.write_bits(self.tick_created, 28);
         writer.write_bits(self.vehicle_id, 10);
@@ -21,7 +19,5 @@ impl Encodable for EventUpdateVehicle {
         writer.write_bits(self.part_id, 10);
         writer.write_bytes(&self.pos.encode());
         writer.write_bytes(&self.normal.encode());
-
-        writer.into_vec()
     }
 }

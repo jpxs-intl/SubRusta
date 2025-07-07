@@ -15,7 +15,7 @@ pub struct ServerboundJoinRequest {
 }
 
 impl Decodable for ServerboundJoinRequest {
-    fn decode(buf: Vec<u8>, src: SocketAddr, _state: &AppState) -> Option<Self> {
+    fn decode(buf: Vec<u8>, _src: SocketAddr, _state: &AppState) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
         let version = reader.read_u8()?;

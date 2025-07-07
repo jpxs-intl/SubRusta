@@ -1,19 +1,14 @@
-use std::io::Read;
-
-use crate::packets::{buf_writer::AlexBufWriter, get_sun_time, utils::limited_string, Encodable, GameState};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
     pub client_id: u32,
     pub received_actions: u32,
-    pub round_number: i32,
+    pub round_number: u32,
     pub network_tick: i32,
     pub last_sdl_tick: u32,
-    pub game_state: GameState,
-    pub menu_type: u8,
-
-    // If gameState is Intermission
-    pub ready_status: Option<[bool; 32]>,
+    pub menu_type: MenuTypes,
+    pub money: i32,
 
     // if game_state is Intermission or Restarting
     pub corporation_money: Option<ClientboundGamePacketCorporationMoney>,
@@ -32,22 +27,22 @@ impl Encodable for ClientboundGamePacket {
         writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
-        writer.write_bits((self.game_state.clone() as u8) as i32, 4);
+        writer.write_bits(state.game_state() as i32, 4);
 
-        if self.game_state == GameState::Intermission {
-            for _ in 0..32 {
-                writer.write_bits(0, 1); // Player ready
+        if state.game_state() == GameState::Intermission {
+            for ready in state.game_state.read().unwrap().ready {
+                writer.write_bits(ready as i32, 1);
             }
-        } else if self.game_state == GameState::Restarting {
-            for _ in 0..3 {
-                writer.write_bits(0, 16); // Individual team bonus money
+        } else if state.game_state() == GameState::Restarting {
+            for i in 0..3 {
+                writer.write_bits(20 * i, 16); // Individual team bonus money
             }
         }
 
-        if self.game_state == GameState::Intermission || self.game_state == GameState::Restarting {
-            for _ in 0..3 {
-                writer.write_bits(0, 16); // Team bonus money
-                writer.write_bits(0, 16); // Versus total team money.
+        if state.game_state() == GameState::Intermission || state.game_state() == GameState::Restarting {
+            for i in 0..3 {
+                writer.write_bits(10 * i, 16); // Team bonus money
+                writer.write_bits(10 * i, 16); // Versus total team money.
             }
         }
 
@@ -59,7 +54,7 @@ impl Encodable for ClientboundGamePacket {
             writer.write_bits(0, 6); // Corporation player count, (Goldmen, Monsota, OXS, Nexaco, Pentacom)
         }
 
-        writer.write_bits(1, 8); // Local player ID (Player ID this packet is going to basically)
+        writer.write_bits(self.client_id as i32, 8); // Local player ID (Player ID this packet is going to basically)
         writer.write_bits(-1, 10); // Local human ID (Human ID of the player this packet is going to)
 
         writer.write_bytes(&0u32.to_le_bytes()); // Head vel X
@@ -70,7 +65,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(self.menu_type as i32, 8); // Player menu tab
         writer.write_bits(0, 16);
 
-        writer.write_bytes(&32775u32.to_le_bytes()); // Money
+        writer.write_bytes(&self.money.to_le_bytes()); // Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Money
         writer.write_bytes(&0u32.to_le_bytes()); // Team Budget
         writer.write_bytes(&0u32.to_le_bytes()); // Corporate Rating
@@ -123,14 +118,13 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(state.events.num_global_events() as i32, 16); // Total number of server events
 
         let missing = state.events.get_client_missing_events(self.client_id);
-        
         writer.write_bits(missing.len() as i32, 6); // Packed server event count
 
         if !missing.is_empty() {
             writer.write_bits(missing[0].0 as i32, 16); // starting event id
 
             for event in missing {
-                writer.write_bytes_unaligned(&event.1.encode(state));
+                event.1.encode(state, &mut writer);
             }
         } else {
             writer.write_bits(0, 16);
@@ -138,7 +132,7 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???
         writer.write_bytes(&self.network_tick.to_le_bytes()); // ???
-        writer.write_bytes(&self.last_sdl_tick.to_le_bytes()); // Last client SDK tick
+        writer.write_bytes(&self.last_sdl_tick.to_le_bytes()); // Last client SDL tick
 
         writer.into_vec()
     }

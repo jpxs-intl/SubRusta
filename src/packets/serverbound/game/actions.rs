@@ -1,4 +1,4 @@
-use crate::{packets::buf_reader::AlexBufReader, AppState};
+use crate::packets::buf_reader::AlexBufReader;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerboundGameAction {

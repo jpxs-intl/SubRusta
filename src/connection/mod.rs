@@ -1,19 +1,60 @@
 use crossbeam::channel::{Receiver, Sender};
-use std::{array, net::SocketAddr, sync::Arc, time::SystemTime};
+use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    packets::{
-        clientbound::game::{self, ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::{game::actions::ServerboundGameAction, join_request::ServerboundJoinRequest}, Encodable, GameState, PacketType
+    commands::parse_command, connection::menu::{lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}, events::event_types::{
+        update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
+    }, packets::{
+        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
     }, AppState
 };
+
+pub mod menu;
+
+#[derive(Debug, Clone)]
+pub struct CharacterCustomization {
+    pub gender: i32,
+    pub head: i32,
+    pub skin: i32,
+    pub hair_color: i32,
+    pub hair_style: i32,
+    pub eye_color: i32,
+    pub model: i32,
+    pub necklace: i32,
+    pub suit_color: i32,
+    pub tie_color: i32,
+}
+
+impl Default for CharacterCustomization {
+    fn default() -> Self {
+        Self {
+            gender: 0,
+            head: 4,
+            skin: 2,
+            hair_color: 4,
+            hair_style: 6,
+            eye_color: 6,
+            model: 1,
+            necklace: 0,
+            suit_color: 0,
+            tie_color: 1,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConnection {
     pub client_id: u32,
+    pub human_id: Option<i32>,
     pub recieved_actions: u32,
     pub last_sdl_tick: u32,
     pub last_ping: u32,
+    pub customization: CharacterCustomization,
+    pub team: Team,
+    pub money: i32,
+    pub menu: MenuTypes,
+
     pub tx_socket: Sender<(Vec<u8>, SocketAddr)>,
     pub last_packet: SystemTime,
     pub address: SocketAddr,
@@ -26,7 +67,7 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn from_address(
+    pub fn from_auth(
         address: SocketAddr,
         tx_socket: Sender<(Vec<u8>, SocketAddr)>,
         auth: &MasterServerAuthPacket,
@@ -36,9 +77,15 @@ impl ClientConnection {
 
         let mut conn = ClientConnection {
             client_id: connection_id,
+            human_id: None,
             recieved_actions: 0,
             last_sdl_tick: 0,
             last_ping: 0,
+            customization: CharacterCustomization::default(),
+            team: Team::Spectator,
+            money: 0,
+            menu: MenuTypes::Lobby,
+
             tx_socket,
             last_packet: SystemTime::now(),
             address,
@@ -77,11 +124,11 @@ impl ClientConnection {
             client_id: self.client_id,
             received_actions: self.recieved_actions,
             last_sdl_tick: self.last_sdl_tick,
-            round_number: 1,
+            money: self.money,
+
+            round_number: state.round_number(),
             network_tick: state.network_tick(),
-            menu_type: 2,
-            game_state: GameState::Intermission,
-            ready_status: Some(array::from_fn(|_| false)),
+            menu_type: self.menu,
             corporation_money: Some(ClientboundGamePacketCorporationMoney {
                 corporation_bonus: 0,
                 corporation_versus_money: 0,
@@ -89,6 +136,33 @@ impl ClientConnection {
         };
 
         self.send_data(game.encode(state));
+    }
+
+    pub fn update_player(&self, state: &AppState) {
+        let event_update = Event::UpdatePlayer(EventUpdatePlayer {
+            tick_created: state.network_tick(),
+            client_id: self.client_id,
+            active: true,
+            customization: self.customization.clone(),
+            human_id: self.human_id.unwrap_or(-1),
+            is_bot: false,
+            team: self.team,
+            name: self.username.clone(),
+        });
+
+        state.events.emit_globally(event_update);
+    }
+
+    pub fn update_money(&self, state: &AppState) {
+        let event_update = Event::UpdatePlayerRound(EventUpdatePlayerRound {
+            tick_created: state.network_tick(),
+            client_id: self.client_id,
+            money: self.money,
+            phone_number: self.phone_number,
+            stocks: 0
+        });
+
+        state.events.emit_globally(event_update);
     }
 
     pub fn send_data(&self, data: Vec<u8>) {
@@ -111,13 +185,28 @@ impl ClientConnection {
 
             for event in game_packet.actions.clone().into_iter() {
                 if let ServerboundGameAction::Chat(ref chat) = event {
-                    println!("Got message {:?}", chat.message);
+                    println!("{} [>] {}", self.username, chat.message);
 
-                    state.events.send_chat(0, &chat.message, self.client_id as i32, chat.volume as i32, state);
+                    if !parse_command(self, chat.message.clone(), state) {
+                        state.events.send_chat(
+                            0,
+                            &chat.message,
+                            self.client_id as i32,
+                            chat.volume as i32,
+                            state,
+                        );
+                    }
                 }
 
                 if let ServerboundGameAction::Menu(ref menu) = event {
-                    println!("Got menu {:?}", menu);
+                    let menu_type = menu_from_num(menu.menu);
+
+                    println!("Menu {menu:?} - type {menu_type:?}");
+
+                    match menu_type {
+                        MenuTypes::Lobby => handle_lobby_menu_action(menu.button, self, state),
+                        _ => {}
+                    }
                 }
             }
         }

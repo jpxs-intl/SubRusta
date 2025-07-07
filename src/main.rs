@@ -1,7 +1,6 @@
 #![feature(try_blocks)]
 
 use std::{
-    array,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     thread::sleep,
@@ -9,23 +8,15 @@ use std::{
 };
 
 use crate::{
-    config::config_main::ConfigMain,
-    connection::ClientConnection,
-    events::{
-        event_types::{
-            chat::EventChat, team_door_state::EventTeamDoorState, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
-        }, EventManager, PlayerEventManager
-    },
-    masterserver::MasterServer,
-    packets::{
+    app_state::{AppState, LobbyState}, config::config_main::ConfigMain, connection::ClientConnection, events::{
+        EventManager, PlayerEventManager
+    }, masterserver::MasterServer, packets::{
         clientbound::{
-            game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney},
             initial_sync::ClientboundInitialSyncPacket,
             kick::ClientboundKickPacket,
             server_info::ServerInfo,
-        }, masterserver::auth::MasterServerAuthPacket, Encodable, GameState, PacketType
-    },
-    srk_parser::SrkData,
+        }, Encodable, PacketType
+    }, srk_parser::SrkData
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -40,34 +31,10 @@ pub mod masterserver;
 pub mod packets;
 pub mod srk_parser;
 pub mod world;
+pub mod app_state;
+pub mod commands;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
-
-pub struct AppState {
-    pub network_tick: RwLock<i32>,
-    pub masterserver: MasterServer,
-    pub srk_data: Arc<Mutex<SrkData>>,
-    pub config: ConfigMain,
-    pub events: EventManager,
-    pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
-    pub auth_data: Arc<DashMap<u32, MasterServerAuthPacket>>,
-}
-
-impl AppState {
-    pub fn broadcast(&self, data: Vec<u8>) {
-        let connections = self.connections.iter();
-
-        for val in connections {
-            val.send_data(data.clone());
-        }
-    }
-}
-
-impl AppState {
-    pub fn network_tick(&self) -> i32 {
-        self.network_tick.read().unwrap().clone()
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -84,12 +51,16 @@ async fn main() {
 
     let app_state = AppState {
         network_tick: RwLock::new(0),
+        round_number: RwLock::new(1),
+        map_name: RwLock::new("test2".to_string()),
         masterserver: masterserver.clone(),
         events: EventManager::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: Arc::new(DashMap::new()),
         auth_data: Arc::new(DashMap::new()),
+        game_state: RwLock::new(LobbyState::default()),
+        for_broadcast: RwLock::new(Vec::new()),
     };
 
     let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port))
@@ -167,10 +138,9 @@ async fn main() {
                     );
 
                     let res = ClientboundInitialSyncPacket {
-                        round_number: 1,
+                        round_number: app_state.round_number(),
                         weekly_enabled: false,
                         weekday: 0,
-                        map_to_load: "round".to_string(),
                         sun_angle: 1000,
                         sun_axial_tilt: 1000,
                         versus_movedelay: None,
@@ -184,7 +154,7 @@ async fn main() {
                     if let Some(connection) = app_state.connections.get(&src) {
                         connection.send_data(res.encode(&app_state));
                     } else {
-                        let connection = ClientConnection::from_address(
+                        let connection = ClientConnection::from_auth(
                             src,
                             send_sock.clone(),
                             &auth_data,
@@ -205,37 +175,8 @@ async fn main() {
                 }
 
                 if let Some(connection) = app_state.connections.get(&src) {
-                    let event_update = Event::UpdatePlayer(EventUpdatePlayer {
-                        tick_created: app_state.network_tick(),
-                        player_id: connection.client_id,
-                        active: true,
-                        gender: 1,
-                        head: 4,
-                        skin: 2,
-                        hair_color: 2,
-                        hair: 6,
-                        eye_color: 0,
-                        human_id: -1,
-                        is_bot: false,
-                        model: 1,
-                        necklace: 0,
-                        suit_color: 0,
-                        team: 17,
-                        tie_color: 0,
-                        name: "Infinity Dev".to_string(),
-                    });
-
-                    let event_round = Event::UpdatePlayerRound(EventUpdatePlayerRound {
-                        player_id: connection.client_id,
-                        money: 300,
-                        phone_number: auth_data.phone_number,
-                        stocks: 0,
-                        tick_created: app_state.network_tick(),
-                    });
-
-                    //app_state.events.emit_globally_mult(vec![event_update, event_round]);
-                    app_state.events.send_chat(0, &format!("{} joined", auth_data.name), -1, 0, &app_state);
-                    //app_state.events.send_chat(0, "IF your reading this. Kil yourself", -1, 0, &app_state);
+                    connection.update_money(&app_state);
+                    connection.update_player(&app_state);
                 }
             }
 
@@ -252,6 +193,8 @@ async fn main() {
             for connection in app_state.connections.iter() {
                 connection.send_game_packet(&app_state);
             }
+
+            app_state.do_broadcast();
 
             let mut to_remove = vec![];
             for connection in app_state.connections.iter() {

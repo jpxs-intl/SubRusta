@@ -21,7 +21,7 @@ impl Encodable for ServerInfo {
         writer.write_byte(0x26);
         writer.write_bytes(&self.timestamp.to_le_bytes());
 
-        writer.write_bits(state.config.gamemode.clone() as i32, 4);
+        writer.write_bits(state.config.gamemode as i32, 4);
         writer.write_bits(least_significant(self.current_players) as i32, 4);
         writer.write_bits(most_significant(self.current_players) as i32, 4);
         writer.write_bits(least_significant(state.config.max_players) as i32, 4);

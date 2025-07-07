@@ -1,4 +1,4 @@
-use crate::packets::{buf_writer::AlexBufWriter, Encodable};
+use crate::packets::{buf_writer::AlexBufWriter, EncodableEvent};
 
 #[derive(Clone)]
 pub struct EventUpdatePhone {
@@ -9,10 +9,8 @@ pub struct EventUpdatePhone {
     pub phone_texture: i32
 }
 
-impl Encodable for EventUpdatePhone {
-    fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
-        let mut writer = AlexBufWriter::new();
-
+impl EncodableEvent for EventUpdatePhone {
+    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
         writer.write_bits(6, 6);
         writer.write_bits(self.tick_created, 28);
 
@@ -20,7 +18,5 @@ impl Encodable for EventUpdatePhone {
         writer.write_bits(self.phone_status, 3);
         writer.write_bits(self.display_phone_number, 10);
         writer.write_bits(self.phone_texture, 2);
-
-        writer.into_vec()
     }
 }
