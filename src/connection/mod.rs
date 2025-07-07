@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    commands::parse_command, connection::menu::{lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}, events::event_types::{
+    commands::parse_command, connection::menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}, events::event_types::{
         update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
     }, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub mod menu;
+pub mod packets;
 
 #[derive(Debug, Clone)]
 pub struct CharacterCustomization {
@@ -75,6 +76,12 @@ impl ClientConnection {
     ) -> Self {
         let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
 
+        let username = if auth.account_id == 1_000_002 {
+            "cuckraisefold".to_string()
+        } else {
+            auth.name.clone()
+        };
+
         let mut conn = ClientConnection {
             client_id: connection_id,
             human_id: None,
@@ -89,7 +96,7 @@ impl ClientConnection {
             tx_socket,
             last_packet: SystemTime::now(),
             address,
-            username: auth.name.clone(),
+            username,
             account_id: auth.account_id,
             phone_number: auth.phone_number,
             tx_sender,
@@ -97,10 +104,20 @@ impl ClientConnection {
             tx_handle: Arc::new(None),
         };
 
-        let c = conn.clone();
-        conn.tx_handle = Arc::new(Some(tokio::spawn(async move { c.do_sending() })));
+        conn.start_read_thread();
 
         conn
+    }
+
+    pub fn start_read_thread(&mut self) {
+        self.kill_thread();
+
+        let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
+        self.tx_sender = tx_sender;
+        self.tx_receiver = tx_receiver;
+
+        let c = self.clone();
+        self.tx_handle = Arc::new(Some(tokio::spawn(async move { c.do_sending() })));
     }
 
     pub fn kill_thread(&self) {
@@ -109,7 +126,7 @@ impl ClientConnection {
         }
     }
 
-    fn do_sending(&self) {
+    pub fn do_sending(&self) {
         loop {
             let bytes = self.tx_receiver.recv();
 
@@ -205,6 +222,7 @@ impl ClientConnection {
 
                     match menu_type {
                         MenuTypes::Lobby => handle_lobby_menu_action(menu.button, self, state),
+                        MenuTypes::EnterCity => handle_enter_city_menu_action(menu.button, self, state),
                         _ => {}
                     }
                 }

@@ -54,7 +54,7 @@ impl EventManager {
         if let Some(client) = self.players.get(&client_id) {
             let event_count = self.global_events.len() as u32;
 
-            let missing_count = (event_count - client.recieved_events).min(63);
+            let missing_count = event_count.saturating_sub(client.recieved_events).min(63);
 
             let mut events = vec![];
             let mut index = client.recieved_events;

@@ -9,12 +9,11 @@ use crate::{
     config::config_main::ConfigMain,
     connection::ClientConnection,
     events::{
-        EventManager,
-        event_types::{Event, chat::EventChat},
+        event_types::{chat::EventChat, Event}, EventManager
     },
     masterserver::MasterServer,
-    packets::{GameState, masterserver::auth::MasterServerAuthPacket},
-    srk_parser::SrkData,
+    packets::{masterserver::auth::MasterServerAuthPacket, GameState},
+    srk_parser::SrkData, voice::VoiceManager,
 };
 
 #[derive(Default)]
@@ -31,6 +30,7 @@ pub struct AppState {
     pub srk_data: Arc<Mutex<SrkData>>,
     pub config: ConfigMain,
     pub events: EventManager,
+    pub voices: VoiceManager,
     pub connections: Arc<DashMap<SocketAddr, ClientConnection>>,
     pub auth_data: Arc<DashMap<u32, MasterServerAuthPacket>>,
     pub game_state: RwLock<LobbyState>,
@@ -43,6 +43,29 @@ impl AppState {
         let mut writer = self.for_broadcast.write().unwrap();
 
         writer.push(data);
+    }
+
+    pub fn reparent_connection(&self, src: SocketAddr, dst: SocketAddr) {
+        if self.connections.contains_key(&src) && !self.connections.contains_key(&dst) {
+            let src = self.connections.remove(&src);
+
+            let mut new = src.unwrap().1;
+            new.address = dst;
+
+            new.start_read_thread();
+
+            self.connections.insert(dst, new);
+        }
+    }
+
+    pub fn get_connection_addr_by_rosa_id(&self, account_id: u32) -> Option<SocketAddr> {
+        for conn in self.connections.iter() {
+            if conn.account_id == account_id {
+                return Some(conn.address);
+            }
+        }
+
+        None
     }
 
     pub fn do_broadcast(&self) {

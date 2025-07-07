@@ -1,22 +1,27 @@
 #![feature(try_blocks)]
 
 use std::{
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::{Arc, Mutex, RwLock},
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
 use crate::{
-    app_state::{AppState, LobbyState}, config::config_main::ConfigMain, connection::ClientConnection, events::{
-        EventManager, PlayerEventManager
-    }, masterserver::MasterServer, packets::{
+    app_state::{AppState, LobbyState},
+    config::config_main::ConfigMain,
+    connection::{ClientConnection, packets},
+    events::{EventManager, PlayerEventManager},
+    masterserver::MasterServer,
+    packets::{
+        Encodable, PacketType,
         clientbound::{
-            initial_sync::ClientboundInitialSyncPacket,
-            kick::ClientboundKickPacket,
+            initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket,
             server_info::ServerInfo,
-        }, Encodable, PacketType
-    }, srk_parser::SrkData
+        },
+    },
+    srk_parser::SrkData,
+    voice::{PlayerVoice, VoiceManager},
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -24,15 +29,15 @@ use tokio::net::UdpSocket;
 
 extern crate serde_repr;
 
+pub mod app_state;
+pub mod commands;
 pub mod config;
 pub mod connection;
 pub mod events;
 pub mod masterserver;
-pub mod packets;
 pub mod srk_parser;
+pub mod voice;
 pub mod world;
-pub mod app_state;
-pub mod commands;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 
@@ -55,6 +60,7 @@ async fn main() {
         map_name: RwLock::new("test2".to_string()),
         masterserver: masterserver.clone(),
         events: EventManager::new(),
+        voices: VoiceManager::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: Arc::new(DashMap::new()),
@@ -151,7 +157,15 @@ async fn main() {
                         data.create_account(&auth_data);
                     }
 
-                    if let Some(connection) = app_state.connections.get(&src) {
+                    let prev_src = app_state.get_connection_addr_by_rosa_id(auth_data.account_id);
+
+                    if let Some(prev_src) = prev_src
+                        && let Some(socket) = app_state.connections.get(&prev_src) && prev_src != src
+                    {
+                        drop(socket);
+
+                        app_state.reparent_connection(prev_src, src);
+                    } else if let Some(connection) = app_state.connections.get(&src) {
                         connection.send_data(res.encode(&app_state));
                     } else {
                         let connection = ClientConnection::from_auth(
@@ -170,6 +184,16 @@ async fn main() {
                                 recieved_events: 0,
                             },
                         );
+
+                        app_state.voices.client_voices.insert(
+                            connection.client_id,
+                            PlayerVoice {
+                                client_id: connection.client_id,
+                                enabled: false,
+                                frames: vec![],
+                            },
+                        );
+
                         app_state.connections.insert(src, connection);
                     }
                 }
@@ -201,6 +225,7 @@ async fn main() {
                 if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
                     to_remove.push(connection.address);
                     app_state.events.players.remove(&connection.client_id);
+                    app_state.voices.client_voices.remove(&connection.client_id);
 
                     println!(
                         "[SERVER] {} on address {} disconnected.",

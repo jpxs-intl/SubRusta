@@ -1,10 +1,8 @@
 use std::net::SocketAddr;
 
-use crate::packets::{
-    buf_reader::AlexBufReader, serverbound::game::{actions::{
-        decode_actions, ServerboundGameAction
-    }, opus::{decode_voice_data, ServerboundGameVoiceData}}, Decodable
-};
+use crate::{connection::packets::serverbound::game::{actions::{decode_actions, ServerboundGameAction}, opus::{decode_voice_data, ServerboundGameVoiceData}}, packets::{
+    buf_reader::AlexBufReader, Decodable
+}};
 
 pub mod actions;
 pub mod opus;
@@ -101,9 +99,11 @@ impl Decodable for ServerboundGamePacket {
                     actions = actions[skip_count as usize..].to_vec()
                 }
             }
+        } else {
+            return None;
         }
 
-        let voice_data = decode_voice_data(&mut reader)?;
+        let voice_data = decode_voice_data(&mut reader, state, &state.connections.get(&src).unwrap())?;
 
         let spectating_human_id = reader.boundscheck_read_bits(8)?;
 

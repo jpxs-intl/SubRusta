@@ -1,4 +1,4 @@
-use crate::packets::buf_reader::AlexBufReader;
+use crate::{app_state::AppState, connection::ClientConnection, packets::buf_reader::AlexBufReader};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerboundGameVoiceData {
@@ -14,7 +14,7 @@ pub struct ServerboundGameVoiceFrame {
     pub data: Vec<u8>,
 }
 
-pub fn decode_voice_data(reader: &mut AlexBufReader) -> Option<ServerboundGameVoiceData> {
+pub fn decode_voice_data(reader: &mut AlexBufReader, state: &AppState, connection: &ClientConnection) -> Option<ServerboundGameVoiceData> {
     let mut frames = core::array::from_fn(|_| ServerboundGameVoiceFrame {
         index: 0,
         size: 0,
@@ -31,6 +31,11 @@ pub fn decode_voice_data(reader: &mut AlexBufReader) -> Option<ServerboundGameVo
     }
 
     let is_silenced = reader.boundscheck_read_bits(1)? != 0;
+
+    if let Some(mut voice) = state.voices.client_voices.get_mut(&connection.client_id) {
+        voice.enabled = !is_silenced;
+        voice.frames = frames.clone().to_vec();
+    }
 
     Some(ServerboundGameVoiceData {
         frames,

@@ -15,7 +15,6 @@ pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnect
         1 => Team::Goldmen,
         2 => Team::Monsota,
         3 => Team::OXS,
-        4 => Team::Spectator,
         _ => Team::Spectator
     };
 

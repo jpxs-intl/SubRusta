@@ -1,4 +1,5 @@
 pub mod lobby;
+pub mod enter_city;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuTypes {

@@ -1,4 +1,4 @@
-use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}, voice::PlayerVoice};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -111,7 +111,30 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(3, 2);
         writer.write_bits(1, 2);
 
-        for _ in 0..8 {
+        let voices = state.voices.client_voices.iter();
+
+        let mut wrote_count = 0;
+        /*for voice in voices {
+            if voice.enabled && wrote_count < 8 {
+                writer.write_bits(1, 1);
+                writer.write_bits(voice.client_id as i32, 8);
+                writer.write_bits(-1, 8);
+                
+                for i in 0..4 {
+                    let frame = &voice.frames[i];
+
+                    writer.write_bits(frame.index as i32, 6);
+                    writer.write_bits(frame.size as i32, 11);
+                    writer.write_bits(frame.volume as i32, 2);
+
+                    writer.write_bytes(&frame.data);
+                }
+
+                wrote_count += 1;
+            }
+        }*/
+        
+        for _ in wrote_count..8 {
             writer.write_bits(0, 1); // Voice is active
         }
 

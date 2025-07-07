@@ -1,4 +1,4 @@
-use crate::{app_state::AppState, connection::{menu::menu_from_num, ClientConnection}, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}};
+use crate::{app_state::AppState, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
