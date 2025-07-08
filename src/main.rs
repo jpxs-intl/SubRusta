@@ -8,12 +8,25 @@ use std::{
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{events::{event_types::{update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, EventManager, PlayerEventManager}, packets, ClientConnection}, items::{Item, ItemManager}, masterserver::MasterServer, packets::{
-        clientbound::{
-            initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket,
-            server_info::ServerInfo,
-        }, Encodable, PacketType
-    }, srk_parser::SrkData, voice::{PlayerVoice, VoiceManager}, world::{quaternion::Quaternion, vector::Vector}
+    app_state::{AppState, ChatType, GameManager},
+    config::config_main::ConfigMain,
+    connection::{
+        ClientConnection,
+        events::{
+            EventManager, PlayerEventManager,
+            event_types::{Event, update_vehicle_type_color::EventUpdateVehicleTypeColor},
+        },
+        packets,
+    },
+    items::{Item, ItemManager},
+    masterserver::MasterServer,
+    packets::{
+        Encodable, PacketType,
+        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo},
+    },
+    srk_parser::SrkData,
+    voice::{PlayerVoice, VoiceManager},
+    world::{quaternion::Quaternion, vector::Vector},
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -25,11 +38,11 @@ pub mod app_state;
 pub mod commands;
 pub mod config;
 pub mod connection;
+pub mod items;
 pub mod masterserver;
 pub mod srk_parser;
 pub mod voice;
 pub mod world;
-pub mod items;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 
@@ -62,9 +75,7 @@ async fn main() {
         for_broadcast: RwLock::new(Vec::new()),
     };
 
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port))
-        .await
-        .expect("Failed to bind socket");
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port)).await.expect("Failed to bind socket");
     let recv_sock = Arc::new(socket);
 
     println!("[SERVER] Listening on {}", recv_sock.local_addr().unwrap());
@@ -86,15 +97,12 @@ async fn main() {
 
     loop {
         if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf)
-            && let Some(packet_type) =
-                packets::decode_packet(packet_buf[..size].to_vec().clone(), src, &app_state)
+            && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), src, &app_state)
         {
             if let Some(mut connection) = app_state.connections.get_mut(&src) {
                 connection.last_packet = SystemTime::now();
 
-                connection
-                    .handle_packet(packet_type.clone(), &app_state)
-                    .await;
+                connection.handle_packet(packet_type.clone(), &app_state).await;
             }
 
             if let PacketType::ServerboundLeave = packet_type
@@ -105,7 +113,7 @@ async fn main() {
                 app_state.events.players.remove(&connection.client_id);
                 app_state.voices.client_voices.remove(&connection.client_id);
                 app_state.items.items.remove(&connection.client_id);
-                
+
                 println!("[SERVER] {} left!", connection.username);
                 app_state.send_chat(ChatType::Announce, &format!("{} left.", connection.username), -1, -1);
 
@@ -129,9 +137,7 @@ async fn main() {
                 && let Some(auth_data) = app_state.auth_data.get(&request.account_id)
                 && auth_data.auth_ticket == request.auth_ticket
             {
-                if !app_state.config.server_password.is_empty()
-                    && request.password != app_state.config.server_password
-                {
+                if !app_state.config.server_password.is_empty() && request.password != app_state.config.server_password {
                     let res = ClientboundKickPacket {
                         reason: "You sent an incorrect password, loser.".to_string(),
                     };
@@ -160,7 +166,8 @@ async fn main() {
                     let prev_src = app_state.get_connection_addr_by_rosa_id(auth_data.account_id);
 
                     if let Some(prev_src) = prev_src
-                        && let Some(socket) = app_state.connections.get(&prev_src) && prev_src != src
+                        && let Some(socket) = app_state.connections.get(&prev_src)
+                        && prev_src != src
                     {
                         drop(socket);
 
@@ -168,12 +175,7 @@ async fn main() {
                     } else if let Some(connection) = app_state.connections.get(&src) {
                         connection.send_data(res.encode(&app_state));
                     } else {
-                        let connection = ClientConnection::from_auth(
-                            src,
-                            send_sock.clone(),
-                            &auth_data,
-                            app_state.find_empty_slot_id(),
-                        );
+                        let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, app_state.find_empty_slot_id());
 
                         connection.send_data(res.encode(&app_state));
 
@@ -181,7 +183,7 @@ async fn main() {
                             tick_created: app_state.network_tick(),
                             vehicle_color: 0,
                             vehicle_id: 0,
-                            vehicle_type: 0
+                            vehicle_type: 0,
                         }));
 
                         app_state.events.players.insert(
@@ -201,12 +203,15 @@ async fn main() {
                             },
                         );
 
-                        app_state.items.items.insert(connection.client_id, Item {
-                            item_type: 38,
-                            item_id: connection.client_id,
-                            pos: Vector::zero(),
-                            rot: Quaternion::zero()
-                        });
+                        app_state.items.items.insert(
+                            connection.client_id,
+                            Item {
+                                item_type: 38,
+                                item_id: connection.client_id,
+                                pos: Vector::zero(),
+                                rot: Quaternion::zero(),
+                            },
+                        );
 
                         app_state.connections.insert(src, connection);
                     }
@@ -241,10 +246,7 @@ async fn main() {
                     app_state.events.players.remove(&connection.client_id);
                     app_state.voices.client_voices.remove(&connection.client_id);
 
-                    println!(
-                        "[SERVER] {} on address {} disconnected.",
-                        connection.username, connection.address
-                    );
+                    println!("[SERVER] {} on address {} disconnected.", connection.username, connection.address);
                 }
             }
 
@@ -259,12 +261,7 @@ async fn main() {
     }
 }
 
-pub async fn send_packet_to_socket(
-    socket: &Sender<(Vec<u8>, SocketAddr)>,
-    address: SocketAddr,
-    state: &AppState,
-    packet: &dyn Encodable,
-) {
+pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
     let encoded_packet = packet.encode(state);
 
     let header = b"7DFP";
@@ -272,9 +269,7 @@ pub async fn send_packet_to_socket(
     data.extend_from_slice(header);
     data.extend_from_slice(&encoded_packet[..encoded_packet.len()]);
 
-    socket
-        .send((data, address))
-        .expect("Failed to send packet to channel");
+    socket.send((data, address)).expect("Failed to send packet to channel");
 }
 
 fn make_sender(send_sock: Arc<UdpSocket>) -> Sender<(Vec<u8>, SocketAddr)> {
