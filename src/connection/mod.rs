@@ -3,15 +3,29 @@ use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    app_state::ChatType, commands::parse_command, connection::{events::event_types::{
-        update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
-    }, menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}}, packets::{
-        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
-    }, world::vector::Vector, AppState
+    AppState,
+    app_state::ChatType,
+    commands::parse_command,
+    connection::{
+        events::event_types::{
+            Event, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound,
+        },
+        menu::{
+            MenuTypes, enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action,
+            menu_from_num,
+        },
+    },
+    packets::{
+        Encodable, PacketType, Team,
+        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney},
+        masterserver::auth::MasterServerAuthPacket,
+        serverbound::game::actions::ServerboundGameAction,
+    },
+    world::vector::Vector,
 };
 
-pub mod menu;
 pub mod events;
+pub mod menu;
 pub mod packets;
 
 #[derive(Debug, Clone)]
@@ -49,7 +63,7 @@ impl Default for CharacterCustomization {
 pub struct ClientConnection {
     pub client_id: u32,
     pub human_id: Option<i32>,
-    pub recieved_actions: u32,
+    pub received_actions: u32,
     pub last_sdl_tick: u32,
     pub last_ping: u32,
     pub customization: CharacterCustomization,
@@ -87,7 +101,7 @@ impl ClientConnection {
         let mut conn = ClientConnection {
             client_id: connection_id,
             human_id: None,
-            recieved_actions: 0,
+            received_actions: 0,
             last_sdl_tick: 0,
             last_ping: 0,
             customization: CharacterCustomization::default(),
@@ -142,7 +156,7 @@ impl ClientConnection {
     pub fn send_game_packet(&self, state: &AppState) {
         let game = ClientboundGamePacket {
             client_id: self.client_id,
-            received_actions: self.recieved_actions,
+            received_actions: self.received_actions,
             last_sdl_tick: self.last_sdl_tick,
             money: self.money,
 
@@ -181,7 +195,7 @@ impl ClientConnection {
             client_id: self.client_id,
             money: self.money,
             phone_number: self.phone_number,
-            stocks: 0
+            stocks: 0,
         });
 
         state.events.emit_globally(event_update);
@@ -202,7 +216,8 @@ impl ClientConnection {
                 ev.recieved_events = game_packet.recieved_events;
             }
 
-            self.recieved_actions += game_packet.actions.len() as u32;
+            let new_action_amount = game_packet.actions.len() as u32;
+            self.received_actions = (self.received_actions + new_action_amount) % 64;
             self.last_sdl_tick = game_packet.sdl_tick;
             self.last_ping = game_packet.packet_count_maybe;
             self.camera_pos = game_packet.camera_pos;
@@ -216,7 +231,12 @@ impl ClientConnection {
                     println!("{} [>] {}", self.username, chat.message);
 
                     if !parse_command(self, chat.message.clone(), state) {
-                        state.send_chat(ChatType::Announce, &chat.message, self.client_id as i32, chat.volume as i32);
+                        state.send_chat(
+                            ChatType::Announce,
+                            &chat.message,
+                            self.client_id as i32,
+                            chat.volume as i32,
+                        );
                     }
                 }
 
@@ -227,7 +247,9 @@ impl ClientConnection {
 
                     match menu_type {
                         MenuTypes::Lobby => handle_lobby_menu_action(menu.button, self, state),
-                        MenuTypes::EnterCity => handle_enter_city_menu_action(menu.button, self, state),
+                        MenuTypes::EnterCity => {
+                            handle_enter_city_menu_action(menu.button, self, state)
+                        }
                         _ => {}
                     }
                 }
