@@ -8,12 +8,12 @@ use std::{
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{events::{EventManager, PlayerEventManager}, packets, ClientConnection}, items::{Item, ItemManager}, masterserver::MasterServer, packets::{
+    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{events::{event_types::{update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, EventManager, PlayerEventManager}, packets, ClientConnection}, items::{Item, ItemManager}, masterserver::MasterServer, packets::{
         clientbound::{
             initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket,
             server_info::ServerInfo,
         }, Encodable, PacketType
-    }, srk_parser::SrkData, voice::{PlayerVoice, VoiceManager}, world::Vector
+    }, srk_parser::SrkData, voice::{PlayerVoice, VoiceManager}, world::{quaternion::Quaternion, vector::Vector}
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -177,6 +177,13 @@ async fn main() {
 
                         connection.send_data(res.encode(&app_state));
 
+                        app_state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
+                            tick_created: app_state.network_tick(),
+                            vehicle_color: 0,
+                            vehicle_id: 0,
+                            vehicle_type: 0
+                        }));
+
                         app_state.events.players.insert(
                             connection.client_id,
                             PlayerEventManager {
@@ -197,7 +204,8 @@ async fn main() {
                         app_state.items.items.insert(connection.client_id, Item {
                             item_type: 38,
                             item_id: connection.client_id,
-                            pos: Vector::default()
+                            pos: Vector::zero(),
+                            rot: Quaternion::zero()
                         });
 
                         app_state.connections.insert(src, connection);

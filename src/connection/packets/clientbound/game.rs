@@ -1,4 +1,4 @@
-use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}, world::Vector};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, GameState, WriterEncodable}, world::{quaternion::Quaternion, vector::Vector}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -186,6 +186,34 @@ impl Encodable for ClientboundGamePacket {
         */
 
         writer.write_bits(0, 8); // Vehicle Count
+        
+        // BEGIN VEHICLE
+        /*writer.write_bits(0, 10);
+        writer.write_bits(0, 2);
+        writer.write_bits(0, 10);
+
+        writer.write_bits(0, 8);
+
+        self.follow_pos.encode_delta(&mut writer);
+
+        let rot = Quaternion::new(0.0, 0.0, 0.0, 1.0);
+        // WTF do the w's do?
+        writer.write_bits(rot.w as i32, 2); 
+
+        writer.write_delta_rot(0, rot.y as i32, false, 14); // Pitch
+        writer.write_delta_rot(0, rot.z as i32, false, 14); // Roll
+        writer.write_delta_rot(0, rot.x as i32, false, 14); // Yaw
+
+        writer.write_delta_rot(0, 0, false, 9);
+
+        for _ in 0..4 {
+            writer.write_delta_pos(0, 0, false, 8);
+            writer.write_delta_rot(0, 0, false, 9);
+            writer.write_delta_pos(0, 0, false, 8);
+        }
+
+        writer.write_bits(0, 13);*/
+        // ----------
 
         writer.write_bits(0, 8);
         writer.write_bits(0, 10); // Num of cars

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crate::{connection::packets::serverbound::game::{actions::{decode_actions, ServerboundGameAction}, opus::{decode_voice_data, ServerboundGameVoiceData}}, packets::{
     buf_reader::AlexBufReader, Decodable
-}, world::Vector};
+}, world::vector::Vector};
 
 pub mod actions;
 pub mod opus;

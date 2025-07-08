@@ -7,7 +7,7 @@ use crate::{
         update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
     }, menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}}, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
-    }, world::Vector, AppState
+    }, world::vector::Vector, AppState
 };
 
 pub mod menu;

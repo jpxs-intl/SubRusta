@@ -58,7 +58,7 @@ pub trait Encodable {
     fn encode(&self, state: &AppState) -> Vec<u8>;
 }
 
-pub trait EncodableEvent {
+pub trait WriterEncodable {
     fn encode(&self, state: &AppState, writer: &mut AlexBufWriter);
 }
 

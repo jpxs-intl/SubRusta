@@ -1,4 +1,4 @@
-use crate::packets::{buf_writer::AlexBufWriter, EncodableEvent};
+use crate::packets::{buf_writer::AlexBufWriter, WriterEncodable};
 
 #[derive(Clone)]
 pub struct EventUpdateVehicleTypeColor {
@@ -8,7 +8,7 @@ pub struct EventUpdateVehicleTypeColor {
     pub vehicle_color: i32
 }
 
-impl EncodableEvent for EventUpdateVehicleTypeColor {
+impl WriterEncodable for EventUpdateVehicleTypeColor {
     fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
         writer.write_bits(3, 6);
         writer.write_bits(self.tick_created, 28);

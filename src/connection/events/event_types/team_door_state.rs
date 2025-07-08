@@ -1,4 +1,4 @@
-use crate::packets::{buf_writer::AlexBufWriter, EncodableEvent};
+use crate::packets::{buf_writer::AlexBufWriter, WriterEncodable};
 
 #[derive(Clone)]
 pub struct EventTeamDoorState {
@@ -7,7 +7,7 @@ pub struct EventTeamDoorState {
     pub door_open: bool
 }
 
-impl EncodableEvent for EventTeamDoorState {
+impl WriterEncodable for EventTeamDoorState {
     fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
         writer.write_bits(10, 6);
         writer.write_bits(self.tick_created, 28);
