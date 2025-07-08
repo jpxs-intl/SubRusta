@@ -1,8 +1,13 @@
 use std::net::SocketAddr;
 
-use crate::{connection::packets::serverbound::game::{actions::{decode_actions, ServerboundGameAction}, opus::{decode_voice_data, ServerboundGameVoiceData}}, packets::{
-    buf_reader::AlexBufReader, Decodable
-}, world::vector::Vector};
+use crate::{
+    connection::packets::serverbound::game::{
+        actions::{ServerboundGameAction, decode_actions},
+        opus::{ServerboundGameVoiceData, decode_voice_data},
+    },
+    packets::{Decodable, buf_reader::AlexBufReader},
+    world::vector::Vector,
+};
 
 pub mod actions;
 pub mod opus;
@@ -35,7 +40,7 @@ pub struct ServerboundGamePacket {
     pub camera_pos: Vector,
 
     pub packet_action_count: u8, // 4 bits
-    pub total_actions: u8,         // 8 bits
+    pub total_actions: u8,       // 8 bits
 
     pub actions: Vec<ServerboundGameAction>,
     pub voice_data: ServerboundGameVoiceData,
@@ -43,7 +48,7 @@ pub struct ServerboundGamePacket {
     pub spectating_human_id: u8, // 8 bits
     pub unk: u16,                // 11 bits
     pub unk1: u8,                // 8 bits
-    pub packet_count_maybe: u32,           // 4 bytes
+    pub packet_count_maybe: u32, // 4 bytes
     pub sdl_tick: u32,           // 4 bytes
 }
 
@@ -74,7 +79,7 @@ impl Decodable for ServerboundGamePacket {
         let camera_pos = Vector {
             x: reader.read_f32()?,
             y: reader.read_f32()?,
-            z: reader.read_f32()?
+            z: reader.read_f32()?,
         };
 
         let packet_action_count = reader.read_bits(4)?;
@@ -90,12 +95,12 @@ impl Decodable for ServerboundGamePacket {
         //      How many actions the client received ACKS from us for
         //      How many actions are in the packet
         // To determine the starting index of new actions, we need to find the first that we dont know about
-        // So we need to see 
+        // So we need to see
 
         let mut actions = decode_actions(&mut reader, packet_action_count)?;
 
-        if let Some(connection) = state.connections.get_mut(&src) {            
-            let skip_count = connection.recieved_actions.saturating_sub(total_actions);
+        if let Some(connection) = state.connections.get_mut(&src) {
+            let skip_count = connection.received_actions.saturating_sub(total_actions);
 
             if skip_count > 0 {
                 if skip_count >= actions.len() as u32 {
@@ -108,7 +113,8 @@ impl Decodable for ServerboundGamePacket {
             return None;
         }
 
-        let voice_data = decode_voice_data(&mut reader, state, &state.connections.get(&src).unwrap())?;
+        let voice_data =
+            decode_voice_data(&mut reader, state, &state.connections.get(&src).unwrap())?;
 
         let spectating_human_id = reader.boundscheck_read_bits(8)?;
 
