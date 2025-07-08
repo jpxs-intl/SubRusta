@@ -18,12 +18,14 @@ jobs:
       - name: Install Nightly
         run: rustup default nightly
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --all-features && rustup component add clippy
   build:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install Nightly
+      run: rustup default nightly
     - name: Build
       run: cargo build --verbose
     - name: Run tests
