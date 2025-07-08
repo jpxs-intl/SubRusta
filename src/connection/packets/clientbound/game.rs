@@ -1,4 +1,4 @@
-use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, EncodableEvent, GameState}, world::Vector};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -9,6 +9,8 @@ pub struct ClientboundGamePacket {
     pub last_sdl_tick: u32,
     pub menu_type: MenuTypes,
     pub money: i32,
+
+    pub follow_pos: Vector,
 
     // if game_state is Intermission or Restarting
     pub corporation_money: Option<ClientboundGamePacketCorporationMoney>,
@@ -78,6 +80,7 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bits(0, 16); // Player spawn timer
         writer.write_bits(self.received_actions as i32, 8); // Player number of actions
+
         writer.write_bits(0, 10); // Player human oldHealth
         writer.write_bits(0, 6); // Always 0 (thanks alex)
         writer.write_bits(0, 8); // Always 0 (thanks alex)
@@ -96,15 +99,93 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(0, 1); // Delta compression debug mode (adds an extra flag bit for each signed delta, which returns 0 early.)
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Sent object packets
-        writer.write_bits(0, 11); // Packed object count
+
+        writer.write_bits(state.items.items.len() as i32 - 1, 11); // Packed object count
         writer.write_bits(0, 11); // Packed object offset
+
+
+        for item in state.items.items.iter() {
+        // PACKED OBJECT HEADER
+        //writer.write_bits(0, 10);
+        //writer.write_bits(0, 2);
+        //writer.write_bits(1, 3);
+        //writer.write_bits(self.client_id as i32 + 1, 10);
+        //writer.write_bits(0, 16);
+        // ----------
+            if item.item_id == self.client_id {
+                continue;
+            }
+
+            item.encode_obj_header(&mut writer);
+        }
 
         writer.write_bits(0, 8); // Text count
         writer.write_bits(0, 8); // Text offset
         
-        // For each enabled or just-now enabled unpack slot bits
+        for item in state.items.items.iter() {
+            if item.item_id == self.client_id {
+                continue;
+            }
 
-        writer.write_bits(0, 8); // Object count
+            item.encode_obj(&mut writer);
+        }
+
+        /*
+        // OBJECT PACKING DATA
+        writer.write_bits(1, 1); // Update flag (yes)
+        writer.write_bits(1, 1); // Item flag
+
+        // IF THE ABOVE IS ONE
+            writer.write_bits(self.client_id as i32 + 1, 8);
+            writer.write_bits(-1, 10);
+            writer.write_bits(-1, 10);
+            writer.write_bits(0, 4);
+
+            writer.write_bits(0, 8);
+
+            // Pos data?
+            /*writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 28);
+            
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 28);
+
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 28);*/
+
+            let x = (self.follow_pos.x + 4096.0) * 4096.0;
+            let y = (self.follow_pos.y) * 4096.0;
+            let z = (self.follow_pos.z + 4096.0) * 4096.0;
+
+            writer.write_delta_pos(0, x as i32, false, 28);
+            writer.write_delta_pos(0, y as i32, false, 28);
+            writer.write_delta_pos(0, z as i32, false, 28);
+            // -----------
+
+            writer.write_bits(1, 2);
+
+            /*writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 14);
+
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 14);
+            
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 1);
+            writer.write_bits(1, 14);*/
+
+            writer.write_delta_rot(0, 0, 14);
+            writer.write_delta_rot(0, 0, 14);
+            writer.write_delta_rot(0, 0, 14);
+        // -----------
+        */
+
+        writer.write_bits(0, 8); // Vehicle Count
 
         writer.write_bits(0, 8);
         writer.write_bits(0, 10); // Num of cars
@@ -152,8 +233,8 @@ impl Encodable for ClientboundGamePacket {
         if !missing.is_empty() {
             writer.write_bits(missing[0].0 as i32, 16); // starting event id
 
-            for event in missing {
-                event.1.encode(state, &mut writer);
+            for (_, event) in missing {
+                event.encode(state, &mut writer);
             }
         } else {
             writer.write_bits(0, 16);

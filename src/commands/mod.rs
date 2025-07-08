@@ -63,8 +63,30 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
             state.broadcast(event.encode(state));
         }
 
-        "test" => {
-            state.send_chat(ChatType::PrivateMessage, "It works!", client.client_id as i32, 0);
+        "campos" => {
+            state.send_chat(ChatType::PrivateMessage, &format!("{:?}", client.camera_pos), client.client_id as i32, 0);
+        }
+
+        "itemtype" => {
+            let mut typ = args.first().unwrap_or(&"45".to_string()).parse::<u32>().unwrap_or(45);
+
+            if typ == 39 || typ == 18 || typ == 26 || !(0..=45).contains(&typ) {
+                typ = 45
+            }
+
+            for mut item in state.items.items.iter_mut() {
+                item.item_type = typ;
+            }
+        }
+
+        "debugplayer" => {
+            println!("Con {client:?}");
+
+            if let Some(event) = state.events.players.get(&client.client_id) {
+                println!("Eve {:?}", *event);
+            }
+
+            state.send_chat(ChatType::PrivateMessage, "Printed player struct to terminal.", client.client_id as i32, 0);
         }
 
         _ => return false

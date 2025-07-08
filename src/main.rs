@@ -8,18 +8,12 @@ use std::{
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager},
-    config::config_main::ConfigMain,
-    connection::{packets, ClientConnection, events::{EventManager, PlayerEventManager}},
-    masterserver::MasterServer,
-    packets::{
+    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{events::{EventManager, PlayerEventManager}, packets, ClientConnection}, items::{Item, ItemManager}, masterserver::MasterServer, packets::{
         clientbound::{
             initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket,
             server_info::ServerInfo,
         }, Encodable, PacketType
-    },
-    srk_parser::SrkData,
-    voice::{PlayerVoice, VoiceManager},
+    }, srk_parser::SrkData, voice::{PlayerVoice, VoiceManager}, world::Vector
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -35,6 +29,7 @@ pub mod masterserver;
 pub mod srk_parser;
 pub mod voice;
 pub mod world;
+pub mod items;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 
@@ -58,6 +53,7 @@ async fn main() {
         masterserver: masterserver.clone(),
         events: EventManager::new(),
         voices: VoiceManager::new(),
+        items: ItemManager::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: DashMap::new(),
@@ -108,6 +104,7 @@ async fn main() {
 
                 app_state.events.players.remove(&connection.client_id);
                 app_state.voices.client_voices.remove(&connection.client_id);
+                app_state.items.items.remove(&connection.client_id);
                 
                 println!("[SERVER] {} left!", connection.username);
                 app_state.send_chat(ChatType::Announce, &format!("{} left.", connection.username), -1, -1);
@@ -175,7 +172,7 @@ async fn main() {
                             src,
                             send_sock.clone(),
                             &auth_data,
-                            app_state.connections.len() as u32,
+                            app_state.find_empty_slot_id(),
                         );
 
                         connection.send_data(res.encode(&app_state));
@@ -196,6 +193,12 @@ async fn main() {
                                 frames: vec![],
                             },
                         );
+
+                        app_state.items.items.insert(connection.client_id, Item {
+                            item_type: 38,
+                            item_id: connection.client_id,
+                            pos: Vector::default()
+                        });
 
                         app_state.connections.insert(src, connection);
                     }

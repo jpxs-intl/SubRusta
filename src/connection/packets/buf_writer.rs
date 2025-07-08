@@ -19,6 +19,55 @@ impl AlexBufWriter {
         }
     }
 
+    pub fn write_delta_pos(&mut self, last: i32, current: i32, use_delta: bool, size: u32) {
+        let delta = last - current;
+
+        if !use_delta {
+            self.write_bits(1, 1);
+            self.write_bits(1, 1);
+
+            self.write_bits(current, size);
+
+            return;
+        }
+
+        if delta + 8 > 15 {
+            if delta + 256 > 511 {
+                self.write_bits(1, 1);
+                self.write_bits(1, 1);
+
+                self.write_bits(current, size);
+            } else {
+                self.write_bits(1, 1);
+                self.write_bits(0, 1);
+
+                self.write_bits(delta, 9);
+            }
+        } else {
+            self.write_bits(0, 1);
+            self.write_bits(delta, 4);
+        }
+    }
+
+    pub fn write_delta_rot(&mut self, last: i32, current: i32, size: u32) {
+        let delta = last - current;
+
+        if !(-8..8).contains(&delta) {
+            if !(-128..128).contains(&delta) {
+                self.write_bits(1, 1);
+                self.write_bits(1, 1);
+                self.write_bits(current, size);
+            } else {
+                self.write_bits(1, 1);
+                self.write_bits(0, 1);
+                self.write_bits(delta, 8);
+            }
+        } else {
+            self.write_bits(0, 1);
+            self.write_bits(delta, 4);
+        }
+    }
+
     pub fn write_bits(&mut self, value: i32, bit_count: u32) {
         if bit_count == 0 || bit_count > 32 {
             return;
@@ -47,7 +96,7 @@ impl AlexBufWriter {
 
             // Extract the bits to write to this byte
             let bits_for_this_byte = data_to_write & ((1i32 << bits_to_write) - 1);
-            
+
             // Write the bits to the current byte
             self.buf[byte_index] |= (bits_for_this_byte as u8) << bit_offset_in_byte;
 
@@ -65,7 +114,7 @@ impl AlexBufWriter {
         let bytes = string.as_bytes();
         let len = bytes.len().min(32);
         output[..len].copy_from_slice(&bytes[..len]);
-        
+
         self.write_bytes(&output);
     }
 

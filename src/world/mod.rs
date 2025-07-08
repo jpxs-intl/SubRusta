@@ -1,6 +1,6 @@
 use crate::packets::{buf_writer::AlexBufWriter, StatelessEncodable};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,

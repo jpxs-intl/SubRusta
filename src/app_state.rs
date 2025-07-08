@@ -6,14 +6,9 @@ use std::{
 use dashmap::DashMap;
 
 use crate::{
-    config::config_main::ConfigMain,
-    connection::ClientConnection,
-    connection::events::{
+    config::config_main::ConfigMain, connection::{events::{
         event_types::{chat::EventChat, Event}, EventManager
-    },
-    masterserver::MasterServer,
-    packets::{masterserver::auth::MasterServerAuthPacket, GameState},
-    srk_parser::SrkData, voice::VoiceManager,
+    }, ClientConnection}, items::ItemManager, masterserver::MasterServer, packets::{masterserver::auth::MasterServerAuthPacket, GameState}, srk_parser::SrkData, voice::VoiceManager
 };
 
 #[derive(Default)]
@@ -29,7 +24,7 @@ pub enum ChatType {
     ItemSpeak = 2,
     EliminatorAnnouncement = 3,
     AdminChat = 4,
-    PrivateMessage = 5
+    PrivateMessage = 6
 }
 
 pub struct AppState {
@@ -41,6 +36,7 @@ pub struct AppState {
     pub config: ConfigMain,
     pub events: EventManager,
     pub voices: VoiceManager,
+    pub items: ItemManager,
     pub connections: DashMap<SocketAddr, ClientConnection>,
     pub auth_data: DashMap<u32, MasterServerAuthPacket>,
     pub game_state: GameManager,
@@ -53,6 +49,16 @@ impl AppState {
         let mut writer = self.for_broadcast.write().unwrap();
 
         writer.push(data);
+    }
+
+    pub fn find_empty_slot_id(&self) -> u32 {
+        for i in 0..64 {
+            if !self.events.players.contains_key(&i) {
+                return i;
+            }
+        }
+
+        0
     }
 
     pub fn reparent_connection(&self, src: SocketAddr, dst: SocketAddr) {

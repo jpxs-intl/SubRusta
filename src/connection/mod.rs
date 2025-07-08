@@ -7,7 +7,7 @@ use crate::{
         update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event
     }, menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes}}, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
-    }, AppState
+    }, world::Vector, AppState
 };
 
 pub mod menu;
@@ -56,6 +56,7 @@ pub struct ClientConnection {
     pub team: Team,
     pub money: i32,
     pub menu: MenuTypes,
+    pub camera_pos: Vector,
 
     pub tx_socket: Sender<(Vec<u8>, SocketAddr)>,
     pub last_packet: SystemTime,
@@ -93,6 +94,7 @@ impl ClientConnection {
             team: Team::Spectator,
             money: 0,
             menu: MenuTypes::Lobby,
+            camera_pos: Vector::default(),
 
             tx_socket,
             last_packet: SystemTime::now(),
@@ -143,6 +145,8 @@ impl ClientConnection {
             received_actions: self.recieved_actions,
             last_sdl_tick: self.last_sdl_tick,
             money: self.money,
+
+            follow_pos: self.camera_pos,
 
             round_number: state.round_number(),
             network_tick: state.network_tick(),
@@ -195,12 +199,17 @@ impl ClientConnection {
     pub async fn handle_packet(&mut self, packet: PacketType, state: &AppState) {
         if let PacketType::ServerboundGamePacket(ref game_packet) = packet {
             if let Some(mut ev) = state.events.players.get_mut(&self.client_id) {
-                ev.recieved_events = game_packet.recieved_events as u32;
+                ev.recieved_events = game_packet.recieved_events;
             }
 
             self.recieved_actions += game_packet.actions.len() as u32;
             self.last_sdl_tick = game_packet.sdl_tick;
             self.last_ping = game_packet.packet_count_maybe;
+            self.camera_pos = game_packet.camera_pos;
+
+            if let Some(mut item) = state.items.items.get_mut(&self.client_id) {
+                item.pos = self.camera_pos;
+            }
 
             for event in game_packet.actions.clone().into_iter() {
                 if let ServerboundGameAction::Chat(ref chat) = event {

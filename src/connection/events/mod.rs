@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 
-use crate::{app_state::ChatType, connection::events::event_types::{chat::EventChat, Event}, AppState};
+use crate::connection::events::event_types::Event;
 
 pub mod event_types;
 
@@ -10,7 +10,7 @@ pub struct EventManager {
     pub global_events: DashMap<u32, Event>
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PlayerEventManager {
     pub player_id: u32,
     pub recieved_events: u32

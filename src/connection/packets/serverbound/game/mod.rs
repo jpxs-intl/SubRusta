@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crate::{connection::packets::serverbound::game::{actions::{decode_actions, ServerboundGameAction}, opus::{decode_voice_data, ServerboundGameVoiceData}}, packets::{
     buf_reader::AlexBufReader, Decodable
-}};
+}, world::Vector};
 
 pub mod actions;
 pub mod opus;
@@ -28,16 +28,14 @@ pub struct ServerboundGamePacket {
     pub input_flags: u32,
     pub input_type: u8,
     pub zoom_level: u8, // 4 bits
-    pub recieved_events: u16,
+    pub recieved_events: u32,
 
     // Go to next byte if in the middle of one from current written bits
     pub num_sent_objects: u32,
-    pub camera_x: f32,
-    pub camera_y: f32,
-    pub camera_z: f32,
+    pub camera_pos: Vector,
 
     pub packet_action_count: u8, // 4 bits
-    pub num_actions: u8,         // 8 bits
+    pub total_actions: u8,         // 8 bits
 
     pub actions: Vec<ServerboundGameAction>,
     pub voice_data: ServerboundGameVoiceData,
@@ -69,15 +67,22 @@ impl Decodable for ServerboundGamePacket {
         let input_flags = reader.read_u32()?;
         let input_type = reader.boundscheck_read_bits(8)? as u8;
         let zoom_level = reader.boundscheck_read_bits(4)? as u8;
-        let recieved_events = reader.boundscheck_read_bits(16)? as u16;
+        let recieved_events = reader.boundscheck_read_bits(16)?;
 
         let num_sent_objects = reader.read_u32()?;
-        let camera_x = reader.read_u32()? as f32;
-        let camera_y = reader.read_u32()? as f32;
-        let camera_z = reader.read_u32()? as f32;
 
-        let packet_action_count = reader.boundscheck_read_bits(4)? as u8;
-        let total_actions = reader.boundscheck_read_bits(8)?; // Acked action count that the server has received.
+        let camera_pos = Vector {
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?
+        };
+
+        let packet_action_count = reader.read_bits(4)?;
+        let mut total_actions = reader.read_bits(8)?; // Acked action count that the server has received.
+
+        if total_actions >= 127 {
+            total_actions = 0;
+        }
 
         // How do we determine new actions? Well, it aint too hard.
         // We know:
@@ -132,12 +137,10 @@ impl Decodable for ServerboundGamePacket {
             recieved_events,
 
             num_sent_objects,
-            camera_x,
-            camera_y,
-            camera_z,
+            camera_pos,
 
-            packet_action_count,
-            num_actions: total_actions as u8,
+            packet_action_count: packet_action_count as u8,
+            total_actions: total_actions as u8,
             actions,
             voice_data,
             spectating_human_id: spectating_human_id as u8,

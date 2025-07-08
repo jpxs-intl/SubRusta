@@ -50,6 +50,16 @@ impl AlexBufReader {
         Some(u32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for u32")))
     }
 
+    pub fn read_f32(&mut self) -> Option<f32> {
+        if self.pos + 4 > self.buf.len() {
+            return None;
+        }
+
+        let bytes = self.read_bytes(4, 1)?;
+
+        Some(f32::from_le_bytes(bytes.try_into().expect("Slice with incorrect length for f32")))
+    }
+
     pub fn read_bytes(&mut self, size: usize, count: usize) -> Option<Vec<u8>> {
         if self.pos > 65535 {
             return None;

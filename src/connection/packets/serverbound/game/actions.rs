@@ -10,7 +10,7 @@ pub enum ServerboundGameAction {
     Unknown
 }
 
-pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u8) -> Option<Vec<ServerboundGameAction>> {
+pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u32) -> Option<Vec<ServerboundGameAction>> {
     let mut actions = Vec::with_capacity(num_actions as usize);
 
     for _ in 0..num_actions {
@@ -24,8 +24,15 @@ pub fn decode_actions(reader: &mut AlexBufReader, num_actions: u8) -> Option<Vec
             }),
             1 => {
                 let len = reader.boundscheck_read_bits(6)? as usize;
+
+                let message = if len > 0 {
+                    reader.read_string(len)?
+                } else {
+                    "".to_string()
+                };
+
                 ServerboundGameAction::Chat(ServerboundGameActionTypeChat {
-                    message: reader.read_string(len)?,
+                    message,
                     volume: reader.boundscheck_read_bits(4)? as u8,
                 })
             }
