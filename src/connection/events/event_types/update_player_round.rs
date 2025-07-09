@@ -1,6 +1,6 @@
 use crate::packets::{buf_writer::AlexBufWriter, WriterEncodable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventUpdatePlayerRound {
     pub tick_created: i32,
     pub client_id: u32,

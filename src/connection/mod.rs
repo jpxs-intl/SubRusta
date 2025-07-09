@@ -4,7 +4,7 @@ use tokio::task::JoinHandle;
 
 use crate::{
     app_state::ChatType, commands::parse_command, connection::{
-        events::{event_types::{update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, PlayerEventManager},
+        events::{event_types::{update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event}, PlayerEventManager},
         menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes},
     }, items::Item, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
@@ -109,13 +109,6 @@ impl ClientConnection {
     }
 
     pub fn handle_join(&self, state: &AppState) {
-        state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
-            tick_created: state.network_tick(),
-            vehicle_color: 0,
-            vehicle_id: 0,
-            vehicle_type: 0,
-        }));
-
         state.events.players.insert(
             self.client_id,
             PlayerEventManager {

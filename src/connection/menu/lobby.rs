@@ -1,4 +1,4 @@
-use crate::{app_state::AppState, connection::ClientConnection, packets::Team};
+use crate::{app_state::AppState, connection::{menu::MenuTypes, ClientConnection}, packets::Team};
 
 pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnection, state: &AppState) {
     {
@@ -6,6 +6,10 @@ pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnect
 
         if menu_button == 5 {
             ready[connection.client_id as usize] = !ready[connection.client_id as usize];
+
+            if ready[connection.client_id as usize] {
+                connection.menu = MenuTypes::Empty
+            }
 
             return;
         }

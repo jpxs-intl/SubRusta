@@ -1,6 +1,6 @@
 use crate::{app_state::ChatType, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventChat {
     pub tick_created: i32,
     pub chat_type: ChatType,

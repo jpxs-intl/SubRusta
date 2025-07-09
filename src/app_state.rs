@@ -17,7 +17,7 @@ pub struct GameManager {
     pub state: RwLock<GameState>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ChatType {
     Announce = 0,
     Chat = 1,

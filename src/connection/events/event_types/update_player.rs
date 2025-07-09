@@ -1,6 +1,6 @@
 use crate::{connection::CharacterCustomization, packets::{buf_writer::AlexBufWriter, utils::limited_string, WriterEncodable, Team}};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventUpdatePlayer {
     pub tick_created: i32,
     pub client_id: u32,

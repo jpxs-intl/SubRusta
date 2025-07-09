@@ -1,6 +1,6 @@
 use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventBulletHit {
     pub tick_created: i32,
     pub pos: Vector,

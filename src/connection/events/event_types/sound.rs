@@ -1,6 +1,6 @@
 use crate::{connection::packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SoundType {
     CarEngine = 8,
     TireDrift = 10,
@@ -42,7 +42,7 @@ pub enum SoundType {
     NineMMFire1 = 95
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct EventSound {
     pub tick_created: i32,
     pub sound_type: SoundType,

@@ -10,7 +10,7 @@ pub mod update_player_round;
 pub mod chat;
 pub mod sound;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Event {
     BulletHit(EventBulletHit),
     UpdateVehicleTypeColor(EventUpdateVehicleTypeColor),

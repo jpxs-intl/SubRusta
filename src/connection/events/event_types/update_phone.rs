@@ -1,6 +1,6 @@
 use crate::packets::{buf_writer::AlexBufWriter, WriterEncodable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventUpdatePhone {
     pub tick_created: i32,
     pub item_id: i32,

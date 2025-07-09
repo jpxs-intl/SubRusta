@@ -2,7 +2,6 @@
 #![feature(async_trait_bounds)]
 
 use std::{
-    f32::consts::PI,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     time::SystemTime,
@@ -10,8 +9,8 @@ use std::{
 
 use crate::{
     app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
-        events::
-            EventManager
+        events::{event_types::{update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, 
+            EventManager}
         , packets::{self}, ClientConnection
     }, items::ItemManager, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
@@ -52,7 +51,7 @@ async fn main() {
     let srk_data = SrkData::read_from_file();
 
     let state = AppState {
-        network_tick: RwLock::new(0),
+        network_tick: RwLock::new(1),
         round_number: RwLock::new(1),
         map_name: RwLock::new("test2".to_string()),
         masterserver: masterserver.clone(),
@@ -68,6 +67,22 @@ async fn main() {
         game_state: GameManager::default(),
         for_broadcast: RwLock::new(Vec::new()),
     };
+
+    /*state.events.emit_globally(Event::UpdateVehicle(EventUpdateVehicle { 
+        tick_created: state.network_tick(), 
+        vehicle_id: 0, 
+        vehicle_type: 0, 
+        color: 1, 
+        pos: Vector { x: 1800.0, y: 82.0, z: 1500.0 }, 
+        velocity: Vector::zero()
+    }));*/
+
+    state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
+        tick_created: state.network_tick(),
+        vehicle_color: 1,
+        vehicle_id: 0,
+        vehicle_type: 0,
+    }));
 
     state.vehicles.vehicles.insert(
         0,
@@ -151,12 +166,15 @@ async fn main() {
             {
                 let (_, auth_data) = auth_data.clone();
 
+                // If the password doesnt match what the client sent, lets just disconnect them.
                 if !state.config.server_password.is_empty() && request.password != state.config.server_password {
                     let res = ClientboundKickPacket {
                         reason: "You sent an incorrect password, loser.".to_string(),
                     };
 
                     send_packet_to_socket(&send_sock, src, &state, &res).await;
+
+                // Valid connection and password is correct.
                 } else {
                     println!(
                         "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
@@ -179,6 +197,8 @@ async fn main() {
 
                     let prev_src = state.get_connection_addr_by_rosa_id(auth_data.account_id);
 
+                    // Socket deduping, if we have a socket with this account id, we reparent the old socket to the new one
+                    // Thus kicking the OG client.
                     if let Some(prev_src) = prev_src
                         && let Some(socket) = state.connections.get(&prev_src)
                         && prev_src != src
@@ -186,8 +206,12 @@ async fn main() {
                         drop(socket);
 
                         state.reparent_connection(prev_src, src);
+
+                    // If we have a connection already, then lets just make the client happy and send the initial sync.
                     } else if let Some(connection) = state.connections.get(&src) {
                         connection.send_data(res.encode(&state));
+
+                    // Lets make a new connection from the auth packet, send initial sync and stuff.
                     } else {
                         let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, state.find_empty_slot_id());
 
@@ -225,7 +249,6 @@ async fn main() {
         };
 
         if last_tick.elapsed().unwrap().as_millis() > 16 {
-
             // Start building game packets so we can send them to players
             for connection in state.connections.iter() {
                 connection.send_game_packet(&state);

@@ -1,6 +1,6 @@
 use crate::packets::{buf_writer::AlexBufWriter, WriterEncodable};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EventTeamDoorState {
     pub tick_created: i32,
     pub team_id: i32,
