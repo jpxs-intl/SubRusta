@@ -1,6 +1,7 @@
 #![feature(try_blocks)]
 
 use std::{
+    f32::consts::PI,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     thread::sleep,
@@ -10,7 +11,11 @@ use std::{
 use crate::{
     app_state::{AppState, ChatType, GameManager},
     config::config_main::ConfigMain,
-    connection::{events::EventManager, packets, ClientConnection},
+    connection::{
+        events::
+            EventManager
+        , packets::{self}, ClientConnection
+    },
     items::ItemManager,
     masterserver::MasterServer,
     packets::{
@@ -19,7 +24,7 @@ use crate::{
     srk_parser::SrkData,
     vehicles::{Vehicle, VehicleManager},
     voice::VoiceManager,
-    world::{euler_rot::EulerRot, matrix::RotMatrix, quaternion::Quaternion, vector::Vector},
+    world::{quaternion::Quaternion, transform::Transform, vector::Vector},
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -53,7 +58,7 @@ async fn main() {
 
     let srk_data = SrkData::read_from_file();
 
-    let app_state = AppState {
+    let state = AppState {
         network_tick: RwLock::new(0),
         round_number: RwLock::new(1),
         map_name: RwLock::new("test2".to_string()),
@@ -70,17 +75,19 @@ async fn main() {
         for_broadcast: RwLock::new(Vec::new()),
     };
 
-    app_state.vehicles.vehicles.insert(
+    state.vehicles.vehicles.insert(
         0,
         Vehicle {
-            engine_rpm: 0,
-            pos: Vector {
-                x: 1800.0,
-                y: 80.0,
-                z: 1500.0,
-            },
-            rot: Quaternion::euler(0.0, 0.0, 0.0),
             vehicle_id: 0,
+            engine_rpm: 1200,
+            transform: Transform::pos_rot(
+                Vector {
+                    x: 1800.0,
+                    y: 82.0,
+                    z: 1500.0,
+                },
+                Quaternion::euler(0.0, 45.0, 0.0),
+            ),
         },
     );
 
@@ -106,45 +113,45 @@ async fn main() {
 
     loop {
         if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf)
-            && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), src, &app_state)
+            && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), src, &state)
         {
-            if let Some(mut connection) = app_state.connections.get_mut(&src) {
+            if let Some(mut connection) = state.connections.get_mut(&src) {
                 connection.last_packet = SystemTime::now();
 
-                connection.handle_packet(packet_type.clone(), &app_state).await;
+                connection.handle_packet(packet_type.clone(), &state).await;
             }
 
             if let PacketType::ServerboundLeave = packet_type
-                && let Some(connection) = app_state.connections.get(&src)
+                && let Some(connection) = state.connections.get(&src)
             {
-                connection.handle_leave(&app_state);
+                connection.handle_leave(&state);
 
                 drop(connection);
 
-                app_state.connections.remove(&src);
+                state.connections.remove(&src);
             }
 
             if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
                 let res = ServerInfo {
                     timestamp: request.timestamp,
-                    current_players: app_state.connections.len() as u8,
+                    current_players: state.connections.len() as u8,
                     address: "217.197.220.32".to_string(),
                     build: 0x8e,
                 };
 
-                send_packet_to_socket(&send_sock, src, &app_state, &res).await;
+                send_packet_to_socket(&send_sock, src, &state, &res).await;
             }
 
             if let PacketType::ServerboundJoinRequest(ref request) = packet_type
-                && let Some(auth_data) = app_state.auth_data.get(&request.account_id)
+                && let Some(auth_data) = state.auth_data.get(&request.account_id)
                 && auth_data.auth_ticket == request.auth_ticket
             {
-                if !app_state.config.server_password.is_empty() && request.password != app_state.config.server_password {
+                if !state.config.server_password.is_empty() && request.password != state.config.server_password {
                     let res = ClientboundKickPacket {
                         reason: "You sent an incorrect password, loser.".to_string(),
                     };
 
-                    send_packet_to_socket(&send_sock, src, &app_state, &res).await;
+                    send_packet_to_socket(&send_sock, src, &state, &res).await;
                 } else {
                     println!(
                         "[SERVER] Got connection from {:?} with name {} and auth {} - Sending sync!",
@@ -152,7 +159,7 @@ async fn main() {
                     );
 
                     let res = ClientboundInitialSyncPacket {
-                        round_number: app_state.round_number(),
+                        round_number: state.round_number(),
                         weekly_enabled: false,
                         weekday: 0,
                         sun_angle: 1000,
@@ -161,42 +168,42 @@ async fn main() {
                     };
 
                     {
-                        let mut data = app_state.srk_data.lock().unwrap();
+                        let mut data = state.srk_data.lock().unwrap();
                         data.create_account(&auth_data);
                     }
 
-                    let prev_src = app_state.get_connection_addr_by_rosa_id(auth_data.account_id);
+                    let prev_src = state.get_connection_addr_by_rosa_id(auth_data.account_id);
 
                     if let Some(prev_src) = prev_src
-                        && let Some(socket) = app_state.connections.get(&prev_src)
+                        && let Some(socket) = state.connections.get(&prev_src)
                         && prev_src != src
                     {
                         drop(socket);
 
-                        app_state.reparent_connection(prev_src, src);
-                    } else if let Some(connection) = app_state.connections.get(&src) {
-                        connection.send_data(res.encode(&app_state));
+                        state.reparent_connection(prev_src, src);
+                    } else if let Some(connection) = state.connections.get(&src) {
+                        connection.send_data(res.encode(&state));
                     } else {
-                        let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, app_state.find_empty_slot_id());
+                        let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, state.find_empty_slot_id());
 
-                        connection.send_data(res.encode(&app_state));
+                        connection.send_data(res.encode(&state));
 
-                        connection.handle_join(&app_state);
+                        connection.handle_join(&state);
 
-                        app_state.send_chat(
+                        state.send_chat(
                             ChatType::PrivateMessage,
                             "This server is NOT real, and you WILL NOT get into a game.",
                             connection.client_id as i32,
                             0,
                         );
 
-                        app_state.connections.insert(src, connection);
+                        state.connections.insert(src, connection);
                     }
                 }
 
-                if let Some(connection) = app_state.connections.get(&src) {
-                    connection.update_money(&app_state);
-                    connection.update_player(&app_state);
+                if let Some(connection) = state.connections.get(&src) {
+                    connection.update_money(&state);
+                    connection.update_player(&state);
                 }
             }
 
@@ -205,45 +212,53 @@ async fn main() {
                     "[MasterServer] Recieved authentication packet for {} with phone #{} - Auth ticket: {}",
                     auth.name, auth.phone_number, auth.auth_ticket
                 );
-                app_state.auth_data.insert(auth.account_id, auth.clone());
+                state.auth_data.insert(auth.account_id, auth.clone());
             }
         };
 
         if last_tick.elapsed().unwrap().as_millis() > 16 {
-            /*for mut vehicle in app_state.vehicles.vehicles.iter_mut() {
-                vehicle.rot = EulerRot::from_degrees(0.0, app_state.network_tick() as f32 % 360.0, 0.0).to_quaternion_zyx().normalized();
+            for mut vehicle in state.vehicles.vehicles.iter_mut() {
+                let pos = Vector::new(1800.0, 82.0, 1505.0);
 
-                println!("Is valid {}", vehicle.rot.is_valid())
-                
-            }*/
+                vehicle.transform.rotate_around(pos, Vector::up(), 2.5);
 
-            for connection in app_state.connections.iter() {
-                connection.send_game_packet(&app_state);
+                let direction = pos - vehicle.transform.pos;
+                let mut angle = direction.x.atan2(direction.z) * (360.0 / (PI * 2.0));
+
+                angle += 90.0;
+
+                let target_rot = Quaternion::angle_axis(angle, -Vector::up());
+                vehicle.transform.rot = target_rot;
+            }
+        }
+
+            for connection in state.connections.iter() {
+                connection.send_game_packet(&state);
             }
 
-            app_state.do_broadcast();
+            state.do_broadcast();
 
             let mut to_remove = vec![];
-            for connection in app_state.connections.iter() {
+            for connection in state.connections.iter() {
                 if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
                     to_remove.push(connection.address);
 
-                    connection.handle_leave(&app_state);
+                    connection.handle_leave(&state);
 
                     println!("[SERVER] {} on address {} disconnected.", connection.username, connection.address);
+
+                    // Drop the connection
+                    let addr = connection.address;
+                    drop(connection);
+                    state.connections.remove(&addr);
                 }
             }
 
-            for conn in to_remove {
-                app_state.connections.remove(&conn);
-            }
-
-            let mut network_tick = app_state.network_tick.write().unwrap();
+            let mut network_tick = state.network_tick.write().unwrap();
             *network_tick += 1;
             last_tick = SystemTime::now();
         }
     }
-}
 
 pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
     let encoded_packet = packet.encode(state);

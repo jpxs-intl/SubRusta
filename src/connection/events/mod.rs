@@ -7,6 +7,8 @@ pub mod event_types;
 #[derive(Clone, Default)] 
 pub struct EventManager {
     pub players: DashMap<u32, PlayerEventManager>,
+    // TODO: this never gets cleared until the server restarts. soooooooo...
+    // Also, if we issue a SHIT LOAD events, it doesnt get cleared.
     pub global_events: DashMap<u32, Event>
 }
 

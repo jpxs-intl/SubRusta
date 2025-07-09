@@ -1,22 +1,12 @@
-use crate::packets::{buf_writer::AlexBufWriter, StatelessEncodable};
+use std::ops::{Mul, Neg};
+
+use crate::{packets::buf_writer::AlexBufWriter, world::quaternion::Quaternion};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,
     pub z: f32
-}
-
-impl StatelessEncodable for Vector {
-    fn encode(&self) -> Vec<u8> {
-        let mut writer = AlexBufWriter::new();
-
-        writer.write_bytes(&self.x.to_le_bytes());
-        writer.write_bytes(&self.y.to_le_bytes());
-        writer.write_bytes(&self.z.to_le_bytes());
-
-        writer.into_vec()
-    }
 }
 
 impl Vector {
@@ -42,6 +32,12 @@ impl Vector {
 
     pub fn dot(&self, other: &Self) -> f32 {
         self.x * other.x + self.y * other.y + self.z * other.z
+    }
+
+    pub fn encode(&self, writer: &mut AlexBufWriter) {
+        writer.write_bytes(&self.x.to_le_bytes());
+        writer.write_bytes(&self.y.to_le_bytes());
+        writer.write_bytes(&self.z.to_le_bytes());
     }
 
     pub fn encode_delta(&self, writer: &mut AlexBufWriter) {
@@ -72,14 +68,10 @@ impl Vector {
 
     pub fn normalized(&self) -> Vector {
         let mag = self.magnitude();
-        if mag == 0.0 {
-            *self
+        if mag > f32::EPSILON {
+            Self::new(self.x / mag, self.y / mag, self.z / mag)
         } else {
-            Vector {
-                x: self.x / mag,
-                y: self.y / mag,
-                z: self.z / mag
-            }
+            Self::zero()
         }
     }
 }
@@ -113,5 +105,34 @@ impl std::ops::Div<f32> for Vector {
     
     fn div(self, scalar: f32) -> Self {
         Self::new(self.x / scalar, self.y / scalar, self.z / scalar)
+    }
+}
+
+impl Mul<Quaternion> for Vector {
+    type Output = Self;
+
+    fn mul(self, rotation: Quaternion) -> Self {
+        let quat_vec = Vector::new(rotation.x, rotation.y, rotation.z);
+
+        let cross1 = self.cross(&quat_vec);
+        let cross2 = self.cross(&cross1);
+
+        Vector {
+            x: rotation.x + 2.0 * (rotation.w * cross1.x + cross2.x),
+            y: rotation.y + 2.0 * (rotation.w * cross1.y + cross2.y),
+            z: rotation.z + 2.0 * (rotation.w * cross1.z + cross2.z)
+        }
+    }
+}
+
+impl Neg for Vector {
+    type Output = Vector;
+
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z
+        }
     }
 }

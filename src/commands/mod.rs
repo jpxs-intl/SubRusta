@@ -1,4 +1,4 @@
-use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}};
+use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, world::quaternion::Quaternion};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
@@ -60,7 +60,7 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
                 weekly_enabled: false
             };
 
-            state.broadcast(event.encode(state));
+            state.broadcast_packet(event.encode(state));
         }
 
         "campos" => {
@@ -90,27 +90,27 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
         }
 
         "car" => {
-            let w = args.first().unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
-            let x = args.get(1).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
-            let y = args.get(2).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
-            let z = args.get(3).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let x = args.first().unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let y = args.get(1).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let z = args.get(2).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
 
             let mut car = state.vehicles.vehicles.get_mut(&0).unwrap();
 
-            car.rot.w = w;
-            car.rot.x = x;
-            car.rot.y = y;
-            car.rot.z = z;
-
-            car.rot = car.rot.normalized();
+            car.transform.rot = Quaternion::euler(x, y, z).normalized();
         }
 
         "carrot" => {
             let car = state.vehicles.vehicles.get(&0).unwrap();
 
-            println!("ROt {:?}", car.rot);
+            println!("ROt {:?}", car.transform.rot);
 
-            state.send_chat(ChatType::Announce, &format!("{:?}", car.rot), -1, 0);
+            state.send_chat(ChatType::Announce, &format!("{:?}", car.transform.rot), -1, 0);
+        }
+
+        "valid" => {
+            let car = state.vehicles.vehicles.get(&0).unwrap();
+
+            state.send_chat(ChatType::Announce, &format!("{:?}", car.transform.rot.is_valid()), -1, 0);
         }
 
         _ => return false

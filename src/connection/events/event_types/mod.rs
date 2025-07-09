@@ -1,4 +1,4 @@
-use crate::{connection::events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
+use crate::{connection::events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, sound::EventSound, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
 
 pub mod bullet_hit;
 pub mod update_vehicle_type_color;
@@ -8,6 +8,7 @@ pub mod update_player;
 pub mod team_door_state;
 pub mod update_player_round;
 pub mod chat;
+pub mod sound;
 
 #[derive(Clone)]
 pub enum Event {
@@ -18,7 +19,8 @@ pub enum Event {
     UpdatePlayer(EventUpdatePlayer),
     UpdatePlayerRound(EventUpdatePlayerRound),
     TeamDoorState(EventTeamDoorState),
-    Chat(EventChat)
+    Chat(EventChat),
+    Sound(EventSound)
 }
 
 impl WriterEncodable for Event {
@@ -32,6 +34,7 @@ impl WriterEncodable for Event {
             Event::UpdatePlayerRound(event_update_player_round) => event_update_player_round.encode(state, writer),
             Event::TeamDoorState(event_team_door_state) => event_team_door_state.encode(state, writer),
             Event::Chat(event_chat) => event_chat.encode(state, writer),
+            Event::Sound(event_sound) => event_sound.encode(state, writer),
         }
     }
 }

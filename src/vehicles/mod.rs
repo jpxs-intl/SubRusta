@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 
-use crate::{connection::packets::buf_writer::AlexBufWriter, world::{quaternion::Quaternion, vector::Vector}};
+use crate::{connection::packets::buf_writer::AlexBufWriter, world::transform::Transform};
 
 #[derive(Default)]
 pub struct VehicleManager {
@@ -18,8 +18,7 @@ impl VehicleManager {
 pub struct Vehicle {
     pub vehicle_id: u32,
     pub engine_rpm: u16,
-    pub pos: Vector,
-    pub rot: Quaternion
+    pub transform: Transform
 }
 
 impl Vehicle {
@@ -30,9 +29,9 @@ impl Vehicle {
 
         writer.write_bits(self.vehicle_id as i32, 8);
 
-        self.pos.encode_delta(writer);
+        self.transform.pos.encode_delta(writer);
 
-        self.rot.encode_yzx(writer);
+        self.transform.rot.encode_yzx(writer);
 
         writer.write_delta_rot(0, 0, false, 9);
 

@@ -1,4 +1,4 @@
-use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable, StatelessEncodable}, world::vector::Vector};
+use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
 #[derive(Clone)]
 pub struct EventBulletHit {
@@ -15,7 +15,7 @@ impl WriterEncodable for EventBulletHit {
         writer.write_bits(self.tick_created, 28);
         writer.write_bits(self.unk, 4);
         writer.write_bits(self.hit_type, 6);
-        writer.write_bytes(&self.pos.encode());
-        writer.write_bytes(&self.normal.encode());
+        self.pos.encode(writer);
+        self.normal.encode(writer);
     }
 }

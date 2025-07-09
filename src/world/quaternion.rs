@@ -1,6 +1,13 @@
-use std::{f32::consts::PI, ops::{Mul, MulAssign}};
+use std::{
+    f32::consts::PI,
+    f64::consts::FRAC_1_SQRT_2,
+    ops::{Mul, MulAssign},
+};
 
-use crate::{packets::buf_writer::AlexBufWriter, world::{euler_rot::EulerRot, vector::Vector}};
+use crate::{
+    packets::buf_writer::AlexBufWriter,
+    world::{euler_rot::EulerRot, vector::Vector},
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Quaternion {
@@ -19,7 +26,7 @@ impl Quaternion {
         let euler = EulerRot {
             x: x.to_radians(),
             y: y.to_radians(),
-            z: z.to_radians()
+            z: z.to_radians(),
         };
 
         euler.to_quaternion_zyx()
@@ -35,104 +42,51 @@ impl Quaternion {
         euler.to_quaternion_zyx()
     }
 
-    pub fn pack_data(&self) -> [i32; 4] {
-        let mut arr: [i32; 4] = [0; 4];
+    pub fn pack_data(&self) -> Vec<i32> {
+        let mut components = [self.x, self.y, self.z, self.w];
+        let abs_components: Vec<f32> = components.iter().map(|&x| x.abs()).collect();
 
-        let mut quat = *self;
-
-        let components = [quat.x, quat.y, quat.z, quat.w];
-        let abs_components = components.map(|comp| comp.abs());
-
-        //let largest_component = abs_components.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
-
-        let mut largest_component;
-        let largest_abs;
-        let mut hillary_clinton = abs_components[2];
-
-        if abs_components[1] > abs_components[0] {
-            largest_component = 1;
-            largest_abs = abs_components[1];
-        } else {
-            largest_component = 0;
-            largest_abs = abs_components[0];
-        }
-
-        if abs_components[2] > largest_abs {
-            largest_component = 2;
-        } else {
-            hillary_clinton = largest_abs;
-        }
-
-        if abs_components[3] > hillary_clinton {
-            largest_component = 3;
-        }
+        let largest_component = abs_components
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(index, _)| index)
+            .unwrap();
 
         if components[largest_component] < 0.0 {
-            quat.x = -quat.x;
-            quat.y = -quat.y;
-            quat.z = -quat.z;
-            quat.w = -quat.w;
+            components[0] = -components[0];
+            components[1] = -components[1];
+            components[2] = -components[2];
+            components[3] = -components[3];
         }
 
-        let int_quat_hardcoded_order = [3, 1, 2, 0];
-        let mut int_quat_hardcoded_order_ptr = 3;
-        let mut quat_idk = 3;
-        arr[0] = largest_component as i32;
-        let mut dest_idk_iter = 1;
-        
-        let mut first_loop = true;
+        let mut result = Vec::new();
 
-        loop {
-            if !(first_loop && largest_component != 3) {
-                dest_idk_iter += 1;
-                arr[dest_idk_iter] = (components[quat_idk] as f64 * (0.5_f64.sqrt() * 8191.0)) as i32;
-            }
+        result.push(largest_component as i32);
 
-            first_loop = false;
+        const QUAT_INDEXES: [usize; 4] = [3, 1, 2, 0];
 
-            int_quat_hardcoded_order_ptr += 1;
-            if int_quat_hardcoded_order_ptr == 4 {
-                break;
-            }
+        for &component_index in &QUAT_INDEXES {
+            if component_index != largest_component {
+                let component_value = components[component_index] as f64;
 
-            loop {
-                quat_idk = int_quat_hardcoded_order[int_quat_hardcoded_order_ptr];
-
-                if largest_component != quat_idk {
-                    break;
-                }
-
-                int_quat_hardcoded_order_ptr += 1;
-                if int_quat_hardcoded_order_ptr == 4 {
-                    return arr;
-                }
+                let quantized = (component_value * FRAC_1_SQRT_2 * 8191.0) as i32;
+                result.push(quantized);
             }
         }
 
-                /*for &comp_idx in &indicies {
-            if comp_idx == largest_component {
-                continue;
-            }
-
-            let component_value = components[comp_idx];
-
-            let scale: f64 = 0.5_f64.sqrt() * 8191.0;
-            let quantized = (component_value as f64 * scale) as i32;
-
-            arr[result_index] = quantized;
-            result_index += 1;
-        }*/
-
-        arr
+        result
     }
+
+    
 
     pub fn encode_xyz(&self, writer: &mut AlexBufWriter) {
         let packed = self.pack_data();
 
         writer.write_bits(packed[0], 2);
-        writer.write_delta_rot(0, packed[3], false, 14);
         writer.write_delta_rot(0, packed[1], false, 14);
         writer.write_delta_rot(0, packed[2], false, 14);
+        writer.write_delta_rot(0, packed[3], false, 14);
     }
 
     pub fn encode_yzx(&self, writer: &mut AlexBufWriter) {
@@ -148,7 +102,7 @@ impl Quaternion {
         let half_angle = angle_radians * 0.5;
         let sin_half = half_angle.sin();
         let cos_half = half_angle.cos();
-        
+
         Quaternion {
             w: cos_half,
             x: axis_x * sin_half,
@@ -162,7 +116,7 @@ impl Quaternion {
             x: 0.0,
             y: 0.0,
             z: 0.0,
-            w: 1.0
+            w: 1.0,
         }
     }
 
@@ -181,11 +135,7 @@ impl Quaternion {
         let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
         let yaw = siny_cosp.atan2(cosy_cosp);
 
-        EulerRot { 
-            x: roll,
-            y: pitch,
-            z: yaw
-        }
+        EulerRot { x: roll, y: pitch, z: yaw }
     }
 
     pub fn angle_axis(degrees: f32, axis: Vector) -> Self {
@@ -196,7 +146,7 @@ impl Quaternion {
             w: half_angle.cos(),
             x: axis.x * sin_half,
             y: axis.y * sin_half,
-            z: axis.z * sin_half
+            z: axis.z * sin_half,
         }
     }
 
@@ -222,7 +172,7 @@ impl Quaternion {
     pub fn identity() -> Self {
         Self::new(0.0, 0.0, 0.0, 1.0)
     }
-    
+
     pub fn magnitude(&self) -> f32 {
         (self.x * self.x + self.y * self.y + self.z * self.z + self.w * self.w).sqrt()
     }
@@ -265,11 +215,23 @@ impl Quaternion {
             z: self.w * other.z + self.x * other.y - self.y * other.x + self.z * other.w,
         }
     }
+
+    pub fn rotate_vector(&self, v: Vector) -> Vector {
+        let quat_vec = Vector::new(self.x, self.y, self.z);
+        let cross1 = quat_vec.cross(&v);
+        let cross2 = quat_vec.cross(&cross1);
+        
+        Vector::new(
+            v.x + 2.0 * (self.w * cross1.x + cross2.x),
+            v.y + 2.0 * (self.w * cross1.y + cross2.y),
+            v.z + 2.0 * (self.w * cross1.z + cross2.z),
+        )
+    }
 }
 
 impl Mul<Quaternion> for Quaternion {
     type Output = Quaternion;
-    
+
     fn mul(self, other: Quaternion) -> Quaternion {
         self.multiply(&other)
     }
@@ -277,7 +239,7 @@ impl Mul<Quaternion> for Quaternion {
 
 impl Mul<&Quaternion> for Quaternion {
     type Output = Quaternion;
-    
+
     fn mul(self, other: &Quaternion) -> Quaternion {
         self.multiply(other)
     }
@@ -285,7 +247,7 @@ impl Mul<&Quaternion> for Quaternion {
 
 impl Mul<&Quaternion> for &Quaternion {
     type Output = Quaternion;
-    
+
     fn mul(self, other: &Quaternion) -> Quaternion {
         self.multiply(other)
     }
@@ -293,17 +255,24 @@ impl Mul<&Quaternion> for &Quaternion {
 
 impl Mul<Quaternion> for &Quaternion {
     type Output = Quaternion;
-    
+
     fn mul(self, other: Quaternion) -> Quaternion {
         self.multiply(&other)
     }
 }
-
 
 impl MulAssign<Quaternion> for Quaternion {
     fn mul_assign(&mut self, rhs: Quaternion) {
         let new = *self * rhs;
 
         *self = new
+    }
+}
+
+impl Mul<Vector> for Quaternion {
+    type Output = Vector;
+
+    fn mul(self, v: Vector) -> Vector {
+        self.rotate_vector(v)
     }
 }

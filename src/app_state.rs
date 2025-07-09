@@ -46,7 +46,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn broadcast(&self, data: Vec<u8>) {
+    pub fn broadcast_packet(&self, data: Vec<u8>) {
         let mut writer = self.for_broadcast.write().unwrap();
 
         writer.push(data);

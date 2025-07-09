@@ -1,4 +1,4 @@
-use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable, StatelessEncodable}, world::vector::Vector};
+use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
 #[derive(Clone)]
 pub struct EventUpdateVehicle {
@@ -17,7 +17,7 @@ impl WriterEncodable for EventUpdateVehicle {
         writer.write_bits(self.vehicle_id, 10);
         writer.write_bits(self.update_type, 4);
         writer.write_bits(self.part_id, 10);
-        writer.write_bytes(&self.pos.encode());
-        writer.write_bytes(&self.normal.encode());
+        self.pos.encode(writer);
+        self.normal.encode(writer);
     }
 }
