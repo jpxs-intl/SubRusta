@@ -89,6 +89,30 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
             state.send_chat(ChatType::PrivateMessage, "Printed player struct to terminal.", client.client_id as i32, 0);
         }
 
+        "car" => {
+            let w = args.first().unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let x = args.get(1).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let y = args.get(2).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+            let z = args.get(3).unwrap_or(&"0".to_string()).parse::<f32>().unwrap_or(1.0);
+
+            let mut car = state.vehicles.vehicles.get_mut(&0).unwrap();
+
+            car.rot.w = w;
+            car.rot.x = x;
+            car.rot.y = y;
+            car.rot.z = z;
+
+            car.rot = car.rot.normalized();
+        }
+
+        "carrot" => {
+            let car = state.vehicles.vehicles.get(&0).unwrap();
+
+            println!("ROt {:?}", car.rot);
+
+            state.send_chat(ChatType::Announce, &format!("{:?}", car.rot), -1, 0);
+        }
+
         _ => return false
     }  
 

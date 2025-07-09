@@ -36,11 +36,7 @@ impl Item {
 
         self.pos.encode_delta(writer);
 
-        writer.write_bits(self.rot.w as i32, 2);
-
-        writer.write_delta_rot(0, self.rot.x as i32, false, 14);
-        writer.write_delta_rot(0, self.rot.y as i32, false, 14);
-        writer.write_delta_rot(0, self.rot.z as i32, false, 14);
+        self.rot.encode_xyz(writer);
     }
 }
 

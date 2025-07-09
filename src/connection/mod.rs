@@ -3,25 +3,12 @@ use std::{net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::task::JoinHandle;
 
 use crate::{
-    AppState,
-    app_state::ChatType,
-    commands::parse_command,
-    connection::{
-        events::event_types::{
-            Event, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound,
-        },
-        menu::{
-            MenuTypes, enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action,
-            menu_from_num,
-        },
-    },
-    packets::{
-        Encodable, PacketType, Team,
-        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney},
-        masterserver::auth::MasterServerAuthPacket,
-        serverbound::game::actions::ServerboundGameAction,
-    },
-    world::vector::Vector,
+    app_state::ChatType, commands::parse_command, connection::{
+        events::{event_types::{update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, PlayerEventManager},
+        menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes},
+    }, items::Item, packets::{
+        clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
+    }, voice::PlayerVoice, world::{quaternion::Quaternion, vector::Vector}, AppState
 };
 
 pub mod events;
@@ -84,12 +71,7 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn from_auth(
-        address: SocketAddr,
-        tx_socket: Sender<(Vec<u8>, SocketAddr)>,
-        auth: &MasterServerAuthPacket,
-        connection_id: u32,
-    ) -> Self {
+    pub fn from_auth(address: SocketAddr, tx_socket: Sender<(Vec<u8>, SocketAddr)>, auth: &MasterServerAuthPacket, connection_id: u32) -> Self {
         let (tx_sender, tx_receiver) = crossbeam::channel::unbounded();
 
         let username = if auth.account_id == 1_000_002 {
@@ -124,6 +106,54 @@ impl ClientConnection {
         conn.start_read_thread();
 
         conn
+    }
+
+    pub fn handle_join(&self, state: &AppState) {
+        state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
+            tick_created: state.network_tick(),
+            vehicle_color: 0,
+            vehicle_id: 0,
+            vehicle_type: 0,
+        }));
+
+        state.events.players.insert(
+            self.client_id,
+            PlayerEventManager {
+                player_id: self.client_id,
+                recieved_events: 0,
+            },
+        );
+
+        state.voices.client_voices.insert(
+            self.client_id,
+            PlayerVoice {
+                client_id: self.client_id,
+                enabled: false,
+                frames: vec![],
+            },
+        );
+
+        state.items.items.insert(
+            self.client_id,
+            Item {
+                item_type: 38,
+                item_id: self.client_id,
+                pos: Vector::zero(),
+                rot: Quaternion::zero(),
+            },
+        );
+
+        state.send_chat(ChatType::Announce, &format!("{} joined!", self.username), -1, 0);
+    }
+
+    pub fn handle_leave(&self, state: &AppState) {
+        state.events.players.remove(&self.client_id);
+        state.voices.client_voices.remove(&self.client_id);
+        state.items.items.remove(&self.client_id);
+
+        self.kill_thread();
+
+        state.send_chat(ChatType::Announce, &format!("{} left.", self.username), -1, 0);
     }
 
     pub fn start_read_thread(&mut self) {
@@ -231,12 +261,7 @@ impl ClientConnection {
                     println!("{} [>] {}", self.username, chat.message);
 
                     if !parse_command(self, chat.message.clone(), state) {
-                        state.send_chat(
-                            ChatType::Announce,
-                            &chat.message,
-                            self.client_id as i32,
-                            chat.volume as i32,
-                        );
+                        state.send_chat(ChatType::Announce, &chat.message, self.client_id as i32, chat.volume as i32);
                     }
                 }
 
@@ -247,9 +272,7 @@ impl ClientConnection {
 
                     match menu_type {
                         MenuTypes::Lobby => handle_lobby_menu_action(menu.button, self, state),
-                        MenuTypes::EnterCity => {
-                            handle_enter_city_menu_action(menu.button, self, state)
-                        }
+                        MenuTypes::EnterCity => handle_enter_city_menu_action(menu.button, self, state),
                         _ => {}
                     }
                 }

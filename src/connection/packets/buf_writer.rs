@@ -20,8 +20,6 @@ impl AlexBufWriter {
     }
 
     pub fn write_delta_pos(&mut self, last: i32, current: i32, use_delta: bool, size: u32) {
-        let delta = last - current;
-
         if !use_delta {
             self.write_bits(1, 1);
             self.write_bits(1, 1);
@@ -30,6 +28,8 @@ impl AlexBufWriter {
 
             return;
         }
+
+        let delta = last - current;
 
         if delta + 8 > 15 {
             if delta + 256 > 511 {
@@ -50,8 +50,6 @@ impl AlexBufWriter {
     }
 
     pub fn write_delta_rot(&mut self, last: i32, current: i32, use_delta: bool, size: u32) {
-        let delta = last - current;
-
         if !use_delta {
             self.write_bits(1, 1);
             self.write_bits(1, 1);
@@ -59,6 +57,8 @@ impl AlexBufWriter {
 
             return;
         }
+
+        let delta = last - current;
 
         if !(-8..8).contains(&delta) {
             if !(-128..128).contains(&delta) {

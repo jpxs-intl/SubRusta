@@ -10,23 +10,16 @@ use std::{
 use crate::{
     app_state::{AppState, ChatType, GameManager},
     config::config_main::ConfigMain,
-    connection::{
-        ClientConnection,
-        events::{
-            EventManager, PlayerEventManager,
-            event_types::{Event, update_vehicle_type_color::EventUpdateVehicleTypeColor},
-        },
-        packets,
-    },
-    items::{Item, ItemManager},
+    connection::{events::EventManager, packets, ClientConnection},
+    items::ItemManager,
     masterserver::MasterServer,
     packets::{
-        Encodable, PacketType,
-        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo},
+        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
     },
     srk_parser::SrkData,
-    voice::{PlayerVoice, VoiceManager},
-    world::{quaternion::Quaternion, vector::Vector},
+    vehicles::{Vehicle, VehicleManager},
+    voice::VoiceManager,
+    world::{euler_rot::EulerRot, matrix::RotMatrix, quaternion::Quaternion, vector::Vector},
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -41,6 +34,7 @@ pub mod connection;
 pub mod items;
 pub mod masterserver;
 pub mod srk_parser;
+pub mod vehicles;
 pub mod voice;
 pub mod world;
 
@@ -67,6 +61,7 @@ async fn main() {
         events: EventManager::new(),
         voices: VoiceManager::new(),
         items: ItemManager::new(),
+        vehicles: VehicleManager::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: DashMap::new(),
@@ -74,6 +69,20 @@ async fn main() {
         game_state: GameManager::default(),
         for_broadcast: RwLock::new(Vec::new()),
     };
+
+    app_state.vehicles.vehicles.insert(
+        0,
+        Vehicle {
+            engine_rpm: 0,
+            pos: Vector {
+                x: 1800.0,
+                y: 80.0,
+                z: 1500.0,
+            },
+            rot: Quaternion::euler(0.0, 0.0, 0.0),
+            vehicle_id: 0,
+        },
+    );
 
     let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port)).await.expect("Failed to bind socket");
     let recv_sock = Arc::new(socket);
@@ -108,14 +117,7 @@ async fn main() {
             if let PacketType::ServerboundLeave = packet_type
                 && let Some(connection) = app_state.connections.get(&src)
             {
-                connection.kill_thread();
-
-                app_state.events.players.remove(&connection.client_id);
-                app_state.voices.client_voices.remove(&connection.client_id);
-                app_state.items.items.remove(&connection.client_id);
-
-                println!("[SERVER] {} left!", connection.username);
-                app_state.send_chat(ChatType::Announce, &format!("{} left.", connection.username), -1, -1);
+                connection.handle_leave(&app_state);
 
                 drop(connection);
 
@@ -179,38 +181,13 @@ async fn main() {
 
                         connection.send_data(res.encode(&app_state));
 
-                        app_state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
-                            tick_created: app_state.network_tick(),
-                            vehicle_color: 0,
-                            vehicle_id: 0,
-                            vehicle_type: 0,
-                        }));
+                        connection.handle_join(&app_state);
 
-                        app_state.events.players.insert(
-                            connection.client_id,
-                            PlayerEventManager {
-                                player_id: connection.client_id,
-                                recieved_events: 0,
-                            },
-                        );
-
-                        app_state.voices.client_voices.insert(
-                            connection.client_id,
-                            PlayerVoice {
-                                client_id: connection.client_id,
-                                enabled: false,
-                                frames: vec![],
-                            },
-                        );
-
-                        app_state.items.items.insert(
-                            connection.client_id,
-                            Item {
-                                item_type: 38,
-                                item_id: connection.client_id,
-                                pos: Vector::zero(),
-                                rot: Quaternion::zero(),
-                            },
+                        app_state.send_chat(
+                            ChatType::PrivateMessage,
+                            "This server is NOT real, and you WILL NOT get into a game.",
+                            connection.client_id as i32,
+                            0,
                         );
 
                         app_state.connections.insert(src, connection);
@@ -233,6 +210,13 @@ async fn main() {
         };
 
         if last_tick.elapsed().unwrap().as_millis() > 16 {
+            /*for mut vehicle in app_state.vehicles.vehicles.iter_mut() {
+                vehicle.rot = EulerRot::from_degrees(0.0, app_state.network_tick() as f32 % 360.0, 0.0).to_quaternion_zyx().normalized();
+
+                println!("Is valid {}", vehicle.rot.is_valid())
+                
+            }*/
+
             for connection in app_state.connections.iter() {
                 connection.send_game_packet(&app_state);
             }
@@ -243,8 +227,8 @@ async fn main() {
             for connection in app_state.connections.iter() {
                 if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
                     to_remove.push(connection.address);
-                    app_state.events.players.remove(&connection.client_id);
-                    app_state.voices.client_voices.remove(&connection.client_id);
+
+                    connection.handle_leave(&app_state);
 
                     println!("[SERVER] {} on address {} disconnected.", connection.username, connection.address);
                 }

@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use crate::{
     config::config_main::ConfigMain, connection::{events::{
         event_types::{chat::EventChat, Event}, EventManager
-    }, ClientConnection}, items::ItemManager, masterserver::MasterServer, packets::{masterserver::auth::MasterServerAuthPacket, GameState}, srk_parser::SrkData, voice::VoiceManager
+    }, ClientConnection}, items::ItemManager, masterserver::MasterServer, packets::{masterserver::auth::MasterServerAuthPacket, GameState}, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager
 };
 
 #[derive(Default)]
@@ -37,6 +37,7 @@ pub struct AppState {
     pub events: EventManager,
     pub voices: VoiceManager,
     pub items: ItemManager,
+    pub vehicles: VehicleManager,
     pub connections: DashMap<SocketAddr, ClientConnection>,
     pub auth_data: DashMap<u32, MasterServerAuthPacket>,
     pub game_state: GameManager,

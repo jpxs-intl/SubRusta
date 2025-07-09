@@ -1,4 +1,4 @@
-use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, GameState, WriterEncodable}, world::{quaternion::Quaternion, vector::Vector}};
+use crate::{connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, GameState, WriterEncodable}, world::vector::Vector};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -105,13 +105,6 @@ impl Encodable for ClientboundGamePacket {
 
 
         for item in state.items.items.iter() {
-        // PACKED OBJECT HEADER
-        //writer.write_bits(0, 10);
-        //writer.write_bits(0, 2);
-        //writer.write_bits(1, 3);
-        //writer.write_bits(self.client_id as i32 + 1, 10);
-        //writer.write_bits(0, 16);
-        // ----------
             if item.item_id == self.client_id {
                 continue;
             }
@@ -130,90 +123,11 @@ impl Encodable for ClientboundGamePacket {
             item.encode_obj(&mut writer);
         }
 
-        /*
-        // OBJECT PACKING DATA
-        writer.write_bits(1, 1); // Update flag (yes)
-        writer.write_bits(1, 1); // Item flag
-
-        // IF THE ABOVE IS ONE
-            writer.write_bits(self.client_id as i32 + 1, 8);
-            writer.write_bits(-1, 10);
-            writer.write_bits(-1, 10);
-            writer.write_bits(0, 4);
-
-            writer.write_bits(0, 8);
-
-            // Pos data?
-            /*writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 28);
-            
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 28);
-
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 28);*/
-
-            let x = (self.follow_pos.x + 4096.0) * 4096.0;
-            let y = (self.follow_pos.y) * 4096.0;
-            let z = (self.follow_pos.z + 4096.0) * 4096.0;
-
-            writer.write_delta_pos(0, x as i32, false, 28);
-            writer.write_delta_pos(0, y as i32, false, 28);
-            writer.write_delta_pos(0, z as i32, false, 28);
-            // -----------
-
-            writer.write_bits(1, 2);
-
-            /*writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 14);
-
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 14);
-            
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 1);
-            writer.write_bits(1, 14);*/
-
-            writer.write_delta_rot(0, 0, 14);
-            writer.write_delta_rot(0, 0, 14);
-            writer.write_delta_rot(0, 0, 14);
-        // -----------
-        */
-
-        writer.write_bits(0, 8); // Vehicle Count
+        writer.write_bits(state.vehicles.vehicles.len() as i32, 8); // Vehicle Count
         
-        // BEGIN VEHICLE
-        /*writer.write_bits(0, 10);
-        writer.write_bits(0, 2);
-        writer.write_bits(0, 10);
-
-        writer.write_bits(0, 8);
-
-        self.follow_pos.encode_delta(&mut writer);
-
-        let rot = Quaternion::new(0.0, 0.0, 0.0, 1.0);
-        // WTF do the w's do?
-        writer.write_bits(rot.w as i32, 2); 
-
-        writer.write_delta_rot(0, rot.y as i32, false, 14); // Pitch
-        writer.write_delta_rot(0, rot.z as i32, false, 14); // Roll
-        writer.write_delta_rot(0, rot.x as i32, false, 14); // Yaw
-
-        writer.write_delta_rot(0, 0, false, 9);
-
-        for _ in 0..4 {
-            writer.write_delta_pos(0, 0, false, 8);
-            writer.write_delta_rot(0, 0, false, 9);
-            writer.write_delta_pos(0, 0, false, 8);
+        for vehicle in state.vehicles.vehicles.iter() {
+            vehicle.encode_obj(&mut writer);
         }
-
-        writer.write_bits(0, 13);*/
-        // ----------
 
         writer.write_bits(0, 8);
         writer.write_bits(0, 10); // Num of cars

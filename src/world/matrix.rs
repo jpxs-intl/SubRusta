@@ -17,7 +17,7 @@ impl RotMatrix {
         ])
     }
 
-        /// Convert rotation matrix to quaternion
+    /// Convert rotation matrix to quaternion
     pub fn to_quaternion(&self) -> Quaternion {
         let trace = self.m[0][0] + self.m[1][1] + self.m[2][2];
         

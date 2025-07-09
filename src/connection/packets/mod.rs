@@ -90,7 +90,7 @@ pub fn decode_packet(data: Vec<u8>, src: SocketAddr, state: &AppState) -> Option
 
     //println!("Decoding packet type: {packet_type} - With data: {data:?}");
 
-    Some(match packet_type {
+    let packet  = match packet_type {
         0 => PacketType::ServerboundInfoRequest(ServerboundInfoRequest::decode(data, src, state)?),
         2 => PacketType::ServerboundJoinRequest(ServerboundJoinRequest::decode(data, src, state)?),
         7 => PacketType::ServerboundLeave,
@@ -103,5 +103,13 @@ pub fn decode_packet(data: Vec<u8>, src: SocketAddr, state: &AppState) -> Option
             println!("String: {}", String::from_utf8_lossy(&data));
             PacketType::Unknown
         }
-    })
+    };
+
+    if let PacketType::MasterServerAuthPacket(_) = packet && src != state.masterserver.address {
+        println!("[AUTH] {src} tried to send a Masterserver packet! Rejecting!");
+
+        return None
+    }
+
+    Some(packet)
 }
