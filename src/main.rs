@@ -1,30 +1,21 @@
 #![feature(try_blocks)]
+#![feature(async_trait_bounds)]
 
 use std::{
     f32::consts::PI,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
-    thread::sleep,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager},
-    config::config_main::ConfigMain,
-    connection::{
+    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
         events::
             EventManager
         , packets::{self}, ClientConnection
-    },
-    items::ItemManager,
-    masterserver::MasterServer,
-    packets::{
+    }, items::ItemManager, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
-    },
-    srk_parser::SrkData,
-    vehicles::{Vehicle, VehicleManager},
-    voice::VoiceManager,
-    world::{quaternion::Quaternion, transform::Transform, vector::Vector},
+    }, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::{Vehicle, VehicleManager}, voice::VoiceManager, world::{quaternion::Quaternion, transform::Transform, vector::Vector}
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -38,12 +29,14 @@ pub mod config;
 pub mod connection;
 pub mod items;
 pub mod masterserver;
+pub mod scheduler;
 pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
+pub const TICKS_PER_SECOND: i32 = 62;
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -67,6 +60,7 @@ async fn main() {
         voices: VoiceManager::new(),
         items: ItemManager::new(),
         vehicles: VehicleManager::new(),
+        tasks: TaskScheduler::new(),
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: DashMap::new(),
@@ -100,37 +94,45 @@ async fn main() {
 
     masterserver.connect(send_sock.clone());
 
-    tokio::spawn(async move {
-        loop {
-            masterserver.send(vec![b'@']).await;
+    state.tasks.schedule_task(state.network_tick(), Some(TICKS_PER_SECOND * 16), Box::new(|state: &AppState| {
+        state.masterserver.send(vec![b'@']);
+    }));
 
-            sleep(Duration::from_secs(16));
-        }
-    });
+    state.tasks.schedule_task(state.network_tick(), Some(TICKS_PER_SECOND * 10), Box::new(|state: &AppState| {
+        state.auth_data.retain(|_, (tick_created, _)| {
+            state.network_tick() - *tick_created <= TICKS_PER_SECOND * 10
+        });
+    }));
 
     let mut packet_buf = [0; 1024];
     let mut last_tick = SystemTime::now();
 
     loop {
+        // Recieve from our sockets, then decode the packet if it is successfull
         if let Ok((size, src)) = recv_sock.try_recv_from(&mut packet_buf)
             && let Some(packet_type) = packets::decode_packet(packet_buf[..size].to_vec().clone(), src, &state)
         {
+            // On our connection lets handle the packet
             if let Some(mut connection) = state.connections.get_mut(&src) {
                 connection.last_packet = SystemTime::now();
 
                 connection.handle_packet(packet_type.clone(), &state).await;
             }
 
+            // If its a leave, handle it
             if let PacketType::ServerboundLeave = packet_type
                 && let Some(connection) = state.connections.get(&src)
             {
                 connection.handle_leave(&state);
+
+                println!("[SERVER] {} left.", connection.username);
 
                 drop(connection);
 
                 state.connections.remove(&src);
             }
 
+            // If its a serverbound info request, lets handle it ourselves so we know what were doing
             if let PacketType::ServerboundInfoRequest(ref request) = packet_type {
                 let res = ServerInfo {
                     timestamp: request.timestamp,
@@ -142,10 +144,13 @@ async fn main() {
                 send_packet_to_socket(&send_sock, src, &state, &res).await;
             }
 
+            // Handle the join request
             if let PacketType::ServerboundJoinRequest(ref request) = packet_type
                 && let Some(auth_data) = state.auth_data.get(&request.account_id)
-                && auth_data.auth_ticket == request.auth_ticket
+                && auth_data.1.auth_ticket == request.auth_ticket
             {
+                let (_, auth_data) = auth_data.clone();
+
                 if !state.config.server_password.is_empty() && request.password != state.config.server_password {
                     let res = ClientboundKickPacket {
                         reason: "You sent an incorrect password, loser.".to_string(),
@@ -207,57 +212,51 @@ async fn main() {
                 }
             }
 
+            // When the MS sends us an auth packet, add the player to our auth stash so we can 
+            // figure out who they are on join
             if let PacketType::MasterServerAuthPacket(ref auth) = packet_type {
                 println!(
                     "[MasterServer] Recieved authentication packet for {} with phone #{} - Auth ticket: {}",
                     auth.name, auth.phone_number, auth.auth_ticket
                 );
-                state.auth_data.insert(auth.account_id, auth.clone());
+
+                state.auth_data.insert(auth.account_id, (state.network_tick(), auth.clone()));
             }
         };
 
         if last_tick.elapsed().unwrap().as_millis() > 16 {
-            for mut vehicle in state.vehicles.vehicles.iter_mut() {
-                let pos = Vector::new(1800.0, 82.0, 1505.0);
 
-                vehicle.transform.rotate_around(pos, Vector::up(), 2.5);
-
-                let direction = pos - vehicle.transform.pos;
-                let mut angle = direction.x.atan2(direction.z) * (360.0 / (PI * 2.0));
-
-                angle += 90.0;
-
-                let target_rot = Quaternion::angle_axis(angle, -Vector::up());
-                vehicle.transform.rot = target_rot;
-            }
-        }
-
+            // Start building game packets so we can send them to players
             for connection in state.connections.iter() {
                 connection.send_game_packet(&state);
             }
 
+            // Broadcast packets to players
             state.do_broadcast();
 
-            let mut to_remove = vec![];
-            for connection in state.connections.iter() {
-                if connection.last_packet.elapsed().unwrap().as_millis() > (30 * 1000) {
-                    to_remove.push(connection.address);
-
+            // Remove disconnected players.
+            state.connections.retain(|_, connection| {
+                if connection.last_packet.elapsed().unwrap().as_millis() > (10 * 1000) {
                     connection.handle_leave(&state);
 
                     println!("[SERVER] {} on address {} disconnected.", connection.username, connection.address);
 
-                    // Drop the connection
-                    let addr = connection.address;
-                    drop(connection);
-                    state.connections.remove(&addr);
+                    false
+                } else {
+                    true
                 }
-            }
+            });
 
+            // Run tasks
+            state.tasks.run_tasks(&state);
+
+            // Increase our current network tick
             let mut network_tick = state.network_tick.write().unwrap();
             *network_tick += 1;
+
             last_tick = SystemTime::now();
         }
+    }
     }
 
 pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {

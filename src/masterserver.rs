@@ -77,7 +77,7 @@ impl MasterServer {
         println!("[MasterServer] Connected to MasterServer! - Now online!");
     }
 
-    pub async fn send(&self, data: Vec<u8>) {
+    pub fn send(&self, data: Vec<u8>) {
         if let Some(socket) = &self.server_socket {
             let header = b"7DFP";
 
@@ -86,8 +86,6 @@ impl MasterServer {
             data_with_header.extend_from_slice(&data);
 
             let _ = socket.send((data_with_header, self.address));
-        } else {
-            panic!("[MASTERSERVER] Socket is not initialized");
         }
     }
 }
