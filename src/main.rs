@@ -12,7 +12,7 @@ use crate::{
         events::{event_types::{update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, 
             EventManager}
         , packets::{self}, ClientConnection
-    }, items::ItemManager, masterserver::MasterServer, packets::{
+    }, items::ItemManager, map::Map, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
     }, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::{Vehicle, VehicleManager}, voice::VoiceManager, world::{quaternion::Quaternion, transform::Transform, vector::Vector}
 };
@@ -33,6 +33,7 @@ pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
+pub mod map;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 pub const TICKS_PER_SECOND: i32 = 62;
@@ -45,6 +46,8 @@ pub struct Connection {
 #[tokio::main]
 async fn main() {
     let config = ConfigMain::read_from_file();
+
+    let _city = Map::load();
 
     let mut masterserver = MasterServer::init(&config).await;
 

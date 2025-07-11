@@ -1,8 +1,17 @@
 use std::ops::{Mul, Neg};
 
+use binrw::{BinRead, BinWrite};
+
 use crate::{packets::buf_writer::AlexBufWriter, world::quaternion::Quaternion};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(BinRead, BinWrite, Debug, Default, Clone)]
+pub struct IntVector {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, BinRead, BinWrite)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,
