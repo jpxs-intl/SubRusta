@@ -9,15 +9,15 @@ use std::{
 
 use crate::{
     app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
-        events::{event_types::{update_vehicle_type_color::EventUpdateVehicleTypeColor, Event}, 
-            EventManager}
+        events::EventManager
         , packets::{self}, ClientConnection
-    }, items::ItemManager, map::Map, masterserver::MasterServer, packets::{
+    }, items::{item_types::ItemType, Item, ItemManager}, map::Map, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
-    }, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::{Vehicle, VehicleManager}, voice::VoiceManager, world::{quaternion::Quaternion, transform::Transform, vector::Vector}
+    }, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager, world::{transform::Transform, transform_wrapper::WrappedTransform}
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
+use rapier3d::prelude::*;
 use tokio::net::UdpSocket;
 
 extern crate serde_repr;
@@ -33,6 +33,7 @@ pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
+pub mod physics;
 pub mod map;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
@@ -47,7 +48,7 @@ pub struct Connection {
 async fn main() {
     let config = ConfigMain::read_from_file();
 
-    let _city = Map::load();
+    let city = Map::load();
 
     let mut masterserver = MasterServer::init(&config).await;
 
@@ -69,7 +70,16 @@ async fn main() {
         auth_data: DashMap::new(),
         game_state: GameManager::default(),
         for_broadcast: RwLock::new(Vec::new()),
+        physics: PhysicsManager::new(),
     };
+
+    for building in city.buildings {
+        let mut collider = ColliderBuilder::cuboid(4.0, 4.0, 4.0);
+
+        for tike in building.tiles {
+            
+        }
+    }
 
     /*state.events.emit_globally(Event::UpdateVehicle(EventUpdateVehicle { 
         tick_created: state.network_tick(), 
@@ -78,7 +88,7 @@ async fn main() {
         color: 1, 
         pos: Vector { x: 1800.0, y: 82.0, z: 1500.0 }, 
         velocity: Vector::zero()
-    }));*/
+    }));
 
     state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
         tick_created: state.network_tick(),
@@ -101,7 +111,17 @@ async fn main() {
                 Quaternion::euler(0.0, 45.0, 0.0),
             ),
         },
-    );
+    );*/
+
+    Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.5, 0.24).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1538.0]).build())), &state);
+    Item::create(ItemType::BigBox, Some((ColliderBuilder::cuboid(1.0, 0.125, 0.5).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1540.0]).build())), &state);
+    Item::create(ItemType::Box, Some((ColliderBuilder::cuboid(0.25, 0.25, 0.25).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1538.0]).build())), &state);
+
+    {
+        let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0).translation(vector![1808.0, 70.0, 1538.0]).build();
+
+        state.physics.insert_collider(collider);
+    }
 
     let socket = UdpSocket::bind(format!("0.0.0.0:{}", config.port)).await.expect("Failed to bind socket");
     let recv_sock = Arc::new(socket);
@@ -172,7 +192,7 @@ async fn main() {
                 // If the password doesnt match what the client sent, lets just disconnect them.
                 if !state.config.server_password.is_empty() && request.password != state.config.server_password {
                     let res = ClientboundKickPacket {
-                        reason: "You sent an incorrect password, loser.".to_string(),
+                        reason: "Your password is incorrect!".to_string(),
                     };
 
                     send_packet_to_socket(&send_sock, src, &state, &res).await;
@@ -216,7 +236,7 @@ async fn main() {
 
                     // Lets make a new connection from the auth packet, send initial sync and stuff.
                     } else {
-                        let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, state.find_empty_slot_id());
+                        let connection = ClientConnection::from_auth(src, send_sock.clone(), &auth_data, state.next_player_id());
 
                         connection.send_data(res.encode(&state));
 
@@ -275,6 +295,8 @@ async fn main() {
 
             // Run tasks
             state.tasks.run_tasks(&state);
+
+            state.physics.tick();
 
             // Increase our current network tick
             let mut network_tick = state.network_tick.write().unwrap();

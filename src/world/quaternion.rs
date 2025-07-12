@@ -4,6 +4,8 @@ use std::{
     ops::{Mul, MulAssign},
 };
 
+use rapier3d::na;
+
 use crate::{
     packets::buf_writer::AlexBufWriter,
     world::{euler_rot::EulerRot, vector::Vector},
@@ -20,6 +22,10 @@ pub struct Quaternion {
 impl Quaternion {
     pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { x, y, z, w }
+    }
+
+    pub fn from_rapier(quat: &na::Quaternion<f32>) -> Self {
+        Self::new(quat.i, quat.j, quat.k, quat.w).normalized()
     }
 
     pub fn euler(x: f32, y: f32, z: f32) -> Self {

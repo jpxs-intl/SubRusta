@@ -1,15 +1,44 @@
+use rapier3d::math;
+
 use crate::world::{euler_rot::EulerRot, quaternion::Quaternion, vector::Vector};
 
+#[derive(Debug)]
 pub struct Transform {
     pub pos: Vector,
-    pub rot: Quaternion   
+    pub rot: Quaternion,
+    pub vel: Vector
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Transform::zero()
+    }
 }
 
 impl Transform {
+    pub fn from_rapier(translation: &math::Vector<f32>) -> Self {
+        Self::pos(translation.x, translation.y, translation.z)
+    }
+
+    pub fn zero() -> Self {
+        Self {
+            pos: Vector::zero(),
+            rot: Quaternion::zero(),
+            vel: Vector::zero()
+        }
+    }
+
+    pub fn pos(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            pos: Vector::new(x, y, z),
+            rot: Quaternion::zero(),
+            vel: Vector::zero()
+        }
+    }
 
     pub fn pos_rot(pos: Vector, rot: Quaternion) -> Self {
         Self {
-            pos, rot: rot.normalized()
+            pos, rot: rot.normalized(), vel: Vector::zero()
         }
     }
 

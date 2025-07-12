@@ -6,9 +6,9 @@ use crate::{
     app_state::ChatType, commands::parse_command, connection::{
         events::{event_types::{update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, Event}, PlayerEventManager},
         menu::{enter_city::handle_enter_city_menu_action, lobby::handle_lobby_menu_action, menu_from_num, MenuTypes},
-    }, items::Item, packets::{
+    }, packets::{
         clientbound::game::{ClientboundGamePacket, ClientboundGamePacketCorporationMoney}, masterserver::auth::MasterServerAuthPacket, serverbound::game::actions::ServerboundGameAction, Encodable, PacketType, Team
-    }, voice::PlayerVoice, world::{quaternion::Quaternion, vector::Vector}, AppState
+    }, voice::PlayerVoice, world::vector::Vector, AppState
 };
 
 pub mod events;
@@ -126,23 +126,12 @@ impl ClientConnection {
             },
         );
 
-        state.items.items.insert(
-            self.client_id,
-            Item {
-                item_type: 38,
-                item_id: self.client_id,
-                pos: Vector::zero(),
-                rot: Quaternion::zero(),
-            },
-        );
-
         state.send_chat(ChatType::Announce, &format!("{} joined!", self.username), -1, 0);
     }
 
     pub fn handle_leave(&self, state: &AppState) {
         state.events.players.remove(&self.client_id);
         state.voices.client_voices.remove(&self.client_id);
-        state.items.items.remove(&self.client_id);
 
         self.kill_thread();
 
@@ -244,10 +233,6 @@ impl ClientConnection {
             self.last_sdl_tick = game_packet.sdl_tick;
             self.last_ping = game_packet.packet_count_maybe;
             self.camera_pos = game_packet.camera_pos;
-
-            if let Some(mut item) = state.items.items.get_mut(&self.client_id) {
-                item.pos = self.camera_pos;
-            }
 
             for event in game_packet.actions.clone().into_iter() {
                 if let ServerboundGameAction::Chat(ref chat) = event {

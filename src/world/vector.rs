@@ -1,6 +1,7 @@
 use std::ops::{Mul, Neg};
 
 use binrw::{BinRead, BinWrite};
+use rapier3d::math;
 
 use crate::{packets::buf_writer::AlexBufWriter, world::quaternion::Quaternion};
 
@@ -21,6 +22,14 @@ pub struct Vector {
 impl Vector {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
+    }
+
+    pub fn from_rapier(translation: &math::Vector<f32>) -> Self {
+        Self::new(translation.x, translation.y, translation.z)
+    }
+
+    pub fn to_rapier(&self) -> math::Vector<f32> {
+        math::Vector::new(self.x, self.y, self.z)
     }
 
     pub fn zero() -> Self {

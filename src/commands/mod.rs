@@ -1,4 +1,4 @@
-use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, world::quaternion::Quaternion};
+use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, world::{quaternion::Quaternion, vector::Vector}};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
@@ -67,16 +67,18 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
             state.send_chat(ChatType::PrivateMessage, &format!("{:?}", client.camera_pos), client.client_id as i32, 0);
         }
 
-        "itemtype" => {
-            let mut typ = args.first().unwrap_or(&"45".to_string()).parse::<u32>().unwrap_or(45);
+        "ballpos" => {
+            let ball = state.items.items.get(&0).unwrap();
 
-            if typ == 39 || typ == 18 || typ == 26 || !(0..=45).contains(&typ) {
-                typ = 45
-            }
+            let pos = ball.transform.pos(state);
 
-            for mut item in state.items.items.iter_mut() {
-                item.item_type = typ;
-            }
+            println!("Pos {pos:?}");
+        }
+
+        "resetball" => {
+            let mut ball = state.items.items.get_mut(&0).unwrap();
+
+            ball.transform.set_pos(Vector::new(1805.0, 89.0, 1538.0), state);
         }
 
         "debugplayer" => {

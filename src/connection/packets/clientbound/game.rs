@@ -25,7 +25,7 @@ pub struct ClientboundGamePacketCorporationMoney {
 impl Encodable for ClientboundGamePacket {
     fn encode(&self, state: &crate::AppState) -> Vec<u8> {
         let mut writer = AlexBufWriter::new();
-    
+
         writer.write_byte(0x05);
         writer.write_bytes(&self.round_number.to_le_bytes());
         writer.write_bytes(&self.network_tick.to_le_bytes());
@@ -100,15 +100,10 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Sent object packets
 
-        writer.write_bits(state.items.items.len() as i32 - 1, 11); // Packed object count
+        writer.write_bits(state.items.items.len() as i32, 11); // Packed object count
         writer.write_bits(0, 11); // Packed object offset
 
-
         for item in state.items.items.iter() {
-            if item.item_id == self.client_id {
-                continue;
-            }
-
             item.encode_obj_header(&mut writer);
         }
 
@@ -116,11 +111,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(0, 8); // Text offset
         
         for item in state.items.items.iter() {
-            if item.item_id == self.client_id {
-                continue;
-            }
-
-            item.encode_obj(&mut writer);
+            item.encode_obj(state, &mut writer);
         }
 
         writer.write_bits(state.vehicles.vehicles.len() as i32, 8); // Vehicle Count
