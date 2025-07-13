@@ -5,7 +5,7 @@ use rapier3d::math;
 
 use crate::{packets::buf_writer::AlexBufWriter, world::quaternion::Quaternion};
 
-#[derive(BinRead, BinWrite, Debug, Default, Clone)]
+#[derive(BinRead, BinWrite, Debug, Default, Clone, Copy)]
 pub struct IntVector {
     pub x: u32,
     pub y: u32,

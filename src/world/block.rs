@@ -2,7 +2,7 @@ use binrw::{BinRead, BinWrite};
 
 use crate::{map::loaders::Char64, world::vector::IntVector};
 
-#[derive(BinRead, BinWrite)]
+#[derive(BinRead, BinWrite, Clone)]
 #[br(import(version: u32))]
 pub struct FileSectorBlock {
     pub area: u32,
@@ -19,7 +19,7 @@ pub struct FileSectorBlock {
     pub itemset_indices: Vec<u32>
 }
 
-#[derive(BinRead, BinWrite)]
+#[derive(BinRead, BinWrite, Clone)]
 #[br(import(version: u32))]
 pub struct FileSectorBlockTypes {
     pub name: Char64,

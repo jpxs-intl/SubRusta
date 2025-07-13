@@ -73,13 +73,13 @@ async fn main() {
         physics: PhysicsManager::new(),
     };
 
-    for building in city.buildings {
+    /*for building in city.buildings {
         let mut collider = ColliderBuilder::cuboid(4.0, 4.0, 4.0);
 
         for tike in building.tiles {
             
         }
-    }
+    }*/
 
     /*state.events.emit_globally(Event::UpdateVehicle(EventUpdateVehicle { 
         tick_created: state.network_tick(), 

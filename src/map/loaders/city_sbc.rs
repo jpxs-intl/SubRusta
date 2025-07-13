@@ -12,7 +12,7 @@ pub struct ItemSet {
 
 #[binrw]
 #[brw(little)]
-pub struct CityFile {
+pub struct CityFileSBC {
     pub version: u32,
 
     #[br(if(version >= 10))]
@@ -48,12 +48,12 @@ pub struct CityFile {
     pub waypoints: Vec<Vector>
 }
 
-impl CityFile {
+impl CityFileSBC {
     pub fn load(map_name: &str) -> Self {
         let path = format!("data/{map_name}/city2.sbc").to_string();
 
         let mut file = File::open(path).unwrap();
 
-        CityFile::read(&mut file).unwrap()
+        CityFileSBC::read(&mut file).unwrap()
     }
 }
