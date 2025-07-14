@@ -2,9 +2,9 @@ use binrw::{BinRead, BinWrite};
 
 use crate::{map::loaders::Char64, world::vector::IntVector};
 
-#[derive(BinRead, BinWrite, Clone)]
+#[derive(BinRead, BinWrite, Clone, Debug)]
 #[br(import(version: u32))]
-pub struct FileSectorBlock {
+pub struct Chunk {
     pub area: u32,
     pub pos: IntVector,
     #[br(if(version >= 11), count = 512)]
@@ -19,9 +19,23 @@ pub struct FileSectorBlock {
     pub itemset_indices: Vec<u32>
 }
 
-#[derive(BinRead, BinWrite, Clone)]
+impl Chunk {
+    pub fn get_blocktype_at_local(&self, pos: IntVector) -> u32 {
+        let index = 64 * pos.y + 8 * pos.z + pos.x;
+
+        *self.block_type_indices.get(index as usize).unwrap_or(&0)
+    }
+    
+    pub fn get_blocktype_at(&self, pos: IntVector) -> u32 {
+        let index = 64 * (pos.y % 8) + 8 * (pos.z % 8) + (pos.x % 8);
+
+        *self.block_type_indices.get(index as usize).unwrap_or(&0)
+    }
+}
+
+#[derive(BinRead, BinWrite, Clone, Debug)]
 #[br(import(version: u32))]
-pub struct FileSectorBlockTypes {
+pub struct ChunkBlockTypes {
     pub name: Char64,
 
     #[br(if(version >= 12))]

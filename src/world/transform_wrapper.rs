@@ -4,8 +4,8 @@ use crate::{app_state::AppState, world::{quaternion::Quaternion, transform::Tran
 
 #[derive(Debug)]
 pub struct WrappedTransform {
-    phys_transform: Option<RigidBodyHandle>,
-    norm_transform: Option<Transform>,
+    pub phys_transform: Option<RigidBodyHandle>,
+    pub norm_transform: Option<Transform>,
 }
 
 impl WrappedTransform {

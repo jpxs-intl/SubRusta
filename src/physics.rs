@@ -45,6 +45,19 @@ impl PhysicsManager {
         }
     }
 
+    pub fn destroy_object(&self, rigidbody: RigidBodyHandle) {
+        let mut rigidbodies = self.rigidbodies.write().unwrap();
+
+        rigidbodies.remove(
+            rigidbody, 
+            &mut self.island_manager.write().unwrap(), 
+            &mut self.colliders.write().unwrap(), 
+            &mut self.impulse_joint_set.write().unwrap(), 
+            &mut self.multibody_joint_set.write().unwrap(), 
+            true
+        );
+    }
+
     pub fn insert_collider(&self, collider: Collider) -> ColliderHandle {
         let mut colliders = self.colliders.write().unwrap();
 

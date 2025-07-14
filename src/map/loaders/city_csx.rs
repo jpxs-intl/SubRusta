@@ -20,7 +20,7 @@ pub enum CSXFileType {
     Unknown
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, Clone)]
 #[br(import(file_type: CSXFileType))]
 pub struct CSXFile {
     #[br(if(file_type == CSXFileType::Building))]
@@ -38,7 +38,7 @@ pub struct CSXTextureHeader {
     pub material_size: u32
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, Clone)]
 pub struct CSXLookupEntry {
     pub file_type: CSXFileType,
     pub offset: u32,

@@ -1,4 +1,6 @@
-use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, world::{quaternion::Quaternion, vector::Vector}};
+use rapier3d::{na::vector, prelude::*};
+
+use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, items::{item_types::ItemType, Item}, world::{quaternion::Quaternion, vector::Vector}};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
@@ -67,18 +69,17 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
             state.send_chat(ChatType::PrivateMessage, &format!("{:?}", client.camera_pos), client.client_id as i32, 0);
         }
 
-        "ballpos" => {
-            let ball = state.items.items.get(&0).unwrap();
-
-            let pos = ball.transform.pos(state);
-
-            println!("Pos {pos:?}");
+        "spawn" => {
+            Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.20, 0.24).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![client.camera_pos.x, client.camera_pos.y, client.camera_pos.z]).build())), &state);
         }
 
-        "resetball" => {
-            let mut ball = state.items.items.get_mut(&0).unwrap();
+        "delete @e" => {
+            for item in state.items.items.iter() {
+                let id = item.item_id;
+                drop(item);
 
-            ball.transform.set_pos(Vector::new(1805.0, 89.0, 1538.0), state);
+                Item::destroy(id, state);
+            }
         }
 
         "debugplayer" => {

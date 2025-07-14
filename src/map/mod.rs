@@ -1,14 +1,14 @@
 use std::time::SystemTime;
 
-use crate::{map::{self, loaders::{block_sbl::BlockFile, building_sbb::BuildingFile, city_csx::{CSXFileType, CSXLookupEntry, CityFileCSX}, city_sbc::CityFileSBC}}, world::{block::{FileSectorBlock, FileSectorBlockTypes}, building::FileBuilding}};
+use crate::{map::loaders::{block_sbl::BlockFile, city_csx::{CSXFile, CSXLookupEntry, CityFileCSX}, city_sbc::CityFileSBC}, world::{block::{Chunk, ChunkBlockTypes}, building::FileBuilding, vector::IntVector}};
 
 pub mod loaders;
 
 pub struct Map {
     pub lookups: Vec<CSXLookupEntry>,
     pub buildings: Vec<FileBuilding>,
-    pub blocks: Vec<FileSectorBlockTypes>,
-    pub sectors: Vec<FileSectorBlock>
+    pub chunk_blocktypes: Vec<ChunkBlockTypes>,
+    pub chunks: Vec<Chunk>
 }
 
 impl Map {
@@ -24,9 +24,9 @@ impl Map {
 
         let mut buildings = vec![];
         let mut blocks = vec![];
-        let mut sectors = vec![];
+        let mut chunks = vec![];
 
-        for data in map_data.buildings {
+        for data in map_data.buildings {           
             buildings.push(data.clone());
         }
 
@@ -35,15 +35,7 @@ impl Map {
         }
 
         for sector in &map_data.sectors {
-            let x_range = (440..460).contains(&sector.pos.x);
-            let y_range = (15..20).contains(&sector.pos.y);
-            let z_range = (380..400).contains(&sector.pos.z);
-
-            if x_range || z_range || y_range || (sector.pos.z == 450 && sector.pos.y == 18 &&sector.pos.x == 385) {
-                println!("Res!@");
-            }
-
-            sectors.push(sector.clone())
+            chunks.push(sector.clone())
         }
 
         println!("[LOADER] Map loaded and parsed in {}ms", start_time.elapsed().unwrap().as_millis());
@@ -51,8 +43,61 @@ impl Map {
         Self {
             lookups: city_lookup.lookup_table,
             buildings,
-            blocks,
-            sectors
+            chunk_blocktypes: blocks,
+            chunks
+        }
+    }
+
+    pub fn get_sector_by_coordinates(&self, pos: IntVector) -> Option<Chunk> {
+        let actual_coords = pos / 8;
+
+        for chunk in &self.chunks {
+            if chunk.pos.x == actual_coords.x && chunk.pos.z == actual_coords.z && chunk.pos.y == actual_coords.y {
+                return Some(chunk.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn get_blocktype_at(&self, pos: IntVector) -> Option<ChunkBlockTypes> {
+        if let Some(sector) = self.get_sector_by_coordinates(pos) {
+            let block = sector.get_blocktype_at(pos) as usize;
+
+            self.chunk_blocktypes.get(block & 0x3ff).cloned()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_blocktype_at_local(&self, chunk: &Chunk, pos: IntVector) -> Option<ChunkBlockTypes> {
+        if let Some(sector) = self.get_sector_by_coordinates(chunk.pos * 8) {
+            let block = sector.get_blocktype_at_local(pos) as usize;
+
+            self.chunk_blocktypes.get(block & 0x3ff).cloned()
+        } else {
+            None
+        }
+    }
+
+    // TODO: Optimize this.
+    pub fn get_file_in_csx(&self, name: &str) -> Option<CSXFile> {
+        for file in &self.lookups {
+            let fname = String::from_utf8_lossy(&file.name).replace('\0', "");
+
+            if fname == name {
+                return Some(file.file.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn get_block_in_csx(&self, name: &str) -> Option<BlockFile> {
+        if let Some(file) = self.get_file_in_csx(name) {
+            file.block
+        } else {
+            None
         }
     }
 }

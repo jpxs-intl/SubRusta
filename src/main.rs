@@ -13,7 +13,7 @@ use crate::{
         , packets::{self}, ClientConnection
     }, items::{item_types::ItemType, Item, ItemManager}, map::Map, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
-    }, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager, world::{transform::Transform, transform_wrapper::WrappedTransform}
+    }, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager, world::{transform::Transform, transform_wrapper::WrappedTransform, vector::IntVector}
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -73,6 +73,34 @@ async fn main() {
         physics: PhysicsManager::new(),
     };
 
+    // TODO: Optimize this somehow.
+    for chunk in &city.chunks {
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let block = city.get_blocktype_at_local(chunk, IntVector { x, y, z });
+
+                    if let Some(block) = block {
+                        let real_block = city.get_block_in_csx(&block.name.string());
+
+                        if let Some(real_block) = real_block {
+                            let (rvertices, rindices) = real_block.to_rapier();
+
+                            let x = (chunk.pos.x * 8) + x;
+                            let y = (chunk.pos.y * 8) + y;
+                            let z = (chunk.pos.z * 8) + z;
+
+                            if let Ok(collider) = ColliderBuilder::trimesh(rvertices, rindices) {
+                                println!("{} {} {}", x, y, z);
+                                state.physics.insert_collider(collider.translation(vector![x as f32, y as f32, z as f32]).build());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /*for building in city.buildings {
         let mut collider = ColliderBuilder::cuboid(4.0, 4.0, 4.0);
 
@@ -112,10 +140,6 @@ async fn main() {
             ),
         },
     );*/
-
-    Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.5, 0.24).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1538.0]).build())), &state);
-    Item::create(ItemType::BigBox, Some((ColliderBuilder::cuboid(1.0, 0.125, 0.5).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1540.0]).build())), &state);
-    Item::create(ItemType::Box, Some((ColliderBuilder::cuboid(0.25, 0.25, 0.25).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![1805.0, 89.0, 1538.0]).build())), &state);
 
     {
         let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0).translation(vector![1808.0, 70.0, 1538.0]).build();

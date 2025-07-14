@@ -12,6 +12,30 @@ pub struct IntVector {
     pub z: u32
 }
 
+impl std::ops::Div<u32> for IntVector {
+    type Output = Self;
+    
+    fn div(self, scalar: u32) -> Self {
+        Self {
+            x: self.x / scalar,
+            y: self.y / scalar,
+            z: self.z / scalar
+        }
+    }
+}
+
+impl std::ops::Mul<u32> for IntVector {
+    type Output = Self;
+
+    fn mul(self, scalar: u32) -> Self::Output {
+        Self {
+            x: self.x * scalar,
+            y: self.y * scalar,
+            z: self.z * scalar
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, BinRead, BinWrite)]
 pub struct Vector {
     pub x: f32,

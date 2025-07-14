@@ -57,6 +57,16 @@ impl Item {
         id
     }
 
+    pub fn destroy(id: u32, state: &AppState) {
+        if let Some(item) = state.items.items.get_mut(&id) {
+            if let Some(phys) = item.transform.phys_transform {
+                state.physics.destroy_object(phys);
+            }
+        }
+
+        state.items.items.remove(&id);
+    }
+
     pub fn encode_obj_header(&self, writer: &mut AlexBufWriter) {
         writer.write_bits(self.item_id as i32, 10);
         writer.write_bits(0, 2);

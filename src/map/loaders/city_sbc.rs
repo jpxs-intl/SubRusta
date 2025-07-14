@@ -2,7 +2,7 @@ use std::fs::File;
 
 use binrw::{binrw, BinRead, BinWrite};
 
-use crate::world::{block::{FileSectorBlock, FileSectorBlockTypes}, building::FileBuilding, street::FileStreet, vector::{IntVector, Vector}};
+use crate::world::{block::{Chunk, ChunkBlockTypes}, building::FileBuilding, street::FileStreet, vector::{IntVector, Vector}};
 
 #[derive(BinRead, BinWrite)]
 pub struct ItemSet {
@@ -35,12 +35,12 @@ pub struct CityFileSBC {
     #[br(if(version == 11 || version >= 12))]
     pub num_blocktypes: u32,
     #[br(if(version == 11 || version >= 12), args { count: num_blocktypes as usize, inner: (version,) })]
-    pub blocktypes: Vec<FileSectorBlockTypes>,
+    pub blocktypes: Vec<ChunkBlockTypes>,
 
     #[br(if(version >= 8))]
     pub num_sectors: u32,
     #[br(if(version >= 8), args { count: num_sectors as usize, inner: (version,) })]
-    pub sectors: Vec<FileSectorBlock>,
+    pub sectors: Vec<Chunk>,
 
     #[br(if(version >= 9))]
     pub num_waypoints: u32,
