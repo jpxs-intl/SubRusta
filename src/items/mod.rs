@@ -1,7 +1,7 @@
 use dashmap::DashMap;
-use rapier3d::prelude::{Collider, ColliderHandle, RigidBody};
+use rapier3d::prelude::*;
 
-use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::ItemType, world::transform_wrapper::WrappedTransform};
+use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::ItemType, world::{transform_wrapper::WrappedTransform, vector::IntVector}};
 
 pub mod item_types;
 
@@ -20,11 +20,20 @@ impl ItemManager {
 
         0
     }
+
+    pub fn tick(&self, state: &AppState) {
+        for item in &self.items {
+            if item.ticking {
+                item.tick(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Item {
     pub item_type: ItemType,
+    pub ticking: bool,
     pub item_id: u32,
     pub transform: WrappedTransform,
     pub collider_handle: Option<ColliderHandle>,
@@ -48,6 +57,7 @@ impl Item {
         let item = Self {
             item_type,
             item_id: id,
+            ticking: true,
             collider_handle: handle,
             transform: WrappedTransform::new(rigid)
         };
@@ -57,12 +67,64 @@ impl Item {
         id
     }
 
-    pub fn destroy(id: u32, state: &AppState) {
-        if let Some(item) = state.items.items.get_mut(&id) {
-            if let Some(phys) = item.transform.phys_transform {
-                state.physics.destroy_object(phys);
+    pub fn tick(&self, state: &AppState) {
+        let pos = self.transform.pos(state);
+
+        let block_pos = pos / 4.0;
+
+        for x in (block_pos.x.round() as i32 - 1)..(block_pos.x.round() as i32 + 1) {
+            for y in (block_pos.y.round() as i32 - 1)..(block_pos.y.round() as i32 + 1) {
+                for z in (block_pos.z.round() as i32 - 1)..(block_pos.z.round() as i32 + 1) {
+                    if state.map.added_coords.contains_key(&(x, y, z)) {
+                        continue;
+                    } 
+
+                    let block_type = state.map.get_blocktype_at_blockpos(IntVector { x: x as u32, y: y as u32, z: z as u32 });
+
+                    if let Some(typep) = block_type {
+                        let block = state.map.get_block_in_csx(&typep.name.string());
+
+                        println!("block! {:?}", block);
+
+                        if let Some(block) = block {
+                            let rapier = block.to_rapier();
+
+                            let mesh = ColliderBuilder::trimesh(rapier.0, rapier.1);
+                            if let Ok(mesh) = mesh {
+                                println!("Added!");
+                                state.physics.insert_collider(mesh.translation(vector![x as f32 * 4.0, y as f32 * 4.0, z as f32 * 4.0]).build());
+
+                                state.map.added_coords.insert((x, y, z), true);
+                            } else {
+                                println!("Added! {} {} {}", x, y, z);
+                                // TODO: Diagnose this shit, I have NO idea why its like this.
+                                // Its just a empty cube :shrug:
+                                let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0).translation(vector![x as f32 * 4.0, y as f32 * 4.0, z as f32 * 4.0]).build();
+
+                                state.physics.insert_collider(cube);
+
+                                state.map.added_coords.insert((x, y, z), true);
+                            }
+                        } else if block.is_none() && typep.name.string() == "" {
+                            println!("Added! {} {} {}", x, y, z);
+                            // TODO: Diagnose this shit, I have NO idea why its like this.
+                            // Its just a empty cube :shrug:
+                            let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0).translation(vector![x as f32 * 4.0, y as f32 * 4.0, z as f32 * 4.0]).build();
+
+                            state.physics.insert_collider(cube);
+
+                            state.map.added_coords.insert((x, y, z), true);
+                        }
+                    }
+                }
             }
         }
+    }
+
+    pub fn destroy(id: u32, state: &AppState) {
+        if let Some(item) = state.items.items.get_mut(&id) && let Some(phys) = item.transform.phys_transform {
+                state.physics.destroy_object(phys);
+            }
 
         state.items.items.remove(&id);
     }

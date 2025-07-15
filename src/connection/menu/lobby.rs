@@ -2,19 +2,17 @@ use crate::{app_state::AppState, connection::{menu::MenuTypes, ClientConnection}
 
 pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnection, state: &AppState) {
     {
-        let mut ready = state.game_state.ready.lock().unwrap();
+        let ready = state.game_state.get_player_ready(connection.client_id);
 
         if menu_button == 5 {
-            ready[connection.client_id as usize] = !ready[connection.client_id as usize];
+            state.game_state.set_player_ready(connection.client_id, !ready);
 
-            if ready[connection.client_id as usize] {
+            if !ready {
                 connection.menu = MenuTypes::Empty
             }
 
             return;
         }
-
-        ready[connection.client_id as usize] = false;
     }
 
     connection.team = match menu_button {

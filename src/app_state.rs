@@ -8,13 +8,27 @@ use dashmap::DashMap;
 use crate::{
     config::config_main::ConfigMain, connection::{events::{
         event_types::{chat::EventChat, Event}, EventManager
-    }, ClientConnection}, items::ItemManager, masterserver::MasterServer, packets::{masterserver::auth::MasterServerAuthPacket, GameState}, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager
+    }, ClientConnection}, items::ItemManager, map::Map, masterserver::MasterServer, packets::{masterserver::auth::MasterServerAuthPacket, GameState}, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager
 };
 
 #[derive(Default)]
 pub struct GameManager {
     pub ready: Mutex<[bool; 32]>,
     pub state: RwLock<GameState>,
+}
+
+impl GameManager {
+    pub fn set_player_ready(&self, player_id: u32, ready: bool) {
+        let mut lock = self.ready.lock().unwrap();
+
+        lock[player_id.clamp(0, 32) as usize] = ready 
+    }
+
+    pub fn get_player_ready(&self, player_id: u32) -> bool {
+        let lock = self.ready.lock().unwrap();
+
+        lock[player_id.clamp(0, 32) as usize]
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -39,6 +53,7 @@ pub struct AppState {
     pub items: ItemManager,
     pub vehicles: VehicleManager,
     pub tasks: TaskScheduler,
+    pub map: Map,
     pub connections: DashMap<SocketAddr, ClientConnection>,
     pub auth_data: DashMap<u32, (i32, MasterServerAuthPacket)>,
     pub game_state: GameManager,

@@ -20,12 +20,12 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    pub fn get_blocktype_at_local(&self, pos: IntVector) -> u32 {
+    pub fn get_blocktype_at_block(&self, pos: IntVector) -> u32 {
         let index = 64 * pos.y + 8 * pos.z + pos.x;
 
         *self.block_type_indices.get(index as usize).unwrap_or(&0)
     }
-    
+
     pub fn get_blocktype_at(&self, pos: IntVector) -> u32 {
         let index = 64 * (pos.y % 8) + 8 * (pos.z % 8) + (pos.x % 8);
 

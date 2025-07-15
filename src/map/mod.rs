@@ -1,11 +1,15 @@
 use std::time::SystemTime;
 
+use dashmap::DashMap;
+use rapier3d::parry::utils::hashmap::HashMap;
+
 use crate::{map::loaders::{block_sbl::BlockFile, city_csx::{CSXFile, CSXLookupEntry, CityFileCSX}, city_sbc::CityFileSBC}, world::{block::{Chunk, ChunkBlockTypes}, building::FileBuilding, vector::IntVector}};
 
 pub mod loaders;
 
 pub struct Map {
     pub lookups: Vec<CSXLookupEntry>,
+    pub added_coords: DashMap<(i32, i32, i32), bool>,
     pub buildings: Vec<FileBuilding>,
     pub chunk_blocktypes: Vec<ChunkBlockTypes>,
     pub chunks: Vec<Chunk>
@@ -42,6 +46,7 @@ impl Map {
 
         Self {
             lookups: city_lookup.lookup_table,
+            added_coords: DashMap::new(),
             buildings,
             chunk_blocktypes: blocks,
             chunks
@@ -49,15 +54,37 @@ impl Map {
     }
 
     pub fn get_sector_by_coordinates(&self, pos: IntVector) -> Option<Chunk> {
-        let actual_coords = pos / 8;
+        let actual_coords = (pos / 4) / 8;
 
         for chunk in &self.chunks {
-            if chunk.pos.x == actual_coords.x && chunk.pos.z == actual_coords.z && chunk.pos.y == actual_coords.y {
+            if chunk.pos.x == actual_coords.x && chunk.pos.z == actual_coords.z {
                 return Some(chunk.clone());
             }
         }
 
         None
+    }
+
+    pub fn get_sector_by_block(&self, pos: IntVector) -> Option<Chunk> {
+        let actual = pos / 8;
+
+        for chunk in &self.chunks {
+            if chunk.pos.x == actual.x && chunk.pos.z == actual.z {
+                return Some(chunk.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn get_blocktype_at_blockpos(&self, pos: IntVector) -> Option<ChunkBlockTypes> {
+        if let Some(sector) = self.get_sector_by_block(pos) {
+            let block = sector.get_blocktype_at_block(pos % 8) as usize;
+
+            self.chunk_blocktypes.get(block & 0x3ff).cloned()
+        } else {
+            None
+        }
     }
 
     pub fn get_blocktype_at(&self, pos: IntVector) -> Option<ChunkBlockTypes> {
@@ -72,7 +99,7 @@ impl Map {
 
     pub fn get_blocktype_at_local(&self, chunk: &Chunk, pos: IntVector) -> Option<ChunkBlockTypes> {
         if let Some(sector) = self.get_sector_by_coordinates(chunk.pos * 8) {
-            let block = sector.get_blocktype_at_local(pos) as usize;
+            let block = sector.get_blocktype_at_block(pos) as usize;
 
             self.chunk_blocktypes.get(block & 0x3ff).cloned()
         } else {

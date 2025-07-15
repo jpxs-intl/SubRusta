@@ -61,6 +61,7 @@ async fn main() {
         masterserver: masterserver.clone(),
         events: EventManager::new(),
         voices: VoiceManager::new(),
+        map: city,
         items: ItemManager::new(),
         vehicles: VehicleManager::new(),
         tasks: TaskScheduler::new(),
@@ -72,34 +73,6 @@ async fn main() {
         for_broadcast: RwLock::new(Vec::new()),
         physics: PhysicsManager::new(),
     };
-
-    // TODO: Optimize this somehow.
-    for chunk in &city.chunks {
-        for x in 0..8 {
-            for y in 0..8 {
-                for z in 0..8 {
-                    let block = city.get_blocktype_at_local(chunk, IntVector { x, y, z });
-
-                    if let Some(block) = block {
-                        let real_block = city.get_block_in_csx(&block.name.string());
-
-                        if let Some(real_block) = real_block {
-                            let (rvertices, rindices) = real_block.to_rapier();
-
-                            let x = (chunk.pos.x * 8) + x;
-                            let y = (chunk.pos.y * 8) + y;
-                            let z = (chunk.pos.z * 8) + z;
-
-                            if let Ok(collider) = ColliderBuilder::trimesh(rvertices, rindices) {
-                                println!("{} {} {}", x, y, z);
-                                state.physics.insert_collider(collider.translation(vector![x as f32, y as f32, z as f32]).build());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     /*for building in city.buildings {
         let mut collider = ColliderBuilder::cuboid(4.0, 4.0, 4.0);
@@ -321,6 +294,7 @@ async fn main() {
             state.tasks.run_tasks(&state);
 
             state.physics.tick();
+            state.items.tick(&state);
 
             // Increase our current network tick
             let mut network_tick = state.network_tick.write().unwrap();

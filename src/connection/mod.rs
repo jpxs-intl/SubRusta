@@ -108,6 +108,10 @@ impl ClientConnection {
         conn
     }
 
+    pub fn tick(&self, state: &AppState) {
+
+    }
+
     pub fn handle_join(&self, state: &AppState) {
         state.events.players.insert(
             self.client_id,
@@ -125,6 +129,8 @@ impl ClientConnection {
                 frames: vec![],
             },
         );
+
+        state.game_state.set_player_ready(self.client_id, false);
 
         state.send_chat(ChatType::Announce, &format!("{} joined!", self.username), -1, 0);
     }
