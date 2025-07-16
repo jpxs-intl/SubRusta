@@ -13,13 +13,13 @@ pub struct BlockSurfaceVertex {
 #[derive(BinRead, Debug, Clone)]
 pub struct BlockSurface {
     pub order_x: u32,
-    pub order_y: u32,
     pub tess_x: u32,
+    pub order_y: u32,
     pub tess_y: u32,
     pub texture: u32,
     pub project_texture: u32,
 
-    #[br(count = 4)]
+    #[br(count = 16)]
     pub vertex_data: Vec<BlockSurfaceVertex>
 }
 
@@ -34,6 +34,9 @@ pub struct BlockBox {
 
 #[derive(BinRead, Debug, Clone)]
 #[br(little)]
+/// This is **ONLY** compatible with the CSX Version
+/// Reason being the file version restricts boxes to version 2
+/// but the CSX makes version 1 have boxes
 pub struct BlockFile {
     pub version: u32,
     pub size: IntVector,
@@ -48,9 +51,8 @@ pub struct BlockFile {
     #[br(count = surface_count)]
     pub surfaces: Vec<BlockSurface>,
 
-    #[br(if(version >= 2))]
     pub box_count: u32,
-    #[br(if(version >= 2), count = box_count)]
+    #[br(count = box_count)]
     pub boxes: Vec<BlockBox>
 }
 
@@ -67,7 +69,7 @@ impl BlockFile {
             BlockFile::insert_surface(surface, &mut vertices, &mut indices);
         }
 
-        let rapier_vertices = vertices
+        let rapier_vertices: Vec<OPoint<f32, Const<3>>> = vertices
             .iter()
             .map(|v| Point::from(math::Vector::new(v.x, v.y, v.z)))
             .collect();
@@ -76,6 +78,8 @@ impl BlockFile {
             .chunks(3)
             .map(|chunk| [chunk[0], chunk[1], chunk[2]])
             .collect();
+
+        println!("Indices {} - Vertices {}", rapier_indices.len(), rapier_vertices.len());
 
         (rapier_vertices, rapier_indices)
     }

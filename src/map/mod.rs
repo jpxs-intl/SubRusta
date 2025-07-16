@@ -79,9 +79,23 @@ impl Map {
 
     pub fn get_blocktype_at_blockpos(&self, pos: IntVector) -> Option<ChunkBlockTypes> {
         if let Some(sector) = self.get_sector_by_block(pos) {
+            if pos.x == 453 && pos.y == 18 && pos.z == 385 {
+                println!("Getting blockpos!");
+            }
             let block = sector.get_blocktype_at_block(pos % 8) as usize;
 
-            self.chunk_blocktypes.get(block & 0x3ff).cloned()
+            let chunk = self.chunk_blocktypes.get(block & 0x3ff).cloned();
+            
+            if let Some(mut chunk) = chunk {
+                if block == 65536 {
+                    println!("setting name!");
+                    chunk.name.set_string("nblock");
+                }
+
+                Some(chunk)
+            } else {
+                None
+            }
         } else {
             None
         }

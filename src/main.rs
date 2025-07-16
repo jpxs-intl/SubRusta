@@ -11,7 +11,7 @@ use crate::{
     app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
         events::EventManager
         , packets::{self}, ClientConnection
-    }, items::{item_types::ItemType, Item, ItemManager}, map::Map, masterserver::MasterServer, packets::{
+    }, items::{item_types::ItemType, Item, ItemManager}, map::{loaders::city_csx::CSXFileType, Map}, masterserver::MasterServer, packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
     }, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager, world::{transform::Transform, transform_wrapper::WrappedTransform, vector::IntVector}
 };
@@ -73,14 +73,6 @@ async fn main() {
         for_broadcast: RwLock::new(Vec::new()),
         physics: PhysicsManager::new(),
     };
-
-    /*for building in city.buildings {
-        let mut collider = ColliderBuilder::cuboid(4.0, 4.0, 4.0);
-
-        for tike in building.tiles {
-            
-        }
-    }*/
 
     /*state.events.emit_globally(Event::UpdateVehicle(EventUpdateVehicle { 
         tick_created: state.network_tick(), 
