@@ -108,7 +108,7 @@ impl ClientConnection {
         conn
     }
 
-    pub fn tick(&self, state: &AppState) {
+    pub fn tick(&self, _state: &AppState) {
 
     }
 

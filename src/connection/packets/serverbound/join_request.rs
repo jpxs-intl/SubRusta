@@ -27,7 +27,6 @@ impl Decodable for ServerboundJoinRequest {
         let protocol_version = reader.read_u8()?;
         let phone_number = reader.read_u32()?;
 
-
         Some(ServerboundJoinRequest {
             version,
             account_id: subrosa_id,

@@ -1,6 +1,6 @@
 use rapier3d::{na::vector, prelude::*};
 
-use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, items::{item_types::ItemType, Item}, world::{quaternion::Quaternion, vector::Vector}};
+use crate::{app_state::{AppState, ChatType}, connection::{menu::menu_from_num, packets::{clientbound::initial_sync::ClientboundInitialSyncPacket, Encodable, GameState}, ClientConnection}, items::{item_types::ItemType, Item}, world::quaternion::Quaternion};
 
 pub fn parse_command(client: &mut ClientConnection, message: String, state: &AppState) -> bool {
     if !message.starts_with('/') {
@@ -70,7 +70,8 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
         }
 
         "spawn" => {
-            Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.20, 0.24).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![client.camera_pos.x, client.camera_pos.y, client.camera_pos.z]).build())), &state);
+            Item::destroy(0, state);
+            Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.20, 0.24).mass(900.0).restitution(1.0).friction(0.2).build(), RigidBodyBuilder::dynamic().translation(vector![client.camera_pos.x, client.camera_pos.y, client.camera_pos.z]).build())), state);
         }
 
         "delete @e" => {

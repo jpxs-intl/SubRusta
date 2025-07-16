@@ -1,9 +1,19 @@
 use std::time::SystemTime;
 
 use dashmap::DashMap;
-use rapier3d::parry::utils::hashmap::HashMap;
 
-use crate::{map::loaders::{block_sbl::BlockFile, city_csx::{CSXFile, CSXLookupEntry, CityFileCSX}, city_sbc::CityFileSBC}, world::{block::{Chunk, ChunkBlockTypes}, building::FileBuilding, vector::IntVector}};
+use crate::{
+    map::loaders::{
+        block_sbl::BlockFile,
+        city_csx::{CSXFile, CSXLookupEntry, CityFileCSX},
+        city_sbc::CityFileSBC,
+    },
+    world::{
+        block::{Chunk, ChunkBlockTypes},
+        building::FileBuilding,
+        vector::IntVector,
+    },
+};
 
 pub mod loaders;
 
@@ -12,7 +22,7 @@ pub struct Map {
     pub added_coords: DashMap<(i32, i32, i32), bool>,
     pub buildings: Vec<FileBuilding>,
     pub chunk_blocktypes: Vec<ChunkBlockTypes>,
-    pub chunks: Vec<Chunk>
+    pub chunks: Vec<Chunk>,
 }
 
 impl Map {
@@ -24,13 +34,16 @@ impl Map {
         println!("[LOADER] Loading {city_name}");
         let city_lookup = CityFileCSX::load(&city_name);
         let map_data = CityFileSBC::load(&city_name);
-        println!("[LOADER] {city_name} successfully loaded in {}ms", start_time.elapsed().unwrap().as_millis());
+        println!(
+            "[LOADER] {city_name} successfully loaded in {}ms",
+            start_time.elapsed().unwrap().as_millis()
+        );
 
         let mut buildings = vec![];
         let mut blocks = vec![];
         let mut chunks = vec![];
 
-        for data in map_data.buildings {           
+        for data in map_data.buildings {
             buildings.push(data.clone());
         }
 
@@ -49,7 +62,7 @@ impl Map {
             added_coords: DashMap::new(),
             buildings,
             chunk_blocktypes: blocks,
-            chunks
+            chunks,
         }
     }
 
@@ -79,16 +92,12 @@ impl Map {
 
     pub fn get_blocktype_at_blockpos(&self, pos: IntVector) -> Option<ChunkBlockTypes> {
         if let Some(sector) = self.get_sector_by_block(pos) {
-            if pos.x == 453 && pos.y == 18 && pos.z == 385 {
-                println!("Getting blockpos!");
-            }
             let block = sector.get_blocktype_at_block(pos % 8) as usize;
 
             let chunk = self.chunk_blocktypes.get(block & 0x3ff).cloned();
-            
+
             if let Some(mut chunk) = chunk {
                 if block == 65536 {
-                    println!("setting name!");
                     chunk.name.set_string("nblock");
                 }
 
@@ -112,10 +121,20 @@ impl Map {
     }
 
     pub fn get_blocktype_at_local(&self, chunk: &Chunk, pos: IntVector) -> Option<ChunkBlockTypes> {
-        if let Some(sector) = self.get_sector_by_coordinates(chunk.pos * 8) {
-            let block = sector.get_blocktype_at_block(pos) as usize;
+        let block = chunk.get_blocktype_at_block(pos) as usize;
 
-            self.chunk_blocktypes.get(block & 0x3ff).cloned()
+        if block == 0 {
+            return None;
+        }
+
+        let chunk: Option<ChunkBlockTypes> = self.chunk_blocktypes.get(block & 0x3ff).cloned();
+
+        if let Some(mut chunk) = chunk {
+            if block == 65536 {
+                chunk.name.set_string("nblock");
+            }
+
+            Some(chunk)
         } else {
             None
         }
@@ -135,10 +154,6 @@ impl Map {
     }
 
     pub fn get_block_in_csx(&self, name: &str) -> Option<BlockFile> {
-        if let Some(file) = self.get_file_in_csx(name) {
-            file.block
-        } else {
-            None
-        }
+        if let Some(file) = self.get_file_in_csx(name) { file.block } else { None }
     }
 }

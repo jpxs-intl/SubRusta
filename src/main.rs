@@ -2,18 +2,33 @@
 #![feature(async_trait_bounds)]
 
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     time::SystemTime,
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
-        events::EventManager
-        , packets::{self}, ClientConnection
-    }, items::{item_types::ItemType, Item, ItemManager}, map::{loaders::city_csx::CSXFileType, Map}, masterserver::MasterServer, packets::{
-        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
-    }, physics::PhysicsManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager, world::{transform::Transform, transform_wrapper::WrappedTransform, vector::IntVector}
+    app_state::{AppState, ChatType, GameManager},
+    config::config_main::ConfigMain,
+    connection::{
+        ClientConnection,
+        events::EventManager,
+        packets::{self},
+    },
+    items::ItemManager,
+    map::Map,
+    masterserver::MasterServer,
+    packets::{
+        Encodable, PacketType,
+        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo},
+    },
+    physics::PhysicsManager,
+    scheduler::TaskScheduler,
+    srk_parser::SrkData,
+    vehicles::VehicleManager,
+    voice::VoiceManager,
+    world::vector::IntVector,
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -27,14 +42,14 @@ pub mod commands;
 pub mod config;
 pub mod connection;
 pub mod items;
+pub mod map;
 pub mod masterserver;
+pub mod physics;
 pub mod scheduler;
 pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
-pub mod physics;
-pub mod map;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 pub const TICKS_PER_SECOND: i32 = 62;
@@ -50,15 +65,15 @@ async fn main() {
 
     let city = Map::load();
 
-    let mut masterserver = MasterServer::init(&config).await;
+    let masterserver = MasterServer::init(&config).await;
 
     let srk_data = SrkData::read_from_file();
 
-    let state = AppState {
+    let mut state = AppState {
         network_tick: RwLock::new(1),
         round_number: RwLock::new(1),
         map_name: RwLock::new("test2".to_string()),
-        masterserver: masterserver.clone(),
+        masterserver,
         events: EventManager::new(),
         voices: VoiceManager::new(),
         map: city,
@@ -74,40 +89,69 @@ async fn main() {
         physics: PhysicsManager::new(),
     };
 
-    /*state.events.emit_globally(Event::UpdateVehicle(EventUpdateVehicle { 
-        tick_created: state.network_tick(), 
-        vehicle_id: 0, 
-        vehicle_type: 0, 
-        color: 1, 
-        pos: Vector { x: 1800.0, y: 82.0, z: 1500.0 }, 
-        velocity: Vector::zero()
-    }));
+    let start = SystemTime::now();
+    let mut created: HashMap<String, (Vec<nalgebra::OPoint<f32, nalgebra::Const<3>>>, Vec<[u32; 3]>)> = HashMap::new();
 
-    state.events.emit_globally(Event::UpdateVehicleTypeColor(EventUpdateVehicleTypeColor {
-        tick_created: state.network_tick(),
-        vehicle_color: 1,
-        vehicle_id: 0,
-        vehicle_type: 0,
-    }));
+    for chunk in &state.map.chunks {
+        for x in 0..=8 {
+            for y in 0..=8 {
+                for z in 0..=8 {
+                    let proper = state.map.get_blocktype_at_local(chunk, IntVector { x, y, z });
 
-    state.vehicles.vehicles.insert(
-        0,
-        Vehicle {
-            vehicle_id: 0,
-            engine_rpm: 1200,
-            transform: Transform::pos_rot(
-                Vector {
-                    x: 1800.0,
-                    y: 82.0,
-                    z: 1500.0,
-                },
-                Quaternion::euler(0.0, 45.0, 0.0),
-            ),
-        },
-    );*/
+                    if let Some(proper) = proper {
+                        let block = state.map.get_block_in_csx(&proper.name.string());
+
+                        if let Some(block) = block {
+                            if let Some(existing) = created.get(&proper.name.string()) {
+                                let mesh = ColliderBuilder::trimesh(existing.0.clone(), existing.1.clone());
+
+                                if let Ok(mesh) = mesh {
+                                    state.physics.insert_collider(
+                                        mesh.translation(vector![
+                                            (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                            (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                            (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                        ])
+                                        .build(),
+                                    );
+                                }
+                            } else {
+                                let rapier = block.to_rapier();
+
+                                created.insert(proper.name.string(), rapier.clone());
+
+                                let mesh = ColliderBuilder::trimesh(rapier.0, rapier.1);
+                                if let Ok(mesh) = mesh {
+                                    state.physics.insert_collider(
+                                        mesh.translation(vector![
+                                            (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                            (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                            (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                        ])
+                                        .build(),
+                                    );
+                                }
+                            }
+                        } else if proper.name.string() == "nblock" {
+                            // TODO: Diagnose this shit, I have NO idea why its like this.
+                            // Its just a empty cube :shrug:
+                            let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0)
+                                .translation(vector![(chunk.pos.x as f32 * 8.0 + x as f32) * 4.0 + 2.0, (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0 + 2.0, (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0 + 2.0])
+                                .build();
+
+                            state.physics.insert_collider(cube);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("Finished in {}ms", start.elapsed().unwrap().as_millis());
 
     {
-        let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0).translation(vector![1808.0, 70.0, 1538.0]).build();
+        let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0)
+            .translation(vector![1808.0, 70.0, 1538.0])
+            .build();
 
         state.physics.insert_collider(collider);
     }
@@ -119,17 +163,25 @@ async fn main() {
 
     let send_sock = make_sender(recv_sock.clone());
 
-    masterserver.connect(send_sock.clone());
+    state.masterserver.connect(send_sock.clone());
 
-    state.tasks.schedule_task(state.network_tick(), Some(TICKS_PER_SECOND * 16), Box::new(|state: &AppState| {
-        state.masterserver.send(vec![b'@']);
-    }));
+    state.tasks.schedule_task(
+        state.network_tick(),
+        Some(TICKS_PER_SECOND * 16),
+        Box::new(|state: &AppState| {
+            state.masterserver.send(vec![b'@']);
+        }),
+    );
 
-    state.tasks.schedule_task(state.network_tick(), Some(TICKS_PER_SECOND * 10), Box::new(|state: &AppState| {
-        state.auth_data.retain(|_, (tick_created, _)| {
-            state.network_tick() - *tick_created <= TICKS_PER_SECOND * 10
-        });
-    }));
+    state.tasks.schedule_task(
+        state.network_tick(),
+        Some(TICKS_PER_SECOND * 10),
+        Box::new(|state: &AppState| {
+            state
+                .auth_data
+                .retain(|_, (tick_created, _)| state.network_tick() - *tick_created <= TICKS_PER_SECOND * 10);
+        }),
+    );
 
     let mut packet_buf = [0; 1024];
     let mut last_tick = SystemTime::now();
@@ -248,7 +300,7 @@ async fn main() {
                 }
             }
 
-            // When the MS sends us an auth packet, add the player to our auth stash so we can 
+            // When the MS sends us an auth packet, add the player to our auth stash so we can
             // figure out who they are on join
             if let PacketType::MasterServerAuthPacket(ref auth) = packet_type {
                 println!(
@@ -295,7 +347,7 @@ async fn main() {
             last_tick = SystemTime::now();
         }
     }
-    }
+}
 
 pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
     let encoded_packet = packet.encode(state);

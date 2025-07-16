@@ -68,7 +68,7 @@ impl Item {
     }
 
     pub fn tick(&self, state: &AppState) {
-        let pos = self.transform.pos(state);
+        /*let pos = self.transform.pos(state);
 
         let block_pos = pos / 4.0;
 
@@ -89,25 +89,23 @@ impl Item {
 
                             let mesh = ColliderBuilder::trimesh(rapier.0, rapier.1);
                             if let Ok(mesh) = mesh {
-                                println!("Generated mesh!");
-                                state.physics.insert_collider(mesh.translation(vector![(x as f32 * 4.0) + 2.0, (y as f32 * 4.0) + 2.0, (z as f32 * 4.0) + 2.0]).build());
+                                state.physics.insert_collider(mesh.translation(vector![x as f32 * 4.0, y as f32 * 4.0, z as f32 * 4.0]).build());
                             }
 
                             state.map.added_coords.insert((x, y, z), true);
                         } else if typep.name.string() == "nblock" {
-                                // TODO: Diagnose this shit, I have NO idea why its like this.
-                                // Its just a empty cube :shrug:
-                                let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0).translation(vector![(x as f32 * 4.0) + 2.0, (y as f32 * 4.0) + 2.0, (z as f32 * 4.0) + 2.0]).build();
+                            // TODO: Diagnose this shit, I have NO idea why its like this.
+                            // Its just a empty cube :shrug:
+                            let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0).translation(vector![(x as f32 * 4.0) + 2.0, (y as f32 * 4.0) + 2.0, (z as f32 * 4.0) + 2.0]).build();
 
-                                state.physics.insert_collider(cube);
+                            state.physics.insert_collider(cube);
 
-                                state.map.added_coords.insert((x, y, z), true);
-                                println!("Done adding!");
+                            state.map.added_coords.insert((x, y, z), true);
                         }
                     }
                 }
             }
-        }
+        }*/
     }
 
     pub fn destroy(id: u32, state: &AppState) {

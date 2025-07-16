@@ -1,5 +1,5 @@
 use binrw::BinRead;
-use rapier3d::{math::Point, na::{Const, OPoint}, parry::math, prelude::TriMesh};
+use rapier3d::{math::Point, na::{Const, OPoint}, parry::math};
 
 use crate::world::vector::{IntVector, Vector};
 
@@ -78,8 +78,6 @@ impl BlockFile {
             .chunks(3)
             .map(|chunk| [chunk[0], chunk[1], chunk[2]])
             .collect();
-
-        println!("Indices {} - Vertices {}", rapier_indices.len(), rapier_vertices.len());
 
         (rapier_vertices, rapier_indices)
     }
