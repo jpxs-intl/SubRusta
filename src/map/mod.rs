@@ -176,17 +176,20 @@ impl Map {
                                     // Again, cube gen.
                                     {
                                         let cube_data = &existing.0;
-                                        let mesh = ColliderBuilder::trimesh(cube_data.0.clone(), cube_data.1.clone());
 
-                                        if let Ok(mesh) = mesh {
-                                            state.physics.insert_collider(
-                                                mesh.translation(vector![
-                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
-                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
-                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
-                                                ])
-                                                .build(),
-                                            );
+                                        for cube in cube_data {
+                                            let mesh = ColliderBuilder::trimesh(cube.0.clone(), cube.1.clone());
+
+                                            if let Ok(mesh) = mesh {
+                                                state.physics.insert_collider(
+                                                    mesh.translation(vector![
+                                                        (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                        (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                        (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                    ])
+                                                    .build(),
+                                                );
+                                            }
                                         }
                                     }
 
@@ -201,7 +204,7 @@ impl Map {
                                                     (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
                                                     (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
                                                 ])
-                                                .build()
+                                                .build(),
                                             );
                                         }
                                     }
@@ -213,16 +216,20 @@ impl Map {
                                     // This part is for generating the cubes, (blocks as Alex calls em)
                                     {
                                         let cube_data = rapier.0;
-                                        let mesh = ColliderBuilder::trimesh(cube_data.0, cube_data.1);
-                                        if let Ok(mesh) = mesh {
-                                            state.physics.insert_collider(
-                                                mesh.translation(vector![
-                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
-                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
-                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
-                                                ])
-                                                .build(),
-                                            );
+
+                                        for cube in cube_data {
+                                            let mesh = ColliderBuilder::trimesh(cube.0, cube.1);
+                                            
+                                            if let Ok(mesh) = mesh {
+                                                state.physics.insert_collider(
+                                                    mesh.translation(vector![
+                                                        (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                        (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                        (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                    ])
+                                                    .build(),
+                                                );
+                                            }
                                         }
                                     }
 

@@ -3,7 +3,7 @@ use rapier3d::{math::Point, na::{Const, OPoint, Point3}, parry::math};
 
 use crate::world::vector::{IntVector, Vector};
 
-pub type RapierBlock = ((Vec<OPoint<f32, Const<3>>>, Vec<[u32; 3]>), Vec<OPoint<f32, Const<3>>>);
+pub type RapierBlock = (Vec<(Vec<OPoint<f32, Const<3>>>, Vec<[u32; 3]>)>, Vec<OPoint<f32, Const<3>>>);
 
 #[derive(BinRead, Debug, Clone)]
 pub struct BlockSurfaceVertex {
@@ -60,24 +60,23 @@ pub struct BlockFile {
 
 impl BlockFile {
     pub fn cubes_to_rapier(&self) -> RapierBlock {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        let mut cubes = vec![];
 
         for boxes in &self.boxes {
-            BlockFile::insert_cube(boxes, &mut vertices, &mut indices);
-        }
+            let (vertices, indices) = BlockFile::insert_cube(boxes);
 
-        let rapier_vertices: Vec<OPoint<f32, Const<3>>> = vertices
+            let rapier_vertices: Vec<OPoint<f32, Const<3>>> = vertices
             .iter()
             .map(|v| Point::from(math::Vector::new(v.x, v.y, v.z)))
             .collect();
         
-        let rapier_indices: Vec<[u32; 3]> = indices
+            let rapier_indices: Vec<[u32; 3]> = indices
             .chunks(3)
             .map(|chunk| [chunk[0], chunk[1], chunk[2]])
             .collect();
 
-        let triangles = (rapier_vertices, rapier_indices);
+            cubes.push((rapier_vertices, rapier_indices))
+        }
 
         let mut points = vec![];
         for surface in &self.surfaces {
@@ -88,11 +87,12 @@ impl BlockFile {
             }
         }
 
-        (triangles, points)
+        (cubes, points)
     }
 
-    fn insert_cube(box_data: &BlockBox, vertices: &mut Vec<Vector>, indices: &mut Vec<u32>) {
-        let base = vertices.len() as u32;
+    fn insert_cube(box_data: &BlockBox) -> (Vec<Vector>, Vec<u32>) {
+        let mut indices = vec![];
+        let mut vertices = vec![];
 
         for vertex in &box_data.vertices {
             vertices.push(*vertex * 4.0)
@@ -108,13 +108,15 @@ impl BlockFile {
         ];
 
         for (tri1, tri2) in cube_faces.iter() {
-            indices.push(base + tri1[0]);
-            indices.push(base + tri1[1]);
-            indices.push(base + tri1[2]);
+            indices.push(tri1[0]);
+            indices.push(tri1[1]);
+            indices.push(tri1[2]);
 
-            indices.push(base + tri2[0]);
-            indices.push(base + tri2[1]);
-            indices.push(base + tri2[2]);
+            indices.push(tri2[0]);
+            indices.push(tri2[1]);
+            indices.push(tri2[2]);
         }
+
+        (vertices, indices)
     }
 }

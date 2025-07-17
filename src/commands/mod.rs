@@ -72,7 +72,7 @@ pub fn parse_command(client: &mut ClientConnection, message: String, state: &App
         "spawn" => {
             for id in 0..=args.first().unwrap_or(&"0".to_string()).parse::<u32>().unwrap_or(10) {
                 Item::destroy(id, state);
-                Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.10, 0.20).density(2.0).restitution(1.0).friction(0.78).build(), RigidBodyBuilder::dynamic().translation(vector![client.camera_pos.x + id as f32, client.camera_pos.y, client.camera_pos.z]).angular_damping(0.8).linear_damping(0.2).build())), state);
+                Item::create(ItemType::Watermelon, Some((ColliderBuilder::capsule_y(0.10, 0.20).density(2.0).restitution(0.0).friction(0.78).build(), RigidBodyBuilder::dynamic().translation(vector![client.camera_pos.x + id as f32, client.camera_pos.y, client.camera_pos.z]).angular_damping(0.8).linear_damping(0.2).build())), state);
             }
         }
 
