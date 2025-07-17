@@ -2,7 +2,6 @@
 #![feature(async_trait_bounds)]
 
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
     time::SystemTime,
@@ -28,7 +27,6 @@ use crate::{
     srk_parser::SrkData,
     vehicles::VehicleManager,
     voice::VoiceManager,
-    world::vector::IntVector,
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -76,7 +74,6 @@ async fn main() {
         masterserver,
         events: EventManager::new(),
         voices: VoiceManager::new(),
-        map: city,
         items: ItemManager::new(),
         vehicles: VehicleManager::new(),
         tasks: TaskScheduler::new(),
@@ -90,63 +87,8 @@ async fn main() {
     };
 
     let start = SystemTime::now();
-    let mut created: HashMap<String, (Vec<nalgebra::OPoint<f32, nalgebra::Const<3>>>, Vec<[u32; 3]>)> = HashMap::new();
-
-    for chunk in &state.map.chunks {
-        for x in 0..=8 {
-            for y in 0..=8 {
-                for z in 0..=8 {
-                    let proper = state.map.get_blocktype_at_local(chunk, IntVector { x, y, z });
-
-                    if let Some(proper) = proper {
-                        let block = state.map.get_block_in_csx(&proper.name.string());
-
-                        if let Some(block) = block {
-                            if let Some(existing) = created.get(&proper.name.string()) {
-                                let mesh = ColliderBuilder::trimesh(existing.0.clone(), existing.1.clone());
-
-                                if let Ok(mesh) = mesh {
-                                    state.physics.insert_collider(
-                                        mesh.translation(vector![
-                                            (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
-                                            (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
-                                            (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
-                                        ])
-                                        .build(),
-                                    );
-                                }
-                            } else {
-                                let rapier = block.to_rapier();
-
-                                created.insert(proper.name.string(), rapier.clone());
-
-                                let mesh = ColliderBuilder::trimesh(rapier.0, rapier.1);
-                                if let Ok(mesh) = mesh {
-                                    state.physics.insert_collider(
-                                        mesh.translation(vector![
-                                            (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
-                                            (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
-                                            (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
-                                        ])
-                                        .build(),
-                                    );
-                                }
-                            }
-                        } else if proper.name.string() == "nblock" {
-                            // TODO: Diagnose this shit, I have NO idea why its like this.
-                            // Its just a empty cube :shrug:
-                            let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0)
-                                .translation(vector![(chunk.pos.x as f32 * 8.0 + x as f32) * 4.0 + 2.0, (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0 + 2.0, (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0 + 2.0])
-                                .build();
-
-                            state.physics.insert_collider(cube);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    println!("Finished in {}ms", start.elapsed().unwrap().as_millis());
+    city.add_colliders_to_pieces(&state);
+    println!("[LOADER] Finished adding colision on pieces in {}ms", start.elapsed().unwrap().as_millis());
 
     {
         let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0)
@@ -343,6 +285,11 @@ async fn main() {
             // Increase our current network tick
             let mut network_tick = state.network_tick.write().unwrap();
             *network_tick += 1;
+
+            let elapsed = last_tick.elapsed().unwrap().as_millis();
+            if elapsed > 30 {
+                println!("[SERVER] Tick slowed, expect lag! {}ms overbudget!", elapsed - 16);
+            }
 
             last_tick = SystemTime::now();
         }

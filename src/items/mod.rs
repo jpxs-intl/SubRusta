@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use rapier3d::prelude::*;
 
-use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::ItemType, world::{transform_wrapper::WrappedTransform, vector::IntVector}};
+use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::ItemType, world::transform_wrapper::WrappedTransform};
 
 pub mod item_types;
 
@@ -22,7 +22,7 @@ impl ItemManager {
     }
 
     pub fn tick(&self, state: &AppState) {
-        for item in &self.items {
+        for mut item in self.items.iter_mut() {
             if item.ticking {
                 item.tick(state);
             }
@@ -67,45 +67,14 @@ impl Item {
         id
     }
 
-    pub fn tick(&self, state: &AppState) {
-        /*let pos = self.transform.pos(state);
+    pub fn tick(&mut self, state: &AppState) {
+        let mut pos = self.transform.pos(state);
 
-        let block_pos = pos / 4.0;
+        if pos.y <= 0.0 {
+            pos.y += 1000.0;
 
-        for x in (block_pos.x.round() as i32 - 1)..=(block_pos.x.round() as i32 + 1) {
-            for y in (block_pos.y.round() as i32 - 1)..=(block_pos.y.round() as i32 + 1) {
-                for z in (block_pos.z.round() as i32 - 1)..=(block_pos.z.round() as i32 + 1) {
-                    if state.map.added_coords.contains_key(&(x, y, z)) {
-                        continue;
-                    } 
-
-                    let block_type = state.map.get_blocktype_at_blockpos(IntVector { x: x as u32, y: y as u32, z: z as u32 });
-
-                    if let Some(typep) = block_type {
-                        let block = state.map.get_block_in_csx(&typep.name.string());
-
-                        if let Some(block) = block {
-                            let rapier = block.to_rapier();
-
-                            let mesh = ColliderBuilder::trimesh(rapier.0, rapier.1);
-                            if let Ok(mesh) = mesh {
-                                state.physics.insert_collider(mesh.translation(vector![x as f32 * 4.0, y as f32 * 4.0, z as f32 * 4.0]).build());
-                            }
-
-                            state.map.added_coords.insert((x, y, z), true);
-                        } else if typep.name.string() == "nblock" {
-                            // TODO: Diagnose this shit, I have NO idea why its like this.
-                            // Its just a empty cube :shrug:
-                            let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0).translation(vector![(x as f32 * 4.0) + 2.0, (y as f32 * 4.0) + 2.0, (z as f32 * 4.0) + 2.0]).build();
-
-                            state.physics.insert_collider(cube);
-
-                            state.map.added_coords.insert((x, y, z), true);
-                        }
-                    }
-                }
-            }
-        }*/
+            self.transform.set_pos(pos, state);
+        }
     }
 
     pub fn destroy(id: u32, state: &AppState) {

@@ -1,10 +1,12 @@
-use std::time::SystemTime;
+use std::{collections::HashMap, time::SystemTime};
 
 use dashmap::DashMap;
+use rapier3d::prelude::*;
 
 use crate::{
+    app_state::AppState,
     map::loaders::{
-        block_sbl::BlockFile,
+        block_sbl::{BlockFile, RapierBlock},
         city_csx::{CSXFile, CSXLookupEntry, CityFileCSX},
         city_sbc::CityFileSBC,
     },
@@ -155,5 +157,108 @@ impl Map {
 
     pub fn get_block_in_csx(&self, name: &str) -> Option<BlockFile> {
         if let Some(file) = self.get_file_in_csx(name) { file.block } else { None }
+    }
+
+    pub fn add_colliders_to_pieces(&self, state: &AppState) {
+        let mut created: HashMap<String, RapierBlock> = HashMap::new();
+
+        for chunk in &self.chunks {
+            for x in 0..=8 {
+                for y in 0..=8 {
+                    for z in 0..=8 {
+                        let proper = self.get_blocktype_at_local(chunk, IntVector { x, y, z });
+
+                        if let Some(proper) = proper {
+                            let block = self.get_block_in_csx(&proper.name.string());
+
+                            if let Some(block) = block {
+                                if let Some(existing) = created.get(&proper.name.string()) {
+                                    // Again, cube gen.
+                                    {
+                                        let cube_data = &existing.0;
+                                        let mesh = ColliderBuilder::trimesh(cube_data.0.clone(), cube_data.1.clone());
+
+                                        if let Ok(mesh) = mesh {
+                                            state.physics.insert_collider(
+                                                mesh.translation(vector![
+                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                ])
+                                                .build(),
+                                            );
+                                        }
+                                    }
+
+                                    {
+                                        let surface_data = &existing.1;
+                                        let mesh = ColliderBuilder::convex_hull(surface_data);
+
+                                        if let Some(mesh) = mesh {
+                                            state.physics.insert_collider(
+                                                mesh.translation(vector![
+                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                ])
+                                                .build()
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    let rapier = block.cubes_to_rapier();
+
+                                    created.insert(proper.name.string(), rapier.clone());
+
+                                    // This part is for generating the cubes, (blocks as Alex calls em)
+                                    {
+                                        let cube_data = rapier.0;
+                                        let mesh = ColliderBuilder::trimesh(cube_data.0, cube_data.1);
+                                        if let Ok(mesh) = mesh {
+                                            state.physics.insert_collider(
+                                                mesh.translation(vector![
+                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                ])
+                                                .build(),
+                                            );
+                                        }
+                                    }
+
+                                    {
+                                        let surface_data = rapier.1;
+                                        let mesh = ColliderBuilder::convex_hull(&surface_data);
+
+                                        if let Some(mesh) = mesh {
+                                            state.physics.insert_collider(
+                                                mesh.translation(vector![
+                                                    (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0,
+                                                    (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0,
+                                                    (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0
+                                                ])
+                                                .build(),
+                                            );
+                                        }
+                                    }
+                                }
+                            } else if proper.name.string() == "nblock" {
+                                // TODO: Diagnose this shit, I have NO idea why its like this.
+                                // Its just a empty cube :shrug:
+                                let cube = ColliderBuilder::cuboid(2.0, 2.0, 2.0)
+                                    .translation(vector![
+                                        (chunk.pos.x as f32 * 8.0 + x as f32) * 4.0 + 2.0,
+                                        (chunk.pos.y as f32 * 8.0 + y as f32) * 4.0 + 2.0,
+                                        (chunk.pos.z as f32 * 8.0 + z as f32) * 4.0 + 2.0
+                                    ])
+                                    .build();
+
+                                state.physics.insert_collider(cube);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

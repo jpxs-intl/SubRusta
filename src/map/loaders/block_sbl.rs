@@ -1,7 +1,9 @@
 use binrw::BinRead;
-use rapier3d::{math::Point, na::{Const, OPoint}, parry::math};
+use rapier3d::{math::Point, na::{Const, OPoint, Point3}, parry::math};
 
 use crate::world::vector::{IntVector, Vector};
+
+pub type RapierBlock = ((Vec<OPoint<f32, Const<3>>>, Vec<[u32; 3]>), Vec<OPoint<f32, Const<3>>>);
 
 #[derive(BinRead, Debug, Clone)]
 pub struct BlockSurfaceVertex {
@@ -57,16 +59,12 @@ pub struct BlockFile {
 }
 
 impl BlockFile {
-    pub fn to_rapier(&self) -> (Vec<OPoint<f32, Const<3>>>, Vec<[u32; 3]>) {
+    pub fn cubes_to_rapier(&self) -> RapierBlock {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
         for boxes in &self.boxes {
             BlockFile::insert_cube(boxes, &mut vertices, &mut indices);
-        }
-
-        for surface in &self.surfaces {
-            BlockFile::insert_surface(surface, &mut vertices, &mut indices);
         }
 
         let rapier_vertices: Vec<OPoint<f32, Const<3>>> = vertices
@@ -79,27 +77,18 @@ impl BlockFile {
             .map(|chunk| [chunk[0], chunk[1], chunk[2]])
             .collect();
 
-        (rapier_vertices, rapier_indices)
-    }
+        let triangles = (rapier_vertices, rapier_indices);
 
-    fn insert_surface(surface: &BlockSurface, vertices: &mut Vec<Vector>, indices: &mut Vec<u32>) {
-        let base = vertices.len() as u32;
+        let mut points = vec![];
+        for surface in &self.surfaces {
+            for vertex in &surface.vertex_data {
+                let point = Point3::new(vertex.pos.x * 4.0, vertex.pos.y * 4.0, vertex.pos.z * 4.0);
 
-        for vertex in &surface.vertex_data {
-            vertices.push(Vector {
-                x: vertex.pos.x * 4.0,
-                y: vertex.pos.y * 4.0,
-                z: vertex.pos.z * 4.0
-            })
+                points.push(point);
+            }
         }
 
-        indices.push(base);
-        indices.push(base + 1);
-        indices.push(base + 2);
-        
-        indices.push(base);
-        indices.push(base + 2);
-        indices.push(base + 3);
+        (triangles, points)
     }
 
     fn insert_cube(box_data: &BlockBox, vertices: &mut Vec<Vector>, indices: &mut Vec<u32>) {
