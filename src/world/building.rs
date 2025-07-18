@@ -1,10 +1,3 @@
-use binrw::{BinRead, BinWrite};
-
-use crate::{map::loaders::Char64, world::vector::IntVector};
-
-#[derive(BinRead, BinWrite, Clone)]
-pub struct FileBuilding {
-    pub name: Char64,
-    pub pos: IntVector,
-    pub rot: u32
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:30c4f8de00d7e42d4409551ae27a74e52e0975e587d35614446c0a332bbc7461
+size 221

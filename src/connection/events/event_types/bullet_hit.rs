@@ -1,21 +1,3 @@
-use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
-
-#[derive(Clone, Debug)]
-pub struct EventBulletHit {
-    pub tick_created: i32,
-    pub pos: Vector,
-    pub normal: Vector,
-    pub hit_type: i32,
-    pub unk: i32
-}
-
-impl WriterEncodable for EventBulletHit {
-    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
-        writer.write_bits(1, 6);
-        writer.write_bits(self.tick_created, 28);
-        writer.write_bits(self.unk, 4);
-        writer.write_bits(self.hit_type, 6);
-        self.pos.encode(writer);
-        self.normal.encode(writer);
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:7bd2c389826176b27f3d48ec3d1bbd9a503372ce3fc06835d2c257ddcdb7f434
+size 622

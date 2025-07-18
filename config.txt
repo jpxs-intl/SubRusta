@@ -1,13 +1,3 @@
-admin_password=admin
-gamemode=round
-help=true
-manual_hands=false
-master_server_url=ms.jpxs.io
-max_players=1
-port=27584
-round_time=300
-server_name=Sub Rusta testing server.
-server_password=
-voice_boost=0
-voice_chat=false
-voice_min=1000
+version https://git-lfs.github.com/spec/v1
+oid sha256:af3075282097cb151f0a83efe7559bfc1c546d2188022c5800a223c7f85d12f5
+size 235

@@ -1,26 +1,3 @@
-use std::sync::RwLock;
-
-use dashmap::DashMap;
-
-use crate::connection::packets::serverbound::game::opus::ServerboundGameVoiceFrame;
-
-#[derive(Default)]
-pub struct VoiceManager {
-    pub voice_enabled: RwLock<bool>,
-    pub client_voices: DashMap<u32, PlayerVoice>
-}
-
-pub struct PlayerVoice {
-    pub enabled: bool,
-    pub client_id: u32,
-    pub frames: Vec<ServerboundGameVoiceFrame>
-}
-
-impl VoiceManager {
-    pub fn new() -> Self {
-        VoiceManager {
-            voice_enabled: RwLock::new(true),
-            client_voices: DashMap::new()
-        }
-    }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:2ac024949bfb796c60908422fa900f88a6a8b647e40c8d850cb6aac0ba15a67c
+size 563
