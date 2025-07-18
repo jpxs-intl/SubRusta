@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:65cd4af1f210f9f1238b726f6babcc42ee760cff8d15aa2f34a85ffe916bf171
-size 588
+use std::net::SocketAddr;
+
+use crate::{packets::{buf_reader::AlexBufReader, Decodable}, AppState};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerboundInfoRequest {
+    pub version: u8,
+    pub timestamp: u32,
+}
+
+impl Decodable for ServerboundInfoRequest {
+    fn decode(buf: Vec<u8>, _src: SocketAddr, _state: &AppState) -> Option<Self> {
+        let mut reader = AlexBufReader::from_buf(buf);
+
+        let version = reader.read_u8()?;
+        let timestamp = reader.read_u32()?;
+
+        Some(ServerboundInfoRequest {
+            version,
+            timestamp,
+        })
+    }
+}

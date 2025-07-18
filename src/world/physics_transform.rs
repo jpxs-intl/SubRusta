@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b928cc5da0d66e8b607b0f654058266d6a22466f3e64272ddf17cb3c572d62c7
-size 405
+use rapier3d::{na, parry::math};
+
+pub struct PhysicsTranform {
+    pub pos: math::Vector<f32>,
+    pub rot: na::Quaternion<f32>,
+    pub vel: math::Vector<f32>
+}
+
+impl PhysicsTranform {
+    pub fn zero() -> Self {
+        Self {
+            pos: math::Vector::new(0.0, 0.0, 0.0),
+            rot: na::Quaternion::new(1.0, 0.0, 0.0, 0.0),
+            vel: math::Vector::new(0.0, 0.0, 0.0)
+        }
+    }
+}

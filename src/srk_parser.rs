@@ -1,3 +1,111 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:453ed7ddf8d7c374a6f3a0350f86665bc4cc0274df0bfd5cc30eb7d87cdc3be6
-size 3023
+
+use std::{fs::{File, OpenOptions}, path::Path};
+
+use binrw::{BinRead, BinWrite};
+
+use crate::packets::masterserver::auth::MasterServerAuthPacket;
+
+#[derive(BinRead, BinWrite, Clone)]
+#[brw(little)]
+pub struct SrkData {
+    pub version: u32,
+    pub server_id: u32,
+    pub player_count: u32,
+    #[br(count = player_count)]
+    pub players: Vec<SrkPlayerData>
+}
+
+#[derive(BinRead, BinWrite, Clone)]
+#[brw(little)]
+pub struct SrkPlayerData {
+    pub account_id: u32,
+    pub phone_number: u32,
+    pub steam_id: u64,
+    pub unused_0: u32,
+    pub unused_1: u32,
+    pub player_name: [u8; 32],
+    pub money: u32,
+    pub corp_rating: u32,
+    pub crim_rating: u32,
+    pub spawn_timer: u32,
+    pub play_time: u32,
+    pub unused_2: u32,
+    pub unused_3: u32,
+    pub ban_time: u32,
+}
+
+impl SrkData {
+    pub fn read_from_file() -> Self {
+        println!("[SRK] Attempting to read server.srk...");
+
+        let file_name = "server.srk";
+
+        if !Path::new(file_name).exists() {
+            let data = SrkData {
+                player_count: 0,
+                players: vec![],
+                server_id: 800815,
+                version: 1
+            };
+
+            let mut file = File::create(file_name).unwrap();
+            let _ = data.write(&mut file);
+        }
+
+        let mut file = std::fs::File::open(file_name).expect("Failed to open server.srk");
+        let data = SrkData::read(&mut file).unwrap();
+
+        println!("[SRK] Loaded SRK successfully, found {} players.", data.player_count);
+
+        data
+    }
+
+    pub fn create_account(&mut self, data: &MasterServerAuthPacket) {
+        let existing_account = self.players.clone().into_iter().filter(|acc| acc.account_id == data.account_id).collect::<Vec<SrkPlayerData>>();
+
+        let mut name = data.name.clone().into_bytes();
+        name.resize(32, 0);
+
+        if existing_account.is_empty() {
+            let account = SrkPlayerData {
+                account_id: data.account_id,
+                ban_time: 0,
+                phone_number: data.phone_number,
+                steam_id: data.steam_id,
+                corp_rating: 0,
+                crim_rating: 0,
+                money: 0,
+                play_time: 0,
+                player_name: name.try_into().unwrap(),
+                spawn_timer: 0,
+                unused_0: 0,
+                unused_1: 0,
+                unused_2: 0,
+                unused_3: 0
+            };
+
+            self.player_count += 1;
+            self.players.push(account);
+
+            self.save();
+        }
+    }
+
+    pub fn save(&self) {
+        let file = OpenOptions::new().write(true).create(true).truncate(true).open("server.srk");
+
+        if let Ok(mut file) = file {
+            let res = self.write(&mut file);
+
+            if res.is_err() {
+                println!("[SRK] Failed to save SRK data!");
+            } else {
+                println!("[SRK] Successfully saved SRK data!")
+            }
+
+            return;
+        }
+
+        println!("[SRk] Failed to open SRK file!");
+    }
+}

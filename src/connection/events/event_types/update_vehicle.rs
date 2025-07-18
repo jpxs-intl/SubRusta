@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e9125078001670ed12b98ad818887207c0184d148c3e3457e6cbfe441f6fb543
-size 720
+use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
+
+#[derive(Clone, Debug)]
+pub struct EventUpdateVehicle {
+    pub tick_created: i32,
+    pub vehicle_id: i32,
+    pub vehicle_type: i32,
+    pub color: i32,
+    pub pos: Vector,
+    pub velocity: Vector
+}
+
+impl WriterEncodable for EventUpdateVehicle {
+    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
+        writer.write_bits(4, 6);
+        writer.write_bits(self.tick_created, 28);
+        writer.write_bits(self.vehicle_id, 10);
+        writer.write_bits(self.vehicle_type, 4);
+        writer.write_bits(self.color, 10);
+        self.pos.encode(writer);
+        self.velocity.encode(writer);
+    }
+}
