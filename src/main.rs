@@ -8,25 +8,11 @@ use std::{
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager},
-    config::config_main::ConfigMain,
-    connection::{
-        ClientConnection,
-        events::EventManager,
-        packets::{self},
-    },
-    items::ItemManager,
-    map::Map,
-    masterserver::MasterServer,
-    packets::{
-        Encodable, PacketType,
-        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo},
-    },
-    physics::PhysicsManager,
-    scheduler::TaskScheduler,
-    srk_parser::SrkData,
-    vehicles::VehicleManager,
-    voice::VoiceManager,
+    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
+        events::EventManager, packets::{self}, ClientConnection
+    }, items::ItemManager, map::Map, masterserver::MasterServer, packets::{
+        clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
+    }, physics::PhysicsManager, plugins::PluginManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -48,6 +34,7 @@ pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
+pub mod plugins;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 pub const TICKS_PER_SECOND: i32 = 62;
@@ -72,6 +59,7 @@ async fn main() {
         round_number: RwLock::new(1),
         map_name: RwLock::new("test2".to_string()),
         masterserver,
+        plugins: PluginManager::new(),
         events: EventManager::new(),
         voices: VoiceManager::new(),
         items: ItemManager::new(),
@@ -85,6 +73,8 @@ async fn main() {
         for_broadcast: RwLock::new(Vec::new()),
         physics: PhysicsManager::new(),
     };
+
+    state.plugins.load_plugins();
 
     let start = SystemTime::now();
     city.add_colliders_to_pieces(&state);
