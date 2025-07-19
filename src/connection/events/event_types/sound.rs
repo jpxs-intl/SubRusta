@@ -1,4 +1,6 @@
-use crate::{connection::packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
+use std::sync::Arc;
+
+use crate::{app_state::AppState, connection::packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SoundType {
@@ -52,7 +54,7 @@ pub struct EventSound {
 }
 
 impl WriterEncodable for EventSound {
-    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
+    fn encode(&self, _state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         writer.write_bits(9, 6);
         writer.write_bits(self.tick_created, 28);
 

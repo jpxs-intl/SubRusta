@@ -1,22 +1,22 @@
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use rapier3d::prelude::*;
 
 pub struct PhysicsManager {
-    pipeline: RwLock<PhysicsPipeline>,
-    pub gravity: RwLock<Vector<f32>>,
-    integration_params: RwLock<IntegrationParameters>,
-    island_manager: RwLock<IslandManager>,
-    broad_phase: RwLock<BroadPhaseMultiSap>,
-    narrow_phase: RwLock<NarrowPhase>,
-    impulse_joint_set: RwLock<ImpulseJointSet>,
-    multibody_joint_set: RwLock<MultibodyJointSet>,
-    ccd_solver: RwLock<CCDSolver>,
-    query_pipeline: RwLock<QueryPipeline>,
+    pipeline: Arc<RwLock<PhysicsPipeline>>,
+    pub gravity: Arc<RwLock<Vector<f32>>>,
+    integration_params: Arc<RwLock<IntegrationParameters>>,
+    island_manager: Arc<RwLock<IslandManager>>,
+    broad_phase: Arc<RwLock<BroadPhaseMultiSap>>,
+    narrow_phase: Arc<RwLock<NarrowPhase>>,
+    impulse_joint_set: Arc<RwLock<ImpulseJointSet>>,
+    multibody_joint_set: Arc<RwLock<MultibodyJointSet>>,
+    ccd_solver: Arc<RwLock<CCDSolver>>,
+    query_pipeline: Arc<RwLock<QueryPipeline>>,
     physics_hook: (),
     event_handler: (),
-    pub rigidbodies: RwLock<RigidBodySet>,
-    pub colliders: RwLock<ColliderSet>,
+    pub rigidbodies: Arc<RwLock<RigidBodySet>>,
+    pub colliders: Arc<RwLock<ColliderSet>>,
 }
 
 impl Default for PhysicsManager {
@@ -28,20 +28,20 @@ impl Default for PhysicsManager {
 impl PhysicsManager {
     pub fn new() -> Self {
         Self {
-            pipeline: RwLock::new(PhysicsPipeline::new()),
-            gravity: RwLock::new(vector![0.0, -9.8, 0.0]),
-            integration_params: RwLock::new(IntegrationParameters::default()),
-            island_manager: RwLock::new(IslandManager::new()),
-            broad_phase: RwLock::new(DefaultBroadPhase::new()),
-            narrow_phase: RwLock::new(NarrowPhase::new()),
-            impulse_joint_set: RwLock::new(ImpulseJointSet::new()),
-            multibody_joint_set: RwLock::new(MultibodyJointSet::new()),
-            ccd_solver: RwLock::new(CCDSolver::new()),
-            query_pipeline: RwLock::new(QueryPipeline::new()),
+            pipeline: Arc::new(RwLock::new(PhysicsPipeline::new())),
+            gravity: Arc::new(RwLock::new(vector![0.0, -9.8, 0.0])),
+            integration_params: Arc::new(RwLock::new(IntegrationParameters::default())),
+            island_manager: Arc::new(RwLock::new(IslandManager::new())),
+            broad_phase: Arc::new(RwLock::new(DefaultBroadPhase::new())),
+            narrow_phase: Arc::new(RwLock::new(NarrowPhase::new())),
+            impulse_joint_set: Arc::new(RwLock::new(ImpulseJointSet::new())),
+            multibody_joint_set: Arc::new(RwLock::new(MultibodyJointSet::new())),
+            ccd_solver: Arc::new(RwLock::new(CCDSolver::new())),
+            query_pipeline: Arc::new(RwLock::new(QueryPipeline::new())),
             physics_hook: (),
             event_handler: (),
-            rigidbodies: RwLock::new(RigidBodySet::new()),
-            colliders: RwLock::new(ColliderSet::new()),
+            rigidbodies: Arc::new(RwLock::new(RigidBodySet::new())),
+            colliders: Arc::new(RwLock::new(ColliderSet::new())),
         }
     }
 

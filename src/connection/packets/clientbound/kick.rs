@@ -1,4 +1,6 @@
-use crate::packets::Encodable;
+use std::sync::Arc;
+
+use crate::{app_state::AppState, packets::Encodable};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundKickPacket {
@@ -6,7 +8,7 @@ pub struct ClientboundKickPacket {
 }
 
 impl Encodable for ClientboundKickPacket {
-    fn encode(&self, _state: &crate::AppState) -> Vec<u8> {
+    fn encode(&self, _state: &Arc<AppState>) -> Vec<u8> {
         if self.reason.len() > 63 {
             panic!("Kick reason exceeds maximum length of 32 bytes");
         }

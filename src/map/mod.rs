@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use dashmap::DashMap;
 use rapier3d::prelude::*;
@@ -159,7 +159,7 @@ impl Map {
         if let Some(file) = self.get_file_in_csx(name) { file.block } else { None }
     }
 
-    pub fn add_colliders_to_pieces(&self, state: &AppState) {
+    pub fn add_colliders_to_pieces(&self, state: &Arc<AppState>) {
         let mut created: HashMap<String, RapierBlock> = HashMap::new();
 
         for chunk in &self.chunks {

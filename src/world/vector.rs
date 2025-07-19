@@ -1,7 +1,9 @@
 use std::ops::{Mul, Neg};
 
 use binrw::{BinRead, BinWrite};
+use mlua::{FromLua, Value};
 use rapier3d::math;
+use serde::Deserialize;
 
 use crate::{packets::buf_writer::AlexBufWriter, world::quaternion::Quaternion};
 
@@ -48,7 +50,7 @@ impl std::ops::Mul<u32> for IntVector {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, BinRead, BinWrite)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, BinRead, BinWrite, Deserialize)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,
@@ -126,6 +128,17 @@ impl Vector {
             Self::new(self.x / mag, self.y / mag, self.z / mag)
         } else {
             Self::zero()
+        }
+    }
+}
+
+impl FromLua for Vector {
+    fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> mlua::Result<Self> {
+        match value {
+            Value::Table(table) => {
+                Ok(Vector::new(table.get("x")?, table.get("y")?, table.get("z")?))
+            },
+            _ => Err(mlua::Error::FromLuaConversionError { from: value.type_name(), to: "Vector".to_string(), message: Some("Expected XYZ table for vector".to_string()) })
         }
     }
 }

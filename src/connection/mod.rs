@@ -108,11 +108,11 @@ impl ClientConnection {
         conn
     }
 
-    pub fn tick(&self, _state: &AppState) {
+    pub fn tick(&self, _state: Arc<AppState>) {
 
     }
 
-    pub fn handle_join(&self, state: &AppState) {
+    pub fn handle_join(&self, state: &Arc<AppState>) {
         state.events.players.insert(
             self.client_id,
             PlayerEventManager {
@@ -135,7 +135,7 @@ impl ClientConnection {
         state.send_chat(ChatType::Announce, &format!("{} joined!", self.username), -1, 0);
     }
 
-    pub fn handle_leave(&self, state: &AppState) {
+    pub fn handle_leave(&self, state: &Arc<AppState>) {
         state.events.players.remove(&self.client_id);
         state.voices.client_voices.remove(&self.client_id);
 
@@ -171,7 +171,7 @@ impl ClientConnection {
         }
     }
 
-    pub fn send_game_packet(&self, state: &AppState) {
+    pub fn send_game_packet(&self, state: &Arc<AppState>) {
         let game = ClientboundGamePacket {
             client_id: self.client_id,
             received_actions: self.received_actions,
@@ -192,7 +192,7 @@ impl ClientConnection {
         self.send_data(game.encode(state));
     }
 
-    pub fn update_player(&self, state: &AppState) {
+    pub fn update_player(&self, state: &Arc<AppState>) {
         let event_update = Event::UpdatePlayer(EventUpdatePlayer {
             tick_created: state.network_tick(),
             client_id: self.client_id,
@@ -207,7 +207,7 @@ impl ClientConnection {
         state.events.emit_globally(event_update);
     }
 
-    pub fn update_money(&self, state: &AppState) {
+    pub fn update_money(&self, state: &Arc<AppState>) {
         let event_update = Event::UpdatePlayerRound(EventUpdatePlayerRound {
             tick_created: state.network_tick(),
             client_id: self.client_id,
@@ -228,7 +228,7 @@ impl ClientConnection {
         let _ = self.tx_sender.send(vec);
     }
 
-    pub async fn handle_packet(&mut self, packet: PacketType, state: &AppState) {
+    pub async fn handle_packet(&mut self, packet: PacketType, state: &Arc<AppState>) {
         if let PacketType::ServerboundGamePacket(ref game_packet) = packet {
             if let Some(mut ev) = state.events.players.get_mut(&self.client_id) {
                 ev.recieved_events = game_packet.recieved_events;

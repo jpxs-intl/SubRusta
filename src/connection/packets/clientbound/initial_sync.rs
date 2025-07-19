@@ -1,4 +1,6 @@
-use crate::packets::{buf_writer::AlexBufWriter, Encodable, GameMode};
+use std::sync::Arc;
+
+use crate::{app_state::AppState, packets::{buf_writer::AlexBufWriter, Encodable, GameMode}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundInitialSyncPacket {
@@ -11,7 +13,7 @@ pub struct ClientboundInitialSyncPacket {
 }
 
 impl Encodable for ClientboundInitialSyncPacket {
-    fn encode(&self, state: &crate::AppState) -> Vec<u8> {
+    fn encode(&self, state: &Arc<AppState>) -> Vec<u8> {
         let mut writer = AlexBufWriter::new();
 
         writer.write_byte(0x06);

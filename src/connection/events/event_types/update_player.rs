@@ -1,4 +1,6 @@
-use crate::{connection::CharacterCustomization, packets::{buf_writer::AlexBufWriter, utils::limited_string, WriterEncodable, Team}};
+use std::sync::Arc;
+
+use crate::{app_state::AppState, connection::CharacterCustomization, packets::{buf_writer::AlexBufWriter, utils::limited_string, Team, WriterEncodable}};
 
 #[derive(Clone, Debug)]
 pub struct EventUpdatePlayer {
@@ -14,7 +16,7 @@ pub struct EventUpdatePlayer {
 
 // TODO: Make these bitfields actually work
 impl WriterEncodable for EventUpdatePlayer {
-    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
+    fn encode(&self, _state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         writer.write_bits(7, 6);
         writer.write_bits(self.tick_created, 28);
 

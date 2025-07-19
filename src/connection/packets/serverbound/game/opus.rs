@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{app_state::AppState, connection::ClientConnection, packets::buf_reader::AlexBufReader};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,7 +16,7 @@ pub struct ServerboundGameVoiceFrame {
     pub data: Vec<u8>,
 }
 
-pub fn decode_voice_data(reader: &mut AlexBufReader, state: &AppState, connection: &ClientConnection) -> Option<ServerboundGameVoiceData> {
+pub fn decode_voice_data(reader: &mut AlexBufReader, state: &Arc<AppState>, connection: &ClientConnection) -> Option<ServerboundGameVoiceData> {
     let mut frames = core::array::from_fn(|_| ServerboundGameVoiceFrame {
         index: 0,
         size: 0,

@@ -13,8 +13,8 @@ use crate::{
 
 #[derive(Default)]
 pub struct GameManager {
-    pub ready: Mutex<[bool; 32]>,
-    pub state: RwLock<GameState>,
+    pub ready: Arc<Mutex<[bool; 32]>>,
+    pub state: Arc<RwLock<GameState>>,
 }
 
 impl GameManager {
@@ -42,9 +42,9 @@ pub enum ChatType {
 }
 
 pub struct AppState {
-    pub network_tick: RwLock<i32>,
-    pub round_number: RwLock<u32>,
-    pub map_name: RwLock<String>,
+    pub network_tick: Arc<RwLock<i32>>,
+    pub round_number: Arc<RwLock<u32>>,
+    pub map_name: Arc<RwLock<String>>,
     pub masterserver: MasterServer,
     pub srk_data: Arc<Mutex<SrkData>>,
     pub plugins: PluginManager,
@@ -59,7 +59,7 @@ pub struct AppState {
     pub game_state: GameManager,
     pub physics: PhysicsManager,
 
-    pub for_broadcast: RwLock<Vec<Vec<u8>>>,
+    pub for_broadcast: Arc<RwLock<Vec<Vec<u8>>>>,
 }
 
 impl AppState {

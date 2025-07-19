@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use crate::{app_state::AppState, connection::{menu::MenuTypes, ClientConnection}, packets::Team};
 
-pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnection, state: &AppState) {
+pub fn handle_lobby_menu_action(menu_button: u32, connection: &mut ClientConnection, state: &Arc<AppState>) {
     {
         let ready = state.game_state.get_player_ready(connection.client_id);
 

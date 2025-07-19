@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     packets::{
         buf_writer::AlexBufWriter, utils::{least_significant, most_significant}, Encodable
@@ -12,7 +14,7 @@ pub struct ServerInfo {
 }
 
 impl Encodable for ServerInfo {
-    fn encode(&self, state: &AppState) -> Vec<u8> {
+    fn encode(&self, state: &Arc<AppState>) -> Vec<u8> {
         let mut writer = AlexBufWriter::new();
         writer.write_byte(0x01);
         writer.write_byte(0x26);

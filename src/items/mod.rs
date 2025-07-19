@@ -1,7 +1,9 @@
-use dashmap::DashMap;
-use rapier3d::prelude::*;
+use std::sync::Arc;
 
-use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::ItemType, world::transform_wrapper::WrappedTransform};
+use dashmap::DashMap;
+use rapier3d::prelude::ColliderHandle;
+
+use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::{ItemColliders, ItemType}, world::{transform_wrapper::WrappedTransform, vector::Vector}};
 
 pub mod item_types;
 
@@ -21,7 +23,7 @@ impl ItemManager {
         0
     }
 
-    pub fn tick(&self, state: &AppState) {
+    pub fn tick(&self, state: &Arc<AppState>) {
         for mut item in self.items.iter_mut() {
             if item.ticking {
                 item.tick(state);
@@ -40,16 +42,16 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn create(item_type: ItemType, collider: Option<(Collider, RigidBody)>, state: &AppState) -> u32 {
+    pub fn create(item_type: ItemType, transform: Vector, state: &Arc<AppState>) -> u32 {
         let id = state.items.next_item_id();
 
-        let (handle, rigid) = if let Some(collider) = collider {
+        let (handle, rigid) = if let Some(collider) = item_type.create_collider() && let Some(rigidbody) = item_type.create_rigidbody(transform) {
             let mut colliders = state.physics.colliders.write().unwrap();
             let mut rigidbodies = state.physics.rigidbodies.write().unwrap();
 
-            let rigidbody_handle = rigidbodies.insert(collider.1);
+            let rigidbody_handle = rigidbodies.insert(rigidbody);
 
-            (Some(colliders.insert_with_parent(collider.0, rigidbody_handle, &mut rigidbodies)), Some(rigidbody_handle))
+            (Some(colliders.insert_with_parent(collider, rigidbody_handle, &mut rigidbodies)), Some(rigidbody_handle))
         } else {
             (None, None)
         };
@@ -67,7 +69,7 @@ impl Item {
         id
     }
 
-    pub fn tick(&mut self, state: &AppState) {
+    pub fn tick(&mut self, state: &Arc<AppState>) {
         let mut pos = self.transform.pos(state);
 
         if pos.y <= 0.0 {
@@ -77,7 +79,7 @@ impl Item {
         }
     }
 
-    pub fn destroy(id: u32, state: &AppState) {
+    pub fn destroy(id: u32, state: &Arc<AppState>) {
         if let Some(item) = state.items.items.get_mut(&id) && let Some(phys) = item.transform.phys_transform {
                 state.physics.destroy_object(phys);
             }
@@ -93,13 +95,13 @@ impl Item {
         writer.write_bits(self.item_id as i32, 16);
     }
 
-    pub fn encode_transform(&self, state: &AppState, writer: &mut AlexBufWriter) {
+    pub fn encode_transform(&self, state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         self.transform.pos(state).encode_delta(writer);
 
         self.transform.rot(state).encode_xyz(writer);
     }
 
-    pub fn encode_obj(&self, state: &AppState, writer: &mut AlexBufWriter) {
+    pub fn encode_obj(&self, state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         writer.write_bits(1, 1);
         writer.write_bits(1, 1);
 

@@ -1,4 +1,6 @@
-use crate::{connection::events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, sound::EventSound, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
+use std::sync::Arc;
+
+use crate::{app_state::AppState, connection::events::event_types::{bullet_hit::EventBulletHit, chat::EventChat, sound::EventSound, team_door_state::EventTeamDoorState, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
 
 pub mod bullet_hit;
 pub mod update_vehicle_type_color;
@@ -24,7 +26,7 @@ pub enum Event {
 }
 
 impl WriterEncodable for Event {
-    fn encode(&self, state: &crate::AppState, writer: &mut AlexBufWriter) {
+    fn encode(&self, state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         match self {
             Event::BulletHit(event_bullet_hit) => event_bullet_hit.encode(state, writer),
             Event::UpdateVehicleTypeColor(event_update_vehicle_type_color) => event_update_vehicle_type_color.encode(state, writer),

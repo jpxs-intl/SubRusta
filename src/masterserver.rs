@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::{net::SocketAddr, str::FromStr, sync::{Arc, Mutex}};
 
 use crossbeam::channel::Sender;
 
@@ -7,7 +7,7 @@ use crate::config::config_main::ConfigMain;
 #[derive(Clone)]
 pub struct MasterServer {
     pub address: SocketAddr,
-    server_socket: Option<Sender<(Vec<u8>, SocketAddr)>>,
+    server_socket: Arc<Mutex<Option<Sender<(Vec<u8>, SocketAddr)>>>>,
 }
 
 impl MasterServer {
@@ -52,7 +52,7 @@ impl MasterServer {
 
         MasterServer {
             address: sock_addr.unwrap(),
-            server_socket: None,
+            server_socket: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -72,20 +72,24 @@ impl MasterServer {
         }
     }*/
 
-    pub fn connect(&mut self, tx: Sender<(Vec<u8>, SocketAddr)>) {
-        self.server_socket = Some(tx);
+    pub fn connect(&self, tx: Sender<(Vec<u8>, SocketAddr)>) {
+        let mut write = self.server_socket.lock().unwrap();
+        *write = Some(tx);
+
         println!("[MasterServer] Connected to MasterServer! - Now online!");
     }
 
     pub fn send(&self, data: Vec<u8>) {
-        if let Some(socket) = &self.server_socket {
+        if let Ok(lock) = self.server_socket.lock() {
             let header = b"7DFP";
 
             let mut data_with_header = Vec::with_capacity(header.len() + data.len());
             data_with_header.extend_from_slice(header);
             data_with_header.extend_from_slice(&data);
 
-            let _ = socket.send((data_with_header, self.address));
+            if let Some(socket) = lock.clone() {
+                let _ = socket.send((data_with_header, self.address));
+            }
         }
     }
 }

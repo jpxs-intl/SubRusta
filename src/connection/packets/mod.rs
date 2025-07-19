@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 
@@ -55,11 +55,11 @@ pub enum GameState {
 }
 
 pub trait Encodable {
-    fn encode(&self, state: &AppState) -> Vec<u8>;
+    fn encode(&self, state: &Arc<AppState>) -> Vec<u8>;
 }
 
 pub trait WriterEncodable {
-    fn encode(&self, state: &AppState, writer: &mut AlexBufWriter);
+    fn encode(&self, state: &Arc<AppState>, writer: &mut AlexBufWriter);
 }
 
 pub trait StatelessEncodable {
@@ -67,7 +67,7 @@ pub trait StatelessEncodable {
 }
 
 pub trait Decodable: Sized {
-    fn decode(buf: Vec<u8>, src: SocketAddr, state: &AppState) -> Option<Self>;
+    fn decode(buf: Vec<u8>, src: SocketAddr, state: &Arc<AppState>) -> Option<Self>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +82,7 @@ pub enum PacketType {
     MasterServerAuthPacket(MasterServerAuthPacket)
 }
 
-pub fn decode_packet(data: Vec<u8>, src: SocketAddr, state: &AppState) -> Option<PacketType> {
+pub fn decode_packet(data: Vec<u8>, src: SocketAddr, state: &Arc<AppState>) -> Option<PacketType> {
     // This is ALWAYS 7DFP\0
     let mut data = data.clone();
     let _header = data.drain(..4).collect::<Vec<u8>>();

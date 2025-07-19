@@ -8,7 +8,7 @@ binrw = "0.15.0"
 crossbeam = "0.8.4"
 dashmap = { version = "6.1.0", features = ["serde"] }
 dirs-next = "2.0.0"
-mlua = { version = "0.11.1", features = ["luau", "serde"] }
+mlua = { version = "0.11.1", features = ["luau", "serde", "send"] }
 rand = "0.9.1"
 rapier3d = { version = "0.26.1", features = ["simd-nightly"] }
 reqwest = "0.12.22"

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rapier3d::prelude::{RigidBody, RigidBodyHandle};
 
 use crate::{app_state::AppState, world::{quaternion::Quaternion, transform::Transform, vector::Vector}};
@@ -23,7 +25,7 @@ impl WrappedTransform {
         }
     }
 
-    pub fn from_rigidbody(rigidbody: RigidBody, state: &AppState) -> Self {
+    pub fn from_rigidbody(rigidbody: RigidBody, state: &Arc<AppState>) -> Self {
         let mut writ = state.physics.rigidbodies.write().unwrap();
 
         Self {
@@ -36,7 +38,7 @@ impl WrappedTransform {
         self.phys_transform
     }
 
-    pub fn pos(&self, state: &AppState) -> Vector {
+    pub fn pos(&self, state: &Arc<AppState>) -> Vector {
         if let Some(phys_transform) = &self.phys_transform {
             let transform = state.physics.rigidbodies.read().unwrap();
 
@@ -46,7 +48,7 @@ impl WrappedTransform {
         }
     }
 
-    pub fn set_pos(&mut self, pos: Vector, state: &AppState) {
+    pub fn set_pos(&mut self, pos: Vector, state: &Arc<AppState>) {
         if let Some(rigidbody) = self.phys_transform {
             let mut writ = state.physics.rigidbodies.write().unwrap();
             let rigid = writ.get_mut(rigidbody).unwrap();
@@ -57,7 +59,7 @@ impl WrappedTransform {
         }
     }
 
-    pub fn rot(&self, state: &AppState) -> Quaternion {
+    pub fn rot(&self, state: &Arc<AppState>) -> Quaternion {
         if let Some(phys_transform) = &self.phys_transform {
             let transform = state.physics.rigidbodies.read().unwrap();
 

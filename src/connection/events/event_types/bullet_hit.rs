@@ -1,4 +1,6 @@
-use crate::{packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
+use std::sync::Arc;
+
+use crate::{app_state::AppState, packets::{buf_writer::AlexBufWriter, WriterEncodable}, world::vector::Vector};
 
 #[derive(Clone, Debug)]
 pub struct EventBulletHit {
@@ -10,7 +12,7 @@ pub struct EventBulletHit {
 }
 
 impl WriterEncodable for EventBulletHit {
-    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
+    fn encode(&self, _state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         writer.write_bits(1, 6);
         writer.write_bits(self.tick_created, 28);
         writer.write_bits(self.unk, 4);

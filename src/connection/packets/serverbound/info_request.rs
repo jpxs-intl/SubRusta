@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::{packets::{buf_reader::AlexBufReader, Decodable}, AppState};
 
@@ -9,7 +9,7 @@ pub struct ServerboundInfoRequest {
 }
 
 impl Decodable for ServerboundInfoRequest {
-    fn decode(buf: Vec<u8>, _src: SocketAddr, _state: &AppState) -> Option<Self> {
+    fn decode(buf: Vec<u8>, _src: SocketAddr, _state: &Arc<AppState>) -> Option<Self> {
         let mut reader = AlexBufReader::from_buf(buf);
 
         let version = reader.read_u8()?;

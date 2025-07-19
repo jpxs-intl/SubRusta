@@ -1,5 +1,6 @@
 #![feature(try_blocks)]
 #![feature(async_trait_bounds)]
+#![allow(clippy::type_complexity)]
 
 use std::{
     net::SocketAddr,
@@ -54,10 +55,10 @@ async fn main() {
 
     let srk_data = SrkData::read_from_file();
 
-    let mut state = AppState {
-        network_tick: RwLock::new(1),
-        round_number: RwLock::new(1),
-        map_name: RwLock::new("test2".to_string()),
+    let state = Arc::new(AppState {
+        network_tick: Arc::new(RwLock::new(1)),
+        round_number: Arc::new(RwLock::new(1)),
+        map_name: Arc::new(RwLock::new("test2".to_string())),
         masterserver,
         plugins: PluginManager::new(),
         events: EventManager::new(),
@@ -70,9 +71,9 @@ async fn main() {
         connections: DashMap::new(),
         auth_data: DashMap::new(),
         game_state: GameManager::default(),
-        for_broadcast: RwLock::new(Vec::new()),
+        for_broadcast: Arc::new(RwLock::new(Vec::new())),
         physics: PhysicsManager::new(),
-    };
+    });
 
     state.plugins.load_plugins();
 
@@ -100,7 +101,7 @@ async fn main() {
     state.tasks.schedule_task(
         state.network_tick(),
         Some(TICKS_PER_SECOND * 16),
-        Box::new(|state: &AppState| {
+        Box::new(|state: Arc<AppState>| {
             state.masterserver.send(vec![b'@']);
         }),
     );
@@ -108,7 +109,7 @@ async fn main() {
     state.tasks.schedule_task(
         state.network_tick(),
         Some(TICKS_PER_SECOND * 10),
-        Box::new(|state: &AppState| {
+        Box::new(|state: Arc<AppState>| {
             state
                 .auth_data
                 .retain(|_, (tick_created, _)| state.network_tick() - *tick_created <= TICKS_PER_SECOND * 10);
@@ -271,6 +272,7 @@ async fn main() {
 
             state.physics.tick();
             state.items.tick(&state);
+            state.plugins.tick(&state);
 
             // Increase our current network tick
             let mut network_tick = state.network_tick.write().unwrap();
@@ -286,7 +288,7 @@ async fn main() {
     }
 }
 
-pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &AppState, packet: &dyn Encodable) {
+pub async fn send_packet_to_socket(socket: &Sender<(Vec<u8>, SocketAddr)>, address: SocketAddr, state: &Arc<AppState>, packet: &dyn Encodable) {
     let encoded_packet = packet.encode(state);
 
     let header = b"7DFP";

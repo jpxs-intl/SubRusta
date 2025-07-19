@@ -1,10 +1,11 @@
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 
 use crate::app_state::AppState;
 
-pub type ScheduledFunction = Box<dyn Fn(&AppState)>;
+pub type ScheduledFunction = Box<dyn Fn(Arc<AppState>) + Send + Send>;
+type InternalFunction = Arc<Mutex<ScheduledFunction>>;
 
 #[derive(Default)]
 pub struct TaskScheduler {
@@ -13,7 +14,7 @@ pub struct TaskScheduler {
 
 #[derive(Clone)]
 pub struct ScheduledTask {
-    pub task: Rc<ScheduledFunction>,
+    pub task: InternalFunction,
     pub last_ran: i32,
     pub time_between: Option<i32>
 }
@@ -31,7 +32,7 @@ impl TaskScheduler {
 
     pub fn schedule_task(&self, tick: i32, time_between: Option<i32>, function: ScheduledFunction) {
         let task = ScheduledTask {
-            task: Rc::new(function),
+            task: Arc::new(Mutex::new(function)),
             time_between,
             last_ran: 0
         };
@@ -47,14 +48,15 @@ impl TaskScheduler {
         }
     }
 
-    pub fn run_tasks(&self, state: &AppState) {
+    pub fn run_tasks(&self, state: &Arc<AppState>) {
         let tick = state.network_tick();
 
         if let Some(tasks) = self.scheduled_tasks.get(&tick) {
             let mut to_readd = vec![];
 
             for task in tasks.clone().iter_mut() {
-                (task.task)(state);
+                let taskfn = task.task.lock().unwrap();
+                (taskfn)(state.clone());
 
                 task.last_ran = tick;
 

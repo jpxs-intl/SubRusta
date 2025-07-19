@@ -1,4 +1,6 @@
-use crate::{app_state::ChatType, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
+use std::sync::Arc;
+
+use crate::{app_state::{AppState, ChatType}, packets::{buf_writer::AlexBufWriter, WriterEncodable}};
 
 #[derive(Clone, Debug)]
 pub struct EventChat {
@@ -10,7 +12,7 @@ pub struct EventChat {
 }
 
 impl WriterEncodable for EventChat {
-    fn encode(&self, _state: &crate::AppState, writer: &mut AlexBufWriter) {
+    fn encode(&self, _state: &Arc<AppState>, writer: &mut AlexBufWriter) {
         writer.write_bits(2, 6);
         writer.write_bits(self.tick_created, 28);
 
