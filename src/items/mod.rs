@@ -3,7 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use rapier3d::prelude::ColliderHandle;
 
-use crate::{app_state::AppState, connection::packets::buf_writer::AlexBufWriter, items::item_types::{ItemColliders, ItemType}, world::{transform_wrapper::WrappedTransform, vector::Vector}};
+use crate::{app_state::AppState, connection::packets::{buf_writer::AlexBufWriter, clientbound::game::encoding_slots::EncodingSlot}, items::item_types::{ItemColliders, ItemType}, world::{transform_wrapper::WrappedTransform, vector::Vector}};
 
 pub mod item_types;
 
@@ -64,6 +64,7 @@ impl Item {
             transform: WrappedTransform::new(rigid)
         };
 
+        state.encoding_slots.slots.insert(state.encoding_slots.get_slot(), EncodingSlot::Item(id));
         state.items.items.insert(id, item);
 
         id
@@ -84,11 +85,12 @@ impl Item {
                 state.physics.destroy_object(phys);
             }
 
+        state.encoding_slots.remove_item_by_id(id);
         state.items.items.remove(&id);
     }
 
-    pub fn encode_obj_header(&self, writer: &mut AlexBufWriter) {
-        writer.write_bits(self.item_id as i32, 10);
+    pub fn encode_obj_header(&self, slot: i32, writer: &mut AlexBufWriter) {
+        writer.write_bits(slot, 10);
         writer.write_bits(0, 2);
         writer.write_bits(1, 3);
         writer.write_bits(self.item_type as i32, 10);

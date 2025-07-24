@@ -1,6 +1,16 @@
 use std::sync::Arc;
 
-use crate::{app_state::AppState, connection::menu::MenuTypes, packets::{buf_writer::AlexBufWriter, get_sun_time, Encodable, GameState, WriterEncodable}, world::vector::Vector};
+use crate::{
+    app_state::AppState,
+    connection::{
+        menu::MenuTypes,
+        packets::clientbound::game::encoding_slots::{EncodingSlot, EncodingSlots},
+    },
+    packets::{Encodable, GameState, WriterEncodable, buf_writer::AlexBufWriter, get_sun_time},
+    world::vector::Vector,
+};
+
+pub mod encoding_slots;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacket {
@@ -21,7 +31,7 @@ pub struct ClientboundGamePacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientboundGamePacketCorporationMoney {
     pub corporation_bonus: u16,
-    pub corporation_versus_money: u16
+    pub corporation_versus_money: u16,
 }
 
 impl Encodable for ClientboundGamePacket {
@@ -58,7 +68,7 @@ impl Encodable for ClientboundGamePacket {
         writer.write_bits(7200, 24); // Game Timer
         writer.write_bits(9, 16); // Racing time
         writer.write_bits(get_sun_time(12, 60), 30); // Sun time
-        
+
         for _ in 0..5 {
             writer.write_bits(0, 6); // Corporation player count, (Goldmen, Monsota, OXS, Nexaco, Pentacom)
         }
@@ -102,29 +112,45 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Sent object packets
 
-        writer.write_bits(state.items.items.len() as i32, 11); // Packed object count
+        writer.write_bits(state.encoding_slots.slots.len() as i32, 11); // Packed object count
         writer.write_bits(0, 11); // Packed object offset
 
-        for item in state.items.items.iter() {
-            item.encode_obj_header(&mut writer);
+        for (idx, item) in state.encoding_slots.slots.iter().enumerate() {
+            if let EncodingSlot::Item(item_id) = *item
+                && let Some(item) = state.items.items.get(&item_id)
+            {
+                item.encode_obj_header(idx as i32, &mut writer);
+            } else if let EncodingSlot::Human(human_id) = *item
+                && let Some(human) = state.humans.get(&human_id)
+            {
+                human.encode_header(idx as i32, &mut writer);
+            }
         }
 
         writer.write_bits(0, 8); // Text count
         writer.write_bits(0, 8); // Text offset
-        
-        for item in state.items.items.iter() {
-            item.encode_obj(state, &mut writer);
+
+        for item in state.encoding_slots.slots.iter() {
+            if let EncodingSlot::Item(item_id) = *item
+                && let Some(item) = state.items.items.get(&item_id)
+            {
+                item.encode_obj(state, &mut writer);
+             } else if let EncodingSlot::Human(human_id) = *item
+                && let Some(human) = state.humans.get(&human_id)
+            {
+                human.encode_slot(state, &mut writer);
+            }
         }
 
         writer.write_bits(state.vehicles.vehicles.len() as i32, 8); // Vehicle Count
-        
+
         for vehicle in state.vehicles.vehicles.iter() {
             vehicle.encode_obj(&mut writer);
         }
 
         writer.write_bits(0, 8);
         writer.write_bits(0, 10); // Num of cars
-        writer.write_bits(0, 8);        
+        writer.write_bits(0, 8);
 
         writer.write_bits(0, 10);
         writer.write_bits(2, 2);
@@ -141,7 +167,7 @@ impl Encodable for ClientboundGamePacket {
                 writer.write_bits(voice.client_id as i32, 8);
                 writer.write_bits(-1, 8);
                 writer.write_bits(-1, 8);
-                
+
                 for i in 0..4 {
                     let frame = &voice.frames[i];
 

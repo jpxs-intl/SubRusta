@@ -9,11 +9,25 @@ use std::{
 };
 
 use crate::{
-    app_state::{AppState, ChatType, GameManager}, config::config_main::ConfigMain, connection::{
-        events::EventManager, packets::{self}, ClientConnection
-    }, items::ItemManager, map::Map, masterserver::MasterServer, packets::{
+    app_state::{AppState, ChatType, GameManager},
+    config::config_main::ConfigMain,
+    connection::{
+        events::EventManager, packets::{self, clientbound::game::encoding_slots::{EncodingSlot, EncodingSlots}}, CharacterCustomization, ClientConnection
+    },
+    human::Human,
+    items::ItemManager,
+    map::Map,
+    masterserver::MasterServer,
+    packets::{
         clientbound::{initial_sync::ClientboundInitialSyncPacket, kick::ClientboundKickPacket, server_info::ServerInfo}, Encodable, PacketType
-    }, physics::PhysicsManager, plugins::PluginManager, scheduler::TaskScheduler, srk_parser::SrkData, vehicles::VehicleManager, voice::VoiceManager
+    },
+    physics::PhysicsManager,
+    plugins::PluginManager,
+    scheduler::TaskScheduler,
+    srk_parser::SrkData,
+    vehicles::VehicleManager,
+    voice::VoiceManager,
+    world::{quaternion::Quaternion, vector::Vector},
 };
 use crossbeam::channel::{Sender, unbounded};
 use dashmap::DashMap;
@@ -26,16 +40,17 @@ pub mod app_state;
 pub mod commands;
 pub mod config;
 pub mod connection;
+pub mod human;
 pub mod items;
 pub mod map;
 pub mod masterserver;
 pub mod physics;
+pub mod plugins;
 pub mod scheduler;
 pub mod srk_parser;
 pub mod vehicles;
 pub mod voice;
 pub mod world;
-pub mod plugins;
 
 pub static SERVER_IDENTIFIER: u32 = 80085;
 pub const TICKS_PER_SECOND: i32 = 62;
@@ -69,17 +84,63 @@ async fn main() {
         srk_data: Arc::new(Mutex::new(srk_data)),
         config: config.clone(),
         connections: DashMap::new(),
+        humans: DashMap::new(),
+        encoding_slots: EncodingSlots::new(),
         auth_data: DashMap::new(),
         game_state: GameManager::default(),
         for_broadcast: Arc::new(RwLock::new(Vec::new())),
         physics: PhysicsManager::new(),
     });
 
+    state.humans.insert(
+        0,
+        Human {
+            client_id: 0,
+            human_id: 0,
+            view_yaw: 0.0,
+            view_pitch: 0.0,
+            standing: true,
+            damage: 0,
+            progress_bar: 2,
+            overall_health: 100,
+            chest_health: 100,
+            head_health: 100,
+            left_arm_health: 100,
+            right_arm_health: 100,
+            left_leg_health: 100,
+            right_leg_health: 100,
+            stamina: 100,
+            max_stamina: 100,
+            customizations: CharacterCustomization {
+                gender: 1,
+                head: 1,
+                skin: 1,
+                hair_color: 1,
+                hair_style: 1,
+                eye_color: 1,
+                model: 1,
+                necklace: 0,
+                suit_color: 0,
+                tie_color: 0,
+            },
+            pos: Vector {
+                x: 1805.0,
+                y: 87.0,
+                z: 1530.0,
+            },
+            rot: Quaternion::zero(),
+        },
+    );
+
+    state.encoding_slots.slots.insert(0, EncodingSlot::Human(0));
     state.plugins.load_plugins();
 
     let start = SystemTime::now();
     city.add_colliders_to_pieces(&state);
-    println!("[LOADER] Finished adding colision on pieces in {}ms", start.elapsed().unwrap().as_millis());
+    println!(
+        "[LOADER] Finished adding colision on pieces in {}ms",
+        start.elapsed().unwrap().as_millis()
+    );
 
     {
         let collider = ColliderBuilder::cuboid(100.0, 2.0, 100.0)
