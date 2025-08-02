@@ -31,7 +31,7 @@ impl ItemColliders for ItemType {
 
     fn create_rigidbody(&self, transform: Vector) -> Option<RigidBody> {
         match self {
-            ItemType::Watermelon => Some(RigidBodyBuilder::dynamic().translation(vector![transform.x, transform.y, transform.z]).angular_damping(0.8).linear_damping(0.2).build()),
+            ItemType::Watermelon => Some(RigidBodyBuilder::dynamic().translation(vector![transform.x, transform.y, transform.z]).angular_damping(0.8).linear_damping(0.2).can_sleep(true).build()),
             ItemType::Box => None,
             ItemType::BigBox => None,
             ItemType::Unknown => None,

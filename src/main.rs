@@ -92,9 +92,7 @@ async fn main() {
         physics: PhysicsManager::new(),
     });
 
-    state.humans.insert(
-        0,
-        Human {
+    let mut human = Human {
             client_id: 0,
             human_id: 0,
             view_yaw: 0.0,
@@ -128,8 +126,15 @@ async fn main() {
                 y: 87.0,
                 z: 1530.0,
             },
+            encoding_slot: None,
             rot: Quaternion::zero(),
-        },
+        };
+
+        human.create(&state);
+
+    state.humans.insert(
+        0,
+        human,
     );
 
     state.encoding_slots.slots.insert(0, EncodingSlot::Human(0));

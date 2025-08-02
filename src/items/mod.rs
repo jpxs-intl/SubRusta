@@ -39,6 +39,7 @@ pub struct Item {
     pub item_id: u32,
     pub transform: WrappedTransform,
     pub collider_handle: Option<ColliderHandle>,
+    encoding_slot: Option<u32>
 }
 
 impl Item {
@@ -61,25 +62,33 @@ impl Item {
             item_id: id,
             ticking: true,
             collider_handle: handle,
-            transform: WrappedTransform::new(rigid)
+            transform: WrappedTransform::new(rigid),
+            encoding_slot: Some(state.encoding_slots.get_slot())
         };
 
-        state.encoding_slots.slots.insert(state.encoding_slots.get_slot(), EncodingSlot::Item(id));
+        state.encoding_slots.slots.insert(item.encoding_slot.unwrap(), EncodingSlot::Item(id));
+        item.update(state);
         state.items.items.insert(id, item);
 
         id
     }
 
     pub fn tick(&mut self, state: &Arc<AppState>) {
+        if !self.transform.updated_this_tick(state) || !self.transform.sleeping(state) {
+            self.update(state);
+        }
+
         let mut pos = self.transform.pos(state);
 
         if pos.y <= 0.0 {
             pos.y += 1000.0;
 
             self.transform.set_pos(pos, state);
+            self.update(state);
         }
     }
 
+    // TODO: Actually make this disable the slot.
     pub fn destroy(id: u32, state: &Arc<AppState>) {
         if let Some(item) = state.items.items.get_mut(&id) && let Some(phys) = item.transform.phys_transform {
                 state.physics.destroy_object(phys);
@@ -87,6 +96,13 @@ impl Item {
 
         state.encoding_slots.remove_item_by_id(id);
         state.items.items.remove(&id);
+    }
+
+    pub fn update(&self, state: &Arc<AppState>) {
+        if let Some(encoding_slot) = self.encoding_slot {
+            println!("Updating item!");
+            state.encoding_slots.update_slot(encoding_slot);
+        }
     }
 
     pub fn encode_obj_header(&self, slot: i32, writer: &mut AlexBufWriter) {

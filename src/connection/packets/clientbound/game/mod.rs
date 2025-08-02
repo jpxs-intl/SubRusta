@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     app_state::AppState,
-    connection::{
-        menu::MenuTypes,
-        packets::clientbound::game::encoding_slots::{EncodingSlot, EncodingSlots},
-    },
+    connection::{menu::MenuTypes, packets::clientbound::game::encoding_slots::EncodingSlot},
     packets::{Encodable, GameState, WriterEncodable, buf_writer::AlexBufWriter, get_sun_time},
     world::vector::Vector,
 };
@@ -112,33 +109,42 @@ impl Encodable for ClientboundGamePacket {
 
         writer.write_bytes(&self.network_tick.to_le_bytes()); // Sent object packets
 
-        writer.write_bits(state.encoding_slots.slots.len() as i32, 11); // Packed object count
+        let slots_to_write = state.encoding_slots.get_updated_slots();
+
+        writer.write_bits(slots_to_write.len() as i32, 11); // Packed object count
         writer.write_bits(0, 11); // Packed object offset
 
-        for (idx, item) in state.encoding_slots.slots.iter().enumerate() {
-            if let EncodingSlot::Item(item_id) = *item
-                && let Some(item) = state.items.items.get(&item_id)
-            {
-                item.encode_obj_header(idx as i32, &mut writer);
-            } else if let EncodingSlot::Human(human_id) = *item
-                && let Some(human) = state.humans.get(&human_id)
-            {
-                human.encode_header(idx as i32, &mut writer);
+        
+        state.encoding_slots.clear_updated_slots();
+
+        for slot in slots_to_write.clone() {
+            if let Some(item) = state.encoding_slots.slots.get(&slot) {
+                if let EncodingSlot::Item(item_id) = *item
+                    && let Some(item) = state.items.items.get(&item_id)
+                {
+                    item.encode_obj_header(slot as i32, &mut writer);
+                } else if let EncodingSlot::Human(human_id) = *item
+                    && let Some(human) = state.humans.get(&human_id)
+                {
+                    human.encode_header(slot as i32, &mut writer);
+                }
             }
         }
 
         writer.write_bits(0, 8); // Text count
         writer.write_bits(0, 8); // Text offset
 
-        for item in state.encoding_slots.slots.iter() {
-            if let EncodingSlot::Item(item_id) = *item
-                && let Some(item) = state.items.items.get(&item_id)
-            {
-                item.encode_obj(state, &mut writer);
-             } else if let EncodingSlot::Human(human_id) = *item
-                && let Some(human) = state.humans.get(&human_id)
-            {
-                human.encode_slot(state, &mut writer);
+        for slot in slots_to_write {
+            if let Some(item) = state.encoding_slots.slots.get(&slot) {
+                if let EncodingSlot::Item(item_id) = *item
+                    && let Some(item) = state.items.items.get(&item_id)
+                {
+                    item.encode_obj(state, &mut writer);
+                } else if let EncodingSlot::Human(human_id) = *item
+                    && let Some(human) = state.humans.get(&human_id)
+                {
+                    human.encode_slot(state, &mut writer);
+                }
             }
         }
 

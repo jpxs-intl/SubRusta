@@ -25,12 +25,22 @@ pub struct Human {
     pub max_stamina: u8,
     pub customizations: CharacterCustomization,
     pub pos: Vector,
-    pub rot: Quaternion
+    pub rot: Quaternion,
+    pub encoding_slot: Option<u32>
 }
 
 impl Human {
-    pub fn create(&self, state: &Arc<AppState>) {
-        state.encoding_slots.slots.insert(state.encoding_slots.get_slot(), EncodingSlot::Human(self.human_id));
+    pub fn create(&mut self, state: &Arc<AppState>) {
+        let slot = state.encoding_slots.get_slot();
+
+        state.encoding_slots.slots.insert(slot, EncodingSlot::Human(self.human_id));
+        self.encoding_slot = Some(slot);
+    }
+
+    pub fn update(&self, state: &Arc<AppState>) {
+        if let Some(slot) = self.encoding_slot {
+            state.encoding_slots.update_slot(slot);
+        }
     }
 
     pub fn encode_header(&self, slot: i32, writer: &mut AlexBufWriter) {

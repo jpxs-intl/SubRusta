@@ -4,10 +4,11 @@ use rapier3d::prelude::{RigidBody, RigidBodyHandle};
 
 use crate::{app_state::AppState, world::{quaternion::Quaternion, transform::Transform, vector::Vector}};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WrappedTransform {
     pub phys_transform: Option<RigidBodyHandle>,
     pub norm_transform: Option<Transform>,
+    last_tick_updated: i32,
 }
 
 impl WrappedTransform {
@@ -15,14 +16,40 @@ impl WrappedTransform {
         if rigidbody.is_some() {
             Self {
                 phys_transform: rigidbody,
-                norm_transform: None
+                norm_transform: None,
+                last_tick_updated: 0
             }
         } else {
             Self {
                 phys_transform: None,
-                norm_transform: Some(Transform::zero())
+                norm_transform: Some(Transform::zero()),
+                last_tick_updated: 0
             }
         }
+    }
+
+    pub fn updated_this_tick(&self, state: &Arc<AppState>) -> bool {
+        self.last_tick_updated == state.network_tick()
+    }
+
+    pub fn sleeping(&self, state: &Arc<AppState>) -> bool {
+        if let Some(phys_handle) = self.phys_transform {
+            let rigidbodies = state.physics.rigidbodies.read().unwrap();
+
+            let handle = rigidbodies.get(phys_handle);
+
+            if let Some(handle) = handle {
+                handle.is_sleeping()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn eq(&self, transform: &WrappedTransform, state: &Arc<AppState>) -> bool {
+        self.pos(state) == transform.pos(state) && self.rot(state) == transform.rot(state)
     }
 
     pub fn from_rigidbody(rigidbody: RigidBody, state: &Arc<AppState>) -> Self {
@@ -30,7 +57,8 @@ impl WrappedTransform {
 
         Self {
             phys_transform: Some(writ.insert(rigidbody)),
-            norm_transform: None
+            norm_transform: None,
+            last_tick_updated: 0
         }
     }
 
@@ -49,6 +77,8 @@ impl WrappedTransform {
     }
 
     pub fn set_pos(&mut self, pos: Vector, state: &Arc<AppState>) {
+        self.last_tick_updated = state.network_tick();
+
         if let Some(rigidbody) = self.phys_transform {
             let mut writ = state.physics.rigidbodies.write().unwrap();
             let rigid = writ.get_mut(rigidbody).unwrap();

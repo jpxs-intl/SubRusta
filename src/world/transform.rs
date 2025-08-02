@@ -2,7 +2,7 @@ use rapier3d::math;
 
 use crate::world::{euler_rot::EulerRot, quaternion::Quaternion, vector::Vector};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Transform {
     pub pos: Vector,
     pub rot: Quaternion,

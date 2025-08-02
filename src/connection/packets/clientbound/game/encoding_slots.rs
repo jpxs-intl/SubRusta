@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use dashmap::DashMap;
 
 #[derive(PartialEq, Eq)]
@@ -9,13 +11,15 @@ pub enum EncodingSlot {
 
 #[derive(Default)]
 pub struct EncodingSlots {
-    pub slots: DashMap<u32, EncodingSlot>
+    pub slots: DashMap<u32, EncodingSlot>,
+    slots_updated_this_tick: Arc<Mutex<Vec<u32>>>
 }
 
 impl EncodingSlots {
     pub fn new() -> Self {
         Self {
-            slots: DashMap::new()
+            slots: DashMap::new(),
+            slots_updated_this_tick: Arc::new(Mutex::new(Vec::new()))
         }
     }
 
@@ -38,6 +42,27 @@ impl EncodingSlots {
         }
 
         None
+    }
+
+    pub fn update_slot(&self, slot: u32) {
+        if let Ok(mut lock) = self.slots_updated_this_tick.lock()
+            && !lock.contains(&slot) {
+                lock.push(slot)
+            }
+    }
+
+    pub fn get_updated_slots(&self) -> Vec<u32> {
+        if let Ok(lock) = self.slots_updated_this_tick.lock() {
+            lock.clone()
+        } else {
+            vec![]
+        }
+    }
+
+    pub fn clear_updated_slots(&self) {
+        if let Ok(mut lock) = self.slots_updated_this_tick.lock() {
+            lock.clear();
+        }
     }
 
     pub fn remove_human_by_id(&self, item_id: u32) {

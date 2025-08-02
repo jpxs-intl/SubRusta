@@ -31,7 +31,7 @@ impl Vehicle {
 
         self.transform.pos.encode_delta(writer);
 
-        self.transform.rot.encode_yzx(writer);
+        self.transform.rot.encode_xyz(writer);
 
         writer.write_delta_rot(0, 0, false, 9);
 

@@ -95,15 +95,6 @@ impl Quaternion {
         writer.write_delta_rot(0, packed[3], false, 14);
     }
 
-    pub fn encode_yzx(&self, writer: &mut AlexBufWriter) {
-        let packed = self.pack_data();
-
-        writer.write_bits(packed[0], 2);
-        writer.write_delta_rot(0, packed[1], false, 14);
-        writer.write_delta_rot(0, packed[2], false, 14);
-        writer.write_delta_rot(0, packed[3], false, 14);
-    }
-
     pub fn from_axis_angle(axis_x: f32, axis_y: f32, axis_z: f32, angle_radians: f32) -> Self {
         let half_angle = angle_radians * 0.5;
         let sin_half = half_angle.sin();
