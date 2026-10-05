@@ -1,0 +1,8 @@
+[package]
+name = "rosa-map"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rosa-math = { workspace = true, features = ["binrw"] }
+binrw.workspace = true

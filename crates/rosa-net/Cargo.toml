@@ -1,0 +1,11 @@
+[package]
+name = "rosa-net"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rosa-protocol.workspace = true
+rosa-sim.workspace = true
+
+reqwest = "0.13.5"
+tokio.workspace = true

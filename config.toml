@@ -1,0 +1,13 @@
+master_server_url = "www.crypticsea.com"
+port = 27584
+server_name = "Baro Serv"
+admin_password = "admin"
+server_password = ""
+gamemode = "Round"
+max_players = 16
+round_time = 300
+voice_chat = false
+voice_min = 1000
+voice_boost = 0
+help = true
+manual_hands = false

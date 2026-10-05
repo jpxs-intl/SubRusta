@@ -1,0 +1,14 @@
+[package]
+name = "rosa-bin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rosa-protocol.workspace = true
+rosa-net.workspace = true
+rosa-sim.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+toml = "1.1.6"
+dirs-next = "2.0.0"
