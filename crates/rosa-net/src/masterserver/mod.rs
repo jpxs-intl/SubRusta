@@ -22,11 +22,14 @@ impl MasterServer {
     }
 
     pub fn send(&self, payload: &[u8]) {
-        let _ = self.outbound.send((b"7DFP@".to_vec(), self.address));
+        let mut data = b"7DFP".to_vec();
+        data.extend_from_slice(payload);
+
+        let _ = self.outbound.send((data, self.address));
     }
 
     pub fn keepalive(&self) {
-        self.send(&[b'@']);
+        self.send(b"@");
     }
 
     pub fn register_auth(&mut self, from: SocketAddr, pkt: AuthPacket) -> bool {

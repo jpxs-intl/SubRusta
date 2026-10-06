@@ -6,6 +6,12 @@ pub struct Vector(pub Vec3);
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct IntVector(pub UVec3);
 
+impl Vector {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self(Vec3 { x, y, z })
+    }
+}
+
 
 #[cfg(feature = "binrw")]
 mod binrw_impls {

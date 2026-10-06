@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use rosa_protocol::{GameMode, ServerboundPacket, clientbound::server_info::ServerInfo, codec::{WireWrite, Writer}, parse_frame, serverbound::info_request::InfoRequest};
-use rosa_sim::{ConnId, Inbound, Outbound};
+use rosa_protocol::{GameMode, ServerboundPacket, clientbound::{kick::KickClient, server_info::ServerInfo}, parse_frame, serverbound::info_request::InfoRequest};
+use rosa_sim::{ConnId, Inbound, Outbound, SimJoinMsg, SimMsg};
 use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::masterserver::MasterServer;
@@ -16,7 +16,8 @@ pub struct ServerListing {
     pub server_id: u32,
     pub address: [u8; 4],
     pub port: u16,
-    pub password_protected: bool
+    pub password_protected: bool,
+    pub server_password: String,
 }
 
 pub struct Edge {
@@ -62,12 +63,45 @@ impl Edge {
             ServerboundPacket::InfoRequest(r) => self.reply_server_info(src, r),
             ServerboundPacket::AuthPacket(a) => { self.masterserver.register_auth(src, a); },
             ServerboundPacket::JoinRequest(j) => {
-                let is_valid = self.masterserver.verify_join(j.account_id, j.auth_ticket);
+                if self.masterserver.verify_join(j.account_id, j.auth_ticket).is_none() {
+                    return;
+                }
 
-                if let Some(auth_packet) = is_valid {
+                if j.password != self.listing.server_password {
+                    let packet = KickClient {
+                        reason: "Your password is incorrect!".to_string()
+                    };
 
+                    let _ = self.out_tx.send((rosa_protocol::frame_packet(packet), src));
+
+                    return;
+                }
+
+                match self.sessions.get(&src) {
+                    Some(_) => {}
+                    None => {
+                        let conn = ConnId(self.next_conn);
+
+                        self.next_conn += 1;
+                        self.sessions.insert(src, conn);
+
+                        let _ = self.in_tx.send(Inbound { conn, src, msg: SimMsg::Join(SimJoinMsg {
+                            join_packet: j.clone(),
+                            auth_packet: self.masterserver.verify_join(j.account_id, j.auth_ticket).unwrap().clone()
+                        }) });
+                    }
                 }
             },
+            ServerboundPacket::LeaveGame => {
+                if let Some(conn) = self.sessions.remove(&src) {
+                    let _ = self.in_tx.send(Inbound { conn, src, msg: SimMsg::Leave });
+                }
+            },
+            ServerboundPacket::GamePacket(g) => {
+                if let Some(conn) = self.sessions.get(&src) {
+                    let _ = self.in_tx.send(Inbound { conn: *conn, src, msg: SimMsg::Game(g) });
+                }
+            }
         }
     }
 
@@ -84,10 +118,6 @@ impl Edge {
             server_name: self.listing.server_name.clone()
         };
 
-        let mut w = Writer::new();
-        w.bytes(b"7DFP");
-        res.write(&mut w);
-
-        let _ = self.out_tx.send((w.into_vec(), src));
+        let _ = self.out_tx.send((rosa_protocol::frame_packet(res), src));
     }
 }

@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bitflags = "2.13.2"
+
+rosa-math.workspace = true
 serde.workspace = true

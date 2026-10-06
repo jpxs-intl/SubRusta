@@ -5,11 +5,11 @@ members = ["crates/rosa-bin", "crates/rosa-map","crates/rosa-math", "crates/rosa
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.229", features = [ "derive" ] }
-serde_repr = "0.1"
-hecs = "0.11.2"
+# hecs = "0.11.2"
 glam = "0.34.0"
 binrw = "0.15.0"
 
+rosa-map = { path = "crates/rosa-map", default-features = false }
 rosa-sim = { path = "crates/rosa-sim", default-features = false }
 rosa-math = { path = "crates/rosa-math", default-features = false }
 rosa-net = { path = "crates/rosa-net", default-features = false }

@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use rosa_net::{Edge, ServerListing, masterserver::MasterServer};
-use rosa_sim::{Inbound, Sim};
+use rosa_sim::{Inbound, sim::Sim};
 use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::config::ConfigMain;
@@ -31,7 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let out_tx = out_tx.clone();
-        std::thread::Builder::new().name("sim".into()).spawn(move || Sim::new(in_rx, out_tx).run()).unwrap();
+        let server_name = config.server_name.clone();
+        std::thread::Builder::new().name("sim".into()).spawn(move || Sim::new(in_rx, out_tx, server_name, config.gamemode, config.max_players).run()).unwrap();
     }
 
     let server_listing = ServerListing {
@@ -39,8 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         address: [4, 43, 217, 32],
         gamemode: config.gamemode,
         max_players: config.max_players,
-        //password_protected: !config.server_password.is_empty(),
-        password_protected: true,
+        password_protected: !config.server_password.is_empty(),
+        server_password: config.server_password.clone(),
         port: config.port,
         server_id: 80085,
         server_name: config.server_name.clone()

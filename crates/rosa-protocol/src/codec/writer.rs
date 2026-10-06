@@ -36,9 +36,11 @@ impl Writer {
 
     pub fn byte(&mut self, b: u8) { self.pad_to_byte(); self.bits(b as i32, 8); }
     pub fn bytes(&mut self, bytes: &[u8]) { self.pad_to_byte(); for &b in bytes { self.bits(b as i32, 8); } }
+    pub fn f32(&mut self, v: f32) { self.bytes(&v.to_le_bytes()) }
     pub fn u16(&mut self, v: u16) { self.bytes(&v.to_le_bytes()) }
     pub fn u32(&mut self, v: u32) { self.bytes(&v.to_le_bytes()) }
     pub fn u64(&mut self, v: u64) { self.bytes(&v.to_le_bytes()) }
+    pub fn i32(&mut self, v: i32) { self.bytes(&v.to_le_bytes()) }
 
     pub fn string(&mut self, s: &str, len: usize) {
         self.pad_to_byte();
