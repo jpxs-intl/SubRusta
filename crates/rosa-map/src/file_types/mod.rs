@@ -1,10 +1,14 @@
 pub mod sbl;
 pub mod srk;
+pub mod sbc;
+pub mod csx;
+pub mod sbb;
 
 #[derive(Debug)]
 pub enum LoaderError {
     Io(std::io::Error),
-    Parse(binrw::Error)
+    Parse(binrw::Error),
+    NotFound
 }
 
 impl From<std::io::Error> for LoaderError {
@@ -19,6 +23,7 @@ impl std::fmt::Display for LoaderError {
         match self {
             LoaderError::Io(e)    => write!(f, "map io error: {e}"),
             LoaderError::Parse(e) => write!(f, "map parse error: {e}"),
+            LoaderError::NotFound => write!(f, "map not found error")
         }
     }
 }

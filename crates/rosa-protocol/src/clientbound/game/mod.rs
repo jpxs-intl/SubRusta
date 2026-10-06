@@ -1,7 +1,7 @@
 use rosa_math::vector::Vector;
 use serde::{Deserialize, Serialize};
 
-use crate::{clientbound::game::events::Event, codec::{WireWrite, Writer}};
+use crate::{clientbound::game::events::Event, codec::{WireWrite, Writer}, serverbound::game::voice::VoiceFrame};
 
 pub mod events;
 
@@ -41,6 +41,14 @@ pub enum GameState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ServerVoiceData {
+    pub player_id: i32,
+    pub human_id: i32,
+    pub item_id: i32,
+    pub voice_frames: [VoiceFrame; 4]
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServerGamePacket {
     pub client_id: u32,
     pub received_actions: u32,
@@ -51,6 +59,7 @@ pub struct ServerGamePacket {
     pub money: i32,
     pub gamestate: GameState,
     pub ready_states: Option<[bool; 32]>,
+    pub voice: [Option<ServerVoiceData>; 8],
 
     pub follow_pos: Vector,
 
@@ -145,8 +154,24 @@ impl WireWrite for ServerGamePacket {
         w.bits(3, 2);
         w.bits(1, 2);
 
-        for _ in 0..8 {
-            w.bits(0, 1);
+        for voice in &self.voice {
+            if let Some(voice) = voice {
+                w.bits(1, 1);
+
+                w.bits(voice.player_id, 8);
+                w.bits(voice.human_id, 8);
+                w.bits(voice.item_id, 8);
+
+                for frame in &voice.voice_frames {
+                    w.bits(frame.index as i32, 6);
+                    w.bits(frame.size as i32, 11);
+                    w.bits(frame.volume as i32, 2);
+
+                    w.bytes(&frame.data);
+                }
+            } else {
+                w.bits(0, 1);
+            }
         }
 
         w.bits(self.global_event_count as i32, 16);

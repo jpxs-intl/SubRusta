@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{codec::{CodecError, Reader, WireRead, WireWrite, Writer}, masterserver::AuthPacket, serverbound::{game::ClientGamePacket, info_request::InfoRequest, join_request::JoinRequest}};
+use crate::{codec::{CodecError, Reader, WireRead, WireWrite, Writer}, masterserver::{AuthPacket, server_addr::ServerAddress}, serverbound::{game::ClientGamePacket, info_request::InfoRequest, join_request::JoinRequest}};
 
 pub mod clientbound;
 pub mod serverbound;
@@ -32,18 +32,18 @@ pub enum Team {
     Spectator = 17
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct CharacterCustomization {
-    pub gender: i32,
-    pub head: i32,
-    pub skin: i32,
-    pub hair_color: i32,
-    pub hair_style: i32,
-    pub eye_color: i32,
-    pub model: i32,
-    pub necklace: i32,
-    pub suit_color: i32,
-    pub tie_color: i32,
+    pub gender: u8,
+    pub head: u8,
+    pub skin: u8,
+    pub hair_color: u8,
+    pub hair_style: u8,
+    pub eye_color: u8,
+    pub model: u8,
+    pub necklace: u8,
+    pub suit_color: u8,
+    pub tie_color: u8,
 }
 
 impl Default for CharacterCustomization {
@@ -69,6 +69,7 @@ pub enum ServerboundPacket {
     JoinRequest(JoinRequest),
     AuthPacket(AuthPacket),
     LeaveGame,
+    MasterServerPing(ServerAddress),
     GamePacket(Box<ClientGamePacket>)
 }
 
@@ -86,6 +87,7 @@ pub fn decode_packet(type_byte: u8, body: &[u8]) -> Result<ServerboundPacket, Co
         2 => ServerboundPacket::JoinRequest(JoinRequest::read(&mut r)?),
         4 => ServerboundPacket::GamePacket(Box::new(ClientGamePacket::read(&mut r)?)),
         7 => ServerboundPacket::LeaveGame,
+        64 => ServerboundPacket::MasterServerPing(ServerAddress::read(&mut r)?),
         66 => ServerboundPacket::AuthPacket(AuthPacket::read(&mut r)?),
         other => return Err(CodecError::BadEnum(other as u32))
     })

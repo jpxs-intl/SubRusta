@@ -6,6 +6,7 @@ pub struct ConfigMain {
     pub master_server_url: String,
     pub master_server_ip: Option<String>,
     pub port: u16,
+    pub map_name: String,
     pub server_name: String,
     pub admin_password: String,
     pub server_password: String,
@@ -25,6 +26,7 @@ impl Default for ConfigMain {
             master_server_url: "www.crypticsea.com".to_string(),
             master_server_ip: None,
             port: 27584,
+            map_name: "test2".to_string(),
             server_name: "Baro Serv".to_string(),
             admin_password: "admin".to_string(),
             server_password: "".to_string(),
@@ -42,11 +44,11 @@ impl Default for ConfigMain {
 
 impl ConfigMain {
     pub fn read_from_file() -> Self {
-        println!("[CONFIG] Attempting to load config.toml...");
+        println!("[Config] Attempting to load config.toml...");
 
         match std::fs::read_to_string("config.toml") {
             Ok(s) => toml::from_str(&s).unwrap_or_else(|e| {
-                eprintln!("[CONFIG] parse error: {e} - using defaults");
+                eprintln!("[Config] parse error: {e} - using defaults");
                 Self::default()
             }),
             Err(_) => {

@@ -1,3 +1,5 @@
+use crate::world::map::Map;
+
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum Weekday {
@@ -10,11 +12,14 @@ pub enum Weekday {
     Saturday = 6,
 }
 
+pub mod map;
+pub mod grid;
+
 pub struct World {
     sun_angle: u16,
     sun_axial_tilt: u16,
     pub weekday: Weekday,
-    pub map_name: String,
+    pub map: Map
 }
 
 impl World {
@@ -23,7 +28,7 @@ impl World {
             sun_angle: 1000,
             sun_axial_tilt: 1000,
             weekday: Weekday::Monday,
-            map_name
+            map: Map::load_map(map_name).unwrap()
         }
     }
 

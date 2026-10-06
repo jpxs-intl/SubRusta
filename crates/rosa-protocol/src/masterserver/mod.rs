@@ -1,5 +1,7 @@
 use crate::codec::{Reader, WireRead, };
 
+pub mod server_addr;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthPacket {
     pub account_id: u32,

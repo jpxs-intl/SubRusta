@@ -6,7 +6,7 @@ members = ["crates/rosa-bin", "crates/rosa-map","crates/rosa-math", "crates/rosa
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.229", features = [ "derive" ] }
 # hecs = "0.11.2"
-glam = "0.34.0"
+glam = "0.34.1"
 binrw = "0.15.0"
 
 rosa-map = { path = "crates/rosa-map", default-features = false }

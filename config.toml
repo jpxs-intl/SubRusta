@@ -1,5 +1,6 @@
 master_server_url = "www.crypticsea.com"
 port = 27584
+map_name = "test2"
 server_name = "Baro Serv"
 admin_password = "admin"
 server_password = "Butts"

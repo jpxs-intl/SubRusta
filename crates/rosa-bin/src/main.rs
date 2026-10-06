@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<(Vec<u8>, SocketAddr)>();
 
     let socket = Arc::new(UdpSocket::bind(("0.0.0.0", config.port)).await?);
-    println!("[net] listening on {}", socket.local_addr()?);
+    println!("[Net] listening on {}", socket.local_addr()?);
 
     {
         let socket = socket.clone();
@@ -31,8 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         let out_tx = out_tx.clone();
-        let server_name = config.server_name.clone();
-        std::thread::Builder::new().name("sim".into()).spawn(move || Sim::new(in_rx, out_tx, server_name, config.gamemode, config.max_players).run()).unwrap();
+        let map_name = config.map_name.clone();
+
+        std::thread::Builder::new().name("sim".into()).spawn(move || Sim::new(in_rx, out_tx, map_name, config.gamemode, config.max_players).run()).unwrap();
     }
 
     let server_listing = ServerListing {

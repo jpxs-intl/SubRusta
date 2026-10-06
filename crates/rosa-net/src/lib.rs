@@ -27,12 +27,13 @@ pub struct Edge {
     masterserver: MasterServer,
     sessions: HashMap<SocketAddr, ConnId>,
     next_conn: u32,
-    listing: ServerListing
+    listing: ServerListing,
+    server_ip: Option<SocketAddr>,
 }
 
 impl Edge {
     pub fn new(socket: Arc<UdpSocket>, in_tx: mpsc::UnboundedSender<Inbound>, out_tx: Outbound, masterserver: MasterServer, listing: ServerListing) -> Self {
-        Self { socket, in_tx, out_tx, masterserver, sessions: Default::default(), next_conn: 0, listing }
+        Self { socket, in_tx, out_tx, masterserver, sessions: Default::default(), next_conn: 0, listing, server_ip: None }
     }
 
     pub async fn run(mut self) {
@@ -54,7 +55,7 @@ impl Edge {
         let Some((type_byte, body)) = parse_frame(data) else { return; };
         match rosa_protocol::decode_packet(type_byte, body) {
             Ok(msg) => self.route(msg, src),
-            Err(e) => eprintln!("[net] dropped packet from {src}: {e:?}"),
+            Err(e) => eprintln!("[Net] dropped packet from {src}: {e:?}"),
         }
     }
 
@@ -101,7 +102,8 @@ impl Edge {
                 if let Some(conn) = self.sessions.get(&src) {
                     let _ = self.in_tx.send(Inbound { conn: *conn, src, msg: SimMsg::Game(g) });
                 }
-            }
+            },
+            ServerboundPacket::MasterServerPing(p) => self.server_ip = Some(p.addr)
         }
     }
 

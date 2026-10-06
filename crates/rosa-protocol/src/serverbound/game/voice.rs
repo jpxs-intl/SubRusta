@@ -6,7 +6,7 @@ pub struct VoiceData {
     pub is_silenced: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct VoiceFrame {
     pub index: u8,
     pub size: u16,

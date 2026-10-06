@@ -10,4 +10,5 @@ rosa-protocol.workspace = true
 rosa-map.workspace = true
 rosa-math.workspace = true
 
+glam.workspace = true
 tokio.workspace = true

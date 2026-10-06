@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use rosa_protocol::{Team, clientbound::game::{GameState, events::chat::ChatType}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
+use rosa_protocol::{Team, clientbound::game::{GameState, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
 
 use crate::{Client, ConnId, PlayerId, SimJoinMsg};
 use super::Sim;
@@ -46,7 +46,20 @@ impl Sim {
     pub(crate) fn on_leave(&mut self, conn: ConnId) {
         let client = self.clients.remove(&conn).unwrap();
 
-        self.players.remove(client.player_id.idx());
+        let player = self.players.remove(client.player_id.idx());
+
+        self.events.push(Event {
+            tick_created: self.tick,
+            kind: ServerEvent::UpdatePlayer(EventUpdatePlayer {
+                active: false,
+                client_id: player.player_id.idx() as u32,
+                is_bot: false,
+                human_id: -1,
+                team: player.team,
+                customization: player.customization,
+                name: player.username.clone()
+            })
+        });
     }
 
     pub(crate) fn on_menu_action(&mut self, player_id: PlayerId, action: MenuAction) {

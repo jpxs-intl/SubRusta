@@ -10,17 +10,12 @@ use rosa_math::vector::Vector;
 use rosa_protocol::{
     GameMode, clientbound::{
         game::{
-            GameState, MenuType, ServerGamePacket,
-            events::{
+            GameState, MenuType, ServerGamePacket, ServerVoiceData, events::{
                 Event, ServerEvent,
                 chat::{ChatType, EventChat},
             },
-        },
-        initial_sync::InitialSync,
-        kick::KickClient,
-    }, frame_packet, serverbound::
-        game::actions::GameAction 
-    ,
+        }, initial_sync::InitialSync, kick::KickClient,
+    }, frame_packet, serverbound::game::actions::GameAction,
 };
 use slab::Slab;
 use tokio::sync::mpsc;
@@ -28,6 +23,15 @@ use tokio::sync::mpsc;
 use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
 
 pub mod events;
+
+struct TickCtx<'a> {
+    players: &'a Slab<Player>,
+    world: &'a World,
+    events: &'a [Event],
+    tick: u32,
+    gamestate: GameState,
+    ready_states: Option<[bool; 32]>
+}
 
 pub struct Sim {
     tick: u32,
@@ -96,7 +100,7 @@ impl Sim {
             sun_axial_tilt: self.world.sun_axial_tilt(),
             versus_movedelay: None,
             gamemode: self.gamemode,
-            map_name: self.world.map_name.clone(),
+            map_name: self.world.map.map_name.clone(),
         };
 
         let _ = self.out_tx.send((rosa_protocol::frame_packet(packet), to));
@@ -186,6 +190,16 @@ impl Sim {
         }
     }
 
+    fn calculate_ready_states(players: &mut Slab<Player>) -> [bool; 32] {
+        let mut ready_vec = [false; 32];
+
+        for (idx, player) in &mut *players {
+            ready_vec[idx] = player.is_ready;
+        }
+
+        ready_vec
+    }
+
     fn broadcast_tick(&mut self) {
         let Sim {
             clients,
@@ -199,22 +213,26 @@ impl Sim {
         } = self;
 
         let ready_states = if *gamestate == GameState::Intermission {
-            let mut ready_vec = [false; 32];
-
-            for (idx, player) in &mut *players {
-                ready_vec[idx] = player.is_ready;
-            }
-
-            Some(ready_vec)
+            Some(Self::calculate_ready_states(players))
         } else {
             None
+        };
+
+        let ctx = TickCtx {
+            players,
+            world,
+            events: events.as_slice(),
+            tick: *tick,
+            gamestate: *gamestate,
+            ready_states,
         };
 
         for client in clients.values_mut() {
             let Some(player) = players.get(client.player_id.idx()) else {
                 continue;
             };
-            let packet = Sim::build_game_packet(client, player, world, events, *tick, *gamestate, ready_states);
+
+            let packet = Sim::build_game_packet(client, &ctx, player.player_id);
 
             let _ = out_tx.send((frame_packet(packet), client.addr));
         }
@@ -222,47 +240,59 @@ impl Sim {
 
     fn build_game_packet(
         client: &mut Client,
-        player: &Player,
-        world: &World,
-        events: &[Event],
-        tick: u32,
-        gamestate: GameState,
-        ready_states: Option<[bool; 32]>
+        ctx: &TickCtx,
+        player_id: PlayerId
     ) -> ServerGamePacket {
-        let (global_event_count, events) = Self::collect_events(client, events, world, tick);
+        let (global_event_count, events) = Self::collect_events(client, ctx);
+        let earshots = Self::calculate_earshot(client, player_id, ctx);
+        let player = ctx.players.get(player_id.idx()).unwrap();
+
+        let mut voice_data: [Option<ServerVoiceData>; 8] = [const { None }; 8];
+
+        for (idx, earshot) in earshots.iter().enumerate() {
+            let speaker = ctx.players.get(earshot.idx()).unwrap();
+
+            let data = ServerVoiceData {
+                human_id: -1,
+                item_id: -1,
+                player_id: earshot.idx() as i32,
+                voice_frames: speaker.voice.recent4()
+            };
+
+            voice_data[idx] = Some(data);
+        }
 
         ServerGamePacket {
             client_id: client.player_id.0,
             received_actions: player.actions.write as u32,
             round_number: 0,
-            network_tick: tick,
+            network_tick: ctx.tick,
             last_sdl_tick: client.last_sdl_tick,
             menu_type: MenuType::Lobby,
             money: 1000,
-            gamestate,
-            ready_states,
+            gamestate: ctx.gamestate,
+            ready_states: ctx.ready_states,
             follow_pos: Vector::new(0.0, 0.0, 0.0),
             global_event_count,
             events,
+            voice: voice_data
         }
     }
 
     fn collect_events(
         client: &mut Client,
-        events: &[Event],
-        _world: &World,
-        now: u32,
+        ctx: &TickCtx
     ) -> (u32, Vec<(u32, Event)>) {
-        let total = events.len() as u16;
+        let total = ctx.events.len() as u16;
         let pending = total.wrapping_sub(client.event_cursor);
         let to_send = pending.min(0x3f); // 63 cap
 
         let mut out = Vec::with_capacity(to_send as usize);
         for i in 0..to_send {
             let idx = client.event_cursor.wrapping_add(i);
-            let ev = &events[idx as usize];
+            let ev = &ctx.events[idx as usize];
 
-            let expired = now.wrapping_sub(ev.tick_created) > 600;
+            let expired = ctx.tick.wrapping_sub(ev.tick_created) > 600;
             let ephemeral = matches!(ev.kind, ServerEvent::Sound(_));
             let kind = if expired && ephemeral {
                 ServerEvent::Empty
@@ -281,5 +311,21 @@ impl Sim {
 
         client.event_cursor = client.event_cursor.wrapping_add(to_send);
         (total as u32, out)
+    }
+
+    fn calculate_earshot(_client: &mut Client, player_id: PlayerId, ctx: &TickCtx) -> Vec<PlayerId> {
+        let mut chars = Vec::new();
+
+        if ctx.gamestate == GameState::Intermission {
+            for player in ctx.players.iter().filter(|(_, p)| !p.voice.is_silenced && p.player_id != player_id) {
+                if chars.len() >= 8 {
+                    return chars
+                }
+
+                chars.push(player.1.player_id)
+            }
+        }
+
+        chars
     }
 }
