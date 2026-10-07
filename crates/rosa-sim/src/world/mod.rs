@@ -15,6 +15,7 @@ pub enum Weekday {
 pub mod map;
 pub mod grid;
 pub mod roads;
+pub mod ground;
 
 pub struct World {
     sun_angle: u16,

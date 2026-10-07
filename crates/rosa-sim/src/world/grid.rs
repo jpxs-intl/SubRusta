@@ -1,8 +1,9 @@
-use std::io::Write;
-
 use glam::{UVec3, Vec3};
 use rosa_map::file_types::{csx::CityFileCSX, sbb::BuildingFile, sbc::CityFileSBC};
 
+use crate::world::{ground::Ground, roads::RoadNetwork};
+
+#[allow(unused)]
 pub struct AreaGrid {
     origin: Vec3,
     block_size: f32,
@@ -47,8 +48,15 @@ impl AreaGrid {
         }
     }
 
-    pub fn build(sbc: &CityFileSBC, csx: &CityFileCSX) -> Self {
+    pub fn build(sbc: &CityFileSBC, csx: &CityFileCSX, ground: &mut Ground, roads: &RoadNetwork) -> Self {
         let mut grid = Self::new(UVec3::new(64, 8, 64), Vec3::ZERO, 4.0);
+
+        roads.stamp(ground, &mut grid);
+
+        for p in &sbc.buildings {
+            let b: BuildingFile = csx.get_building_rotated(p.name.as_str().to_string(), p.rot as u8).unwrap();
+            stamp_building(ground, &mut grid, &b, p.pos.0);
+        }
 
         for sector in &sbc.sectors {
             let base = sector.pos.0 * 8;
@@ -56,7 +64,9 @@ impl AreaGrid {
             for (i, &block_type) in sector.block_type_indices.iter().enumerate() {
                 if block_type == 0 { continue; }
                 let (lx, ly, lz) = sector_local(i);
-                grid.set_cell(base.x + lx, base.y + ly, base.z + lz, block_type);
+                let (x, y, z) = (base.x + lx, base.y + ly, base.z + lz);
+                grid.set_cell(x, y, z, block_type);
+                ground.stamp_roadmap(x as i32, z as i32, y as f32 * 4.0);
             }
 
             //for (i, &iset) in sector.itemset_indices.iter().enumerate() {
@@ -64,11 +74,6 @@ impl AreaGrid {
             //    let (lx, ly, lz) = sector_local(i);
             //    let value = resolve_
             //}
-        }
-
-        for p in &sbc.buildings {
-            let b: BuildingFile = csx.get_building(p.name.as_str().to_string()).unwrap().rotated(p.rot as u8);
-            stamp_building(&mut grid, &b, p.pos.0);
         }
 
         grid
@@ -80,7 +85,7 @@ fn sector_local(i: usize) -> (u32, u32, u32) {
     ((i) & 7, (i >> 6) & 7, (i >> 3) & 7)
 }
 
-fn stamp_building(grid: &mut AreaGrid, b: &BuildingFile, pos: UVec3) {
+fn stamp_building(ground: &mut Ground, grid: &mut AreaGrid, b: &BuildingFile, pos: UVec3) {
     let off = b.offsets.unwrap_or_default().0;
 
     for ty in 0..b.height {
@@ -95,9 +100,9 @@ fn stamp_building(grid: &mut AreaGrid, b: &BuildingFile, pos: UVec3) {
 
                 grid.set_cell(cx as u32, cy as u32, cz as u32, tile.block);
 
-                //if tile.item_set != 0 {
-                //    grid.set_cell_interactive(cx, cy, cz, value);
-                //}
+                if ty == off.y {
+                    ground.stamp_roadmap(cx, cz, cy as f32 * 4.0);
+                }
             }
         }
     }
@@ -148,65 +153,116 @@ impl AreaGrid {
         let Some(block) = &chunk.blocks[Self::block_index(cx, cy, cz)] else { return 0; };
         block.cells[Self::cell_index(cx, cy, cz)].collision_layer
     }
+}
 
-    // TRANSPARENCY: this is written by claude, why?
-    // I need SOME WAY to see if im writing the correct data, and this does it
-    // This will be deleted once im confident it works
-    pub fn write_heightmap_ppm(&self, path: &str, step: u32) -> std::io::Result<()> {
-    let (dx, dz) = (self.dims.x, self.dims.z);
-    let max_h = (self.dims.y * 64) as f32;
+impl AreaGrid {
+    /// Two separate layers:
+    ///   terrain (grass) height  → red (low) … blue (high)   [from `base`, the generate_grass field]
+    ///   roads/buildings height  → grayscale (dark=low, white=high), drawn on top  [from the block grid]
+    /// Terrain and structures are queried from different sources, so they're independent.
+    pub fn write_world_ppm(&self, ground: &Ground, path: &str, step: u32) -> std::io::Result<()> {
+        use std::io::Write;
+        let (dx, dz) = (self.dims.x, self.dims.z);
 
-    // Collect occupied (cx, cz, cy) and track the bounding box so we can crop
-    // to the city instead of rendering the whole 4096-wide empty grid.
-    let mut cells: Vec<(u32, u32, u32)> = Vec::new();
-    let (mut min_x, mut min_z, mut max_x, mut max_z) = (u32::MAX, u32::MAX, 0u32, 0u32);
-
-    for (ci, chunk) in self.chunks.iter().enumerate() {
-        let Some(chunk) = chunk else { continue; };
-        let ci = ci as u32;
-        let (chx, chz, chy) = (ci % dx, (ci / dx) % dz, ci / (dx * dz));
-        for (bi, block) in chunk.blocks.iter().enumerate() {
-            let Some(block) = block else { continue; };
-            let bi = bi as u32;
-            let (bx, bz, by) = (bi % 8, (bi / 8) % 8, bi / 64);
-            for (li, cell) in block.cells.iter().enumerate() {
-                if cell.collision_layer == 0 { continue; }
-                let li = li as u32;
-                let (lx, lz, ly) = (li % 8, (li / 8) % 8, li / 64);
-                let cx = chx * 64 + bx * 8 + lx;
-                let cy = chy * 64 + by * 8 + ly;
-                let cz = chz * 64 + bz * 8 + lz;
-                min_x = min_x.min(cx); max_x = max_x.max(cx);
-                min_z = min_z.min(cz); max_z = max_z.max(cz);
-                cells.push((cx, cz, cy));
+        // --- pass 1: block tops (world Y of the tallest block per cell) + bbox ---
+        let (mut minx, mut minz, mut maxx, mut maxz) = (u32::MAX, u32::MAX, 0u32, 0u32);
+        let mut cells: Vec<(u32, u32, u32)> = Vec::new(); // (cx, cz, top_cell = cy+1)
+        for (ci, chunk) in self.chunks.iter().enumerate() {
+            let Some(chunk) = chunk else { continue; };
+            let ci = ci as u32;
+            let (chx, chz, chy) = (ci % dx, (ci / dx) % dz, ci / (dx * dz));
+            for (bi, block) in chunk.blocks.iter().enumerate() {
+                let Some(block) = block else { continue; };
+                let bi = bi as u32;
+                let (bx, bz, by) = (bi % 8, (bi / 8) % 8, bi / 64);
+                for (li, cell) in block.cells.iter().enumerate() {
+                    if cell.collision_layer == 0 { continue; }
+                    let li = li as u32;
+                    let (lx, lz, ly) = (li % 8, (li / 8) % 8, li / 64);
+                    let cx = chx * 64 + bx * 8 + lx;
+                    let cy = chy * 64 + by * 8 + ly;
+                    let cz = chz * 64 + bz * 8 + lz;
+                    minx = minx.min(cx); maxx = maxx.max(cx);
+                    minz = minz.min(cz); maxz = maxz.max(cz);
+                    cells.push((cx, cz, cy + 1));
+                }
             }
         }
-    }
+        if cells.is_empty() { eprintln!("write_world_ppm: empty grid"); return Ok(()); }
 
-    if cells.is_empty() {
-        eprintln!("write_heightmap_ppm: grid is empty, nothing to draw");
-        return Ok(());
-    }
-    //eprintln!("heightmap bbox: x=[{min_x}..{max_x}] z=[{min_z}..{max_z}]");
+        let margin = 24;
+        let ox = minx.saturating_sub(margin);
+        let oz = minz.saturating_sub(margin);
+        let ex = (maxx + margin).min(dx * 64 - 1);
+        let ez = (maxz + margin).min(dz * 64 - 1);
+        let w = ((ex - ox) / step + 1) as usize;
+        let h = ((ez - oz) / step + 1) as usize;
 
-    let pad = 2 * step;
-    let (ox, oz) = (min_x.saturating_sub(pad), min_z.saturating_sub(pad));
-    let w = ((max_x + pad - ox) / step + 1) as usize;
-    let h = ((max_z + pad - oz) / step + 1) as usize;
-    let mut height = vec![0u32; w * h];
+        // per-pixel tallest block top (0 = no block there)
+        let mut block_top = vec![0u32; w * h];
+        for (cx, cz, top) in &cells {
+            if *cx < ox || *cz < oz || *cx > ex || *cz > ez { continue; }
+            let idx = ((cz - oz) / step) as usize * w + ((cx - ox) / step) as usize;
+            if *top > block_top[idx] { block_top[idx] = *top; }
+        }
 
-    for (cx, cz, cy) in cells {
-        let idx = ((cz - oz) / step) as usize * w + ((cx - ox) / step) as usize;
-        height[idx] = height[idx].max(cy + 1);
-    }
+        // --- separate height ranges for the two layers ---
+        let (mut tmin, mut tmax) = (f32::MAX, f32::MIN);   // terrain
+        for pz in 0..h { for px in 0..w {
+            let (cx, cz) = (ox + px as u32 * step, oz + pz as u32 * step);
+            if let Some(ty) = ground.height_at(cx as f32 * 4.0 + 2.0, cz as f32 * 4.0 + 2.0) {
+                tmin = tmin.min(ty); tmax = tmax.max(ty);
+            }
+        }}
+        if tmax <= tmin { tmax = tmin + 1.0; }
 
-    let mut f = std::fs::File::create(path)?;
-    write!(f, "P6\n{w} {h}\n255\n")?;
-    let mut buf = Vec::with_capacity(w * h * 3);
-    for &hgt in &height {
-        let v = if hgt == 0 { 0 } else { (48.0 + (hgt as f32 / max_h) * 207.0) as u8 };
-        buf.extend_from_slice(&[v, v, v]);
+        let (mut bmin, mut bmax) = (f32::MAX, f32::MIN);   // block tops (world units)
+        for &t in block_top.iter().filter(|&&t| t > 0) {
+            let bh = t as f32 * 4.0;
+            bmin = bmin.min(bh); bmax = bmax.max(bh);
+        }
+        if bmax <= bmin { bmax = bmin + 1.0; }
+
+        // --- compose: terrain red→blue background, then structures grayscale on top ---
+        let mut buf = vec![0u8; w * h * 3];
+        for pz in 0..h { for px in 0..w {
+            let i = (pz * w + px) * 3;
+            let (cx, cz) = (ox + px as u32 * step, oz + pz as u32 * step);
+
+            // layer 1: collision terrain height → red (low) … blue (high); black = masked / none
+            if let Some(ty) = ground.height_at(cx as f32 * 4.0 + 2.0, cz as f32 * 4.0 + 2.0) {
+                let t = ((ty - tmin) / (tmax - tmin)).clamp(0.0, 1.0);
+                buf[i]     = ((1.0 - t) * 255.0) as u8;
+                buf[i + 1] = 0;
+                buf[i + 2] = (t * 255.0) as u8;
+            }
+
+            // layer 2: roads/buildings height → grayscale, drawn over terrain
+            let top = block_top[pz * w + px];
+            if top > 0 {
+                let s = ((top as f32 * 4.0 - bmin) / (bmax - bmin)).clamp(0.0, 1.0);
+                let v = (60.0 + s * 195.0) as u8;
+                buf[i] = v; buf[i + 1] = v; buf[i + 2] = v;
+            }
+        }}
+
+        let mut f = std::fs::File::create(path)?;
+        write!(f, "P6\n{w} {h}\n255\n")?;
+        f.write_all(&buf)
     }
-    f.write_all(&buf)
 }
+
+pub fn terrain_height_world(base: &[f32], wx: f32, wz: f32) -> f32 {
+    let fx = ((wx + 4096.0) / 8.0).clamp(0.0, (2049 - 2) as f32);
+    let fz = ((wz + 4096.0) / 8.0).clamp(0.0, (2049 - 2) as f32);
+    let (x0, z0) = (fx.floor() as usize, fz.floor() as usize);
+    let (tx, tz) = (fx - x0 as f32, fz - z0 as f32);
+
+    let h00 = base[z0 * 2049 + x0];
+    let h10 = base[z0 * 2049 + x0 + 1];
+    let h01 = base[(z0 + 1) * 2049 + x0];
+    let h11 = base[(z0 + 1) * 2049 + x0 + 1];
+
+    (1.0 - tx) * (h00 * (1.0 - tz) + h01 * tz)
+        + tx * (tz * h11 + (1.0 - tz) * h10)
 }

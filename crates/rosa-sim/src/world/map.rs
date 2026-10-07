@@ -1,15 +1,15 @@
 use std::path::Path;
 
-use glam::IVec3;
 use rosa_map::file_types::{LoaderError, csx::CityFileCSX, sbc::CityFileSBC};
 
-use crate::world::{grid::AreaGrid, roads::RoadNetwork};
+use crate::world::{grid::AreaGrid, ground::{Ground, generate_grass}, roads::RoadNetwork};
 
 pub struct Map {
     pub map_name: String,
     pub city: CityFileSBC,
     pub city_data: CityFileCSX,
-    pub grid: AreaGrid
+    pub grid: AreaGrid,
+    pub ground: Ground
 }
 
 impl Map {
@@ -29,20 +29,35 @@ impl Map {
         println!("[Map] Attempting to load {}/test.csx", map_name);
         let city_data = CityFileCSX::load(dir)?;
 
+        // reset_game: hack_roundcity_traffic = 1 only for the "round" map
+        let roundcity = map_name == "round";
+
+        // road graph first: its intersection bbox gates terrain-mask clearing (load_map order)
+        let mut roads = RoadNetwork::from_city(&city);
+
+        let mut ground = Ground::new(generate_grass(!roundcity), roundcity); // border applies on non-round maps
+        if let Some(bounds) = roads.bounds() {
+            ground.set_street_bounds(bounds);
+        }
+
         println!("[Map] Attempting to build grid...");
-        let mut grid = AreaGrid::build(&city, &city_data);
+        let grid = AreaGrid::build(&city, &city_data, &mut ground, &roads);
 
-        let city_inters: Vec<IVec3> = city.intersections.iter().map(|i| i.0.as_ivec3()).collect();
-        let city_streets: Vec<(usize, usize, i32, i32)> = city.streets.iter().map(|s| (s.intersection_indices[0] as usize, s.intersection_indices[1] as usize, s.left_lane as i32, s.right_lane as i32)).collect();
-        RoadNetwork::build(&city_inters, &city_streets).stamp(&mut grid);
+        // intersection_compute_world_bounds widens the lanes after the roads are placed...
+        roads.compute_world_bounds();
+        // ...then build_traffic_navmap runs last: rewrites the hardcoded city blocks from the roadmap
+        ground.build_city_blocks(&roads);
 
-        let _ = grid.write_heightmap_ppm("map.ppm", 1);
+        let _ = grid.write_world_ppm(&ground, "map.ppm", 1);
+
+        println!("[Map] Loading complete!");
 
         Ok(Self {
             map_name,
             city,
             city_data,
-            grid
+            grid,
+            ground
         })
     }
 }

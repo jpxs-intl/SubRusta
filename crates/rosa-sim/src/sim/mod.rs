@@ -24,6 +24,7 @@ use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, pla
 
 pub mod events;
 
+#[allow(unused)]
 struct TickCtx<'a> {
     players: &'a Slab<Player>,
     world: &'a World,
