@@ -1,9 +1,9 @@
 master_server_url = "www.crypticsea.com"
 port = 27584
-map_name = "test2"
-server_name = "Baro Serv"
+map_name = "round"
+server_name = "Rosa but not rosa"
 admin_password = "admin"
-server_password = "Butts"
+server_password = "test"
 gamemode = "Round"
 max_players = 16
 round_time = 300

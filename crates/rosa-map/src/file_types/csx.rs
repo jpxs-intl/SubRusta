@@ -4,11 +4,6 @@ use binrw::BinRead;
 
 use crate::{Char64, file_types::{LoaderError, sbb::{BuildingFile, SpecialBlock}, sbl::BlockFile}};
 
-/// area_create_blocks: builtin_block_count; builtin specials start here.
-pub const BUILTIN_BLOCK_COUNT: u32 = 0x284;
-/// area_create_blocks: first global id of the CSX (custom) blocks.
-pub const CUSTOM_BLOCK_BASE: u32 = 0x2CC;
-
 #[derive(BinRead, Clone, PartialEq, Debug)]
 pub enum CSXFileType {
     #[br(magic = 1482293249u32)] Block,
@@ -78,20 +73,14 @@ impl CityFileCSX {
         Ok(CityFileCSX::read(&mut cursor)?)
     }
 
-    /// area_create_blocks: the CSX's Block entries, in lookup-table order. Entry k owns the global
-    /// block ids CUSTOM_BLOCK_BASE + 4k .. + 3, one per orientation.
     pub fn custom_blocks(&self) -> impl Iterator<Item = (&str, &BlockFile)> {
         self.lookup_table.iter()
             .filter(|e| e.file_type == CSXFileType::Block)
             .filter_map(|e| Some((e.name(), e.file.block.as_ref()?)))
     }
 
-    /// block_dimensions depth (+0xc8) of a global block id. Custom blocks: orientation 0 is the
-    /// file's depth, and copy_block_data swaps width/depth for each further orientation.
-    /// Builtin ids (< CUSTOM_BLOCK_BASE) a building can reach here are 0..=3 (unresolved
-    /// specials), which are 1.
     pub fn block_footprint(&self, id: u32) -> i32 {
-        let Some(k) = id.checked_sub(CUSTOM_BLOCK_BASE) else { return 1 };
+        let Some(k) = id.checked_sub(716) else { return 1 };
         match self.custom_blocks().nth((k / 4) as usize) {
             Some((_, b)) if k % 2 == 0 => b.size.0.z as i32,
             Some((_, b)) => b.size.0.x as i32,
@@ -99,23 +88,19 @@ impl CityFileCSX {
         }
     }
 
-    /// Resolve a building's special block `0x8R00_IIII` the way building_setup_build does:
-    /// global id = (index of the block named special_blocks[I] among the custom blocks, last
-    /// match wins, 0 if none) + R.
     pub fn special_block(&self, building: &BuildingFile, raw: u32) -> SpecialBlock {
         let name = building.special_blocks.get((raw & 0x3FF) as usize).map(|n| n.as_str());
         let base = name
             .and_then(|n| self.custom_blocks().enumerate().filter(|(_, (bn, _))| *bn == n).last())
-            .map_or(0, |(k, _)| CUSTOM_BLOCK_BASE + 4 * k as u32);
+            .map_or(0, |(k, _)| 716 + 4 * k as u32);
         let id = base + ((raw >> 24) & 3);
-        let custom_end = CUSTOM_BLOCK_BASE + 4 * self.custom_blocks().count() as u32;
+        let custom_end = 716 + 4 * self.custom_blocks().count() as u32;
         SpecialBlock {
             footprint: self.block_footprint(id),
-            rotates: (BUILTIN_BLOCK_COUNT..custom_end).contains(&id),
+            rotates: (644..custom_end).contains(&id),
         }
     }
 
-    /// The building as load_map instantiates it after `quarter_turns` rotations.
     pub fn get_building_rotated(&self, name: String, quarter_turns: u8) -> Option<BuildingFile> {
         Some(self.get_building(name)?.rotated(quarter_turns, &|b, raw| self.special_block(b, raw)))
     }

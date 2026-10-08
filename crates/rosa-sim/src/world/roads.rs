@@ -1,8 +1,10 @@
 use glam::IVec3;
 
-use crate::world::{grid::AreaGrid, ground::Ground};
-
-const ROAD: u32 = 0x4000_0000;
+use crate::world::{
+    area::{ALL_FACES, AreaGrid, BlockDims, CUBE, MESH},
+    blocks::{CURB, slope_id},
+    ground::Ground,
+};
 
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Axis {
@@ -11,16 +13,14 @@ enum Axis {
     Z,
 }
 
-/// Mirrors level_data.intersections[]. Lane extents map to the binary's lanes[0..4]:
-/// ext_px = lanes[0] (+X), ext_pz = lanes[1] (+Z), ext_nx = lanes[2] (-X), ext_nz = lanes[3] (-Z).
 #[derive(Clone, Copy, PartialEq, Default)]
 struct Intersection {
-    pos: IVec3, // pos.y stored as city_y - 1 (create_intersection_internal)
+    pos: IVec3,
     ext_px: i32,
     ext_pz: i32,
     ext_nx: i32,
     ext_nz: i32,
-    streets: [Option<usize>; 4], // streetIndices: 0 = +X, 1 = +Z, 2 = -X, 3 = -Z
+    streets: [Option<usize>; 4],
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -73,7 +73,6 @@ impl RoadNetwork {
 
         let mut streets = Vec::with_capacity(city_streets.len());
         for (si, &(i0, i1, left, right)) in city_streets.iter().enumerate() {
-            // create_road: signed compare, (i1 - i0).x <= (i1 - i0).z → Z road
             let d = intersections[i1].pos - intersections[i0].pos;
             let axis = if d.x <= d.z { Axis::Z } else { Axis::X };
 
@@ -154,64 +153,192 @@ impl RoadNetwork {
         })
     }
 
-    pub fn stamp(&self, ground: &mut Ground, grid: &mut AreaGrid) {
+    pub fn build_blocks(&self, ground: &mut Ground, area: &mut AreaGrid, dims: &dyn BlockDims) {
         for s in &self.streets {
-            self.stamp_street(ground, grid, s);
+            self.street_build_blocks(ground, area, dims, s);
         }
-        for it in &self.intersections {
-            stamp_intersection(grid, it);
+        for (id, it) in self.intersections.iter().enumerate() {
+            intersection_build_blocks(area, dims, id as u32, it);
         }
     }
 
-    fn stamp_street(&self, ground: &mut Ground, grid: &mut AreaGrid, s: &Street) {
-        let a = self.intersections[s.i0];
-        let b = self.intersections[s.i1];
-        let rc = ground.roundcity();
-        match s.axis {
-            Axis::X => {
-                let x0 = a.pos.x + a.ext_px;
-                let x1 = b.pos.x - b.ext_nx;
-                let (zc, run) = (a.pos.z, x1 - x0);
-                let mut ramp = Ramp::new(a.pos.y, run, b.pos.y - a.pos.y, rc);
-                for k in 0..run {
-                    let x = x0 + k;
-                    let y = ramp.enter(k);
-                    for z in (zc - s.left - 1)..=(zc + s.right) {
-                        put(grid, x, y, z, ROAD);
-                        ground.stamp_roadmap(x, z, y as f32 * 4.0);
-                    }
-                    ramp.leave();
+    fn street_build_blocks(&self, ground: &mut Ground, area: &mut AreaGrid, dims: &dyn BlockDims, s: &Street) {
+        let i0 = self.intersections[s.i0];
+        let i1 = self.intersections[s.i1];
+        let x_road = s.axis == Axis::X;
+        let (a0, run, c) = if x_road {
+            let a0 = i0.pos.x + i0.ext_px;
+            (a0, i1.pos.x - i1.ext_nx - a0, i0.pos.z)
+        } else {
+            let a0 = i0.pos.z + i0.ext_pz;
+            (a0, i1.pos.z - i1.ext_nz - a0, i0.pos.x)
+        };
+        let (row_up, row_down) = if x_road { (0, 2) } else { (1, 3) };
+        let curb = CURB | MESH;
+        let at = move |a: i32, y: i32, cc: i32| if x_road { (a, y, cc) } else { (cc, y, a) };
+        let put = |area: &mut AreaGrid, a: i32, y: i32, cc: i32, v: u32| {
+            let (x, y, z) = at(a, y, cc);
+            area.create_block(x, y, z, v, ALL_FACES, dims);
+        };
+
+        let (left, right) = (s.left, s.right);
+        let (cl, cr) = (c - left - 1, c + right);
+        let curbs_flat = |area: &mut AreaGrid, a: i32, y: i32| {
+            if x_road {
+                if a < 0 || y + 1 < 0 {
+                    return;
+                }
+                if cl >= 0 {
+                    put(area, a, y + 1, cl, curb);
+                }
+                if cr >= 0 {
+                    put(area, a, y + 1, cr, curb);
+                }
+            } else {
+                if cl >= 0 && a >= 0 && y + 1 >= 0 {
+                    put(area, a, y + 1, cl, curb);
+                }
+                if a >= 0 && cr >= 0 && y + 1 >= 0 {
+                    put(area, a, y + 1, cr, curb);
                 }
             }
-            Axis::Z => {
-                let z0 = a.pos.z + a.ext_pz;
-                let z1 = b.pos.z - b.ext_nz;
-                let (xc, run) = (a.pos.x, z1 - z0);
-                let mut ramp = Ramp::new(a.pos.y, run, b.pos.y - a.pos.y, rc);
-                for k in 0..run {
-                    let z = z0 + k;
-                    let y = ramp.enter(k);
-                    for x in (xc - s.left - 1)..=(xc + s.right) {
-                        put(grid, x, y, z, ROAD);
-                        ground.stamp_roadmap(x, z, y as f32 * 4.0);
+        };
+
+        let mut ramp = Ramp::new(i0.pos.y, run, i1.pos.y - i0.pos.y, ground.roundcity());
+        for k in 0..run.max(0) {
+            let a = a0 + k;
+            let y = ramp.enter(k);
+            let in_window = ramp.in_window;
+            let rising = ramp.rise > 0 && in_window;
+            let slope = |boxes: bool| {
+                let (row, col) = if rising { (row_up, ramp.counter) } else { (row_down, ramp.step - 1 - ramp.counter) };
+                slope_id(ramp.step, boxes, row, col).unwrap_or(0) | MESH
+            };
+
+            if k == 0 {
+                curbs_flat(area, a0, y);
+            }
+            if run - 1 > k {
+                if in_window {
+                    let id = slope(true);
+                    if x_road {
+                        if a >= 0 && y >= 0 {
+                            if cl >= 0 {
+                                put(area, a, y, cl, id);
+                            }
+                            if cr >= 0 {
+                                put(area, a, y, cr, id);
+                            }
+                        }
+                    } else {
+                        if cl >= 0 && a >= 0 && y >= 0 {
+                            put(area, a, y, cl, id);
+                        }
+                        if a >= 0 && cr >= 0 && y >= 0 {
+                            put(area, a, y, cr, id);
+                        }
                     }
-                    ramp.leave();
+                } else {
+                    curbs_flat(area, a, y);
+                }
+            } else if run - 1 == k {
+                curbs_flat(area, a, y);
+            }
+
+            for cc in (c - left)..(c + right) {
+                if cc < 0 || y < 0 || a < 0 {
+                    continue;
+                }
+                put(area, a, y, cc, if in_window { slope(false) } else { CUBE });
+            }
+            for i in (-left - 1)..=right {
+                let (x, _, z) = at(a, y, c + i);
+                ground.stamp_roadmap(x, z, y as f32 * 4.0);
+            }
+            ramp.leave();
+        }
+
+        for cc in (c - left)..(c + right) {
+            if x_road {
+                if i0.ext_px > 0 && (i0.ext_pz > 0 || i0.ext_nz > 0) {
+                    let x = i0.pos.x + i0.ext_px;
+                    if i0.pos.y >= 0 && cc >= 0 && x >= 0 {
+                        area.create_block(x, i0.pos.y, cc, CUBE, ALL_FACES, dims);
+                    }
+                }
+                if i1.ext_nx > 0 && (i1.ext_pz > 0 || i1.ext_nz > 0) {
+                    let x = i1.pos.x - i1.ext_nx - 1;
+                    if x >= 0 && i1.pos.y >= 0 && cc >= 0 {
+                        area.create_block(x, i1.pos.y, cc, CUBE, ALL_FACES, dims);
+                    }
+                }
+            } else {
+                if i0.ext_pz > 0 && (i0.ext_px > 0 || i0.ext_nx > 0) {
+                    let z = i0.pos.z + i0.ext_pz;
+                    if cc >= 0 && i0.pos.y >= 0 && z >= 0 {
+                        area.create_block(cc, i0.pos.y, z, CUBE, ALL_FACES, dims);
+                    }
+                }
+                if i1.ext_nz > 0 && (i1.ext_px > 0 || i1.ext_nx > 0) {
+                    let z = i1.pos.z - i1.ext_nz - 1;
+                    if z >= 0 && i1.pos.y >= 0 && cc >= 0 {
+                        area.create_block(cc, i1.pos.y, z, CUBE, ALL_FACES, dims);
+                    }
                 }
             }
         }
     }
 }
 
-fn stamp_intersection(grid: &mut AreaGrid, it: &Intersection) {
-    let y = it.pos.y;
-    for z in (it.pos.z - it.ext_nz)..(it.pos.z + it.ext_pz) {
-        for x in (it.pos.x - it.ext_nx)..(it.pos.x + it.ext_px) {
-            put(grid, x, y, z, ROAD);
+fn intersection_build_blocks(area: &mut AreaGrid, dims: &dyn BlockDims, id: u32, it: &Intersection) {
+    let (x, y, z) = (it.pos.x, it.pos.y, it.pos.z);
+    let (l0, l1, l2, l3) = (it.ext_px, it.ext_pz, it.ext_nx, it.ext_nz);
+    for zz in (z - l3)..(z + l1) {
+        for xx in (x - l2)..(x + l0) {
+            if y >= 0 && zz >= 0 && xx >= 0 {
+                area.create_block(xx, y, zz, CUBE, ALL_FACES, dims);
+            }
         }
     }
-
-    // TODO:
-    // This is missing a lot, like the edges on connected sides, and corner pieces, etc...
+    let curb = CURB | MESH;
+    let mut put = |xx: i32, yy: i32, zz: i32| {
+        if xx >= 0 && yy >= 0 && zz >= 0 {
+            area.create_block(xx, yy, zz, curb, ALL_FACES, dims);
+        }
+    };
+    if it.streets[0].is_none() {
+        for zz in (z - l3 - 1)..=(z + l1) {
+            put(x + l0, y + 1, zz);
+        }
+    }
+    if it.streets[2].is_none() {
+        for zz in (z - l3 - 1)..=(z + l1) {
+            put(x - l0 - 1, y + 1, zz);
+        }
+    }
+    if it.streets[1].is_none() {
+        for xx in (x - l2 - 1)..=(x + l0) {
+            put(xx, y + 1, z + l1);
+        }
+    }
+    if it.streets[3].is_none() {
+        for xx in (x - l2 - 1)..=(x + l0) {
+            put(xx, y + 1, z - l3 - 1);
+        }
+    }
+    if it.streets.iter().filter(|s| s.is_some()).count() > 2 {
+        let lights = [
+            (2usize, x + l0, z + l1, 1u32),
+            (0, x - l0 - 1, z - l1 - 1, (1 << 11) | 1),
+            (3, x - l0 - 1, z + l1, (1 << 24) | (1 << 10) | 1),
+            (1, x + l0, z - l1 - 1, (1 << 24) | (3 << 10) | 1),
+        ];
+        for (side, lx, lz, v) in lights {
+            if it.streets[side].is_some() && lx >= 0 && y + 1 >= 0 && lz >= 0 {
+                area.set_object(lx, y + 1, lz, id << 12 | v);
+            }
+        }
+    }
 }
 
 struct Ramp {
@@ -256,12 +383,4 @@ impl Ramp {
             self.counter = (self.counter + 1) % self.step;
         }
     }
-}
-
-#[inline]
-fn put(grid: &mut AreaGrid, x: i32, y: i32, z: i32, v: u32) {
-    if x < 0 || y < 0 || z < 0 {
-        return;
-    }
-    grid.set_cell(x as u32, y as u32, z as u32, v);
 }

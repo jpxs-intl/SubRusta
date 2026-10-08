@@ -3,12 +3,14 @@ use rosa_protocol::serverbound::game::voice::{VoiceData, VoiceFrame};
 pub struct PlayerVoice {
     pub frames: [Option<VoiceFrame>; 64],
     pub current: u8,
-    pub is_silenced: bool
+    pub is_silenced: bool,
+    // TODO: the binary keeps a per-player volume level (0 whisper, 1 normal, 2 shout); this takes the newest frame's
+    pub volume_level: u8,
 }
 
 impl Default for PlayerVoice {
     fn default() -> Self {
-        Self { frames: [const { None }; 64], current: Default::default(), is_silenced: Default::default() }
+        Self { frames: [const { None }; 64], current: Default::default(), is_silenced: Default::default(), volume_level: 0 }
     }
 }
 
@@ -17,7 +19,8 @@ impl PlayerVoice {
         Self {
             frames: [const { None }; 64],
             current: 0,
-            is_silenced: true
+            is_silenced: true,
+            volume_level: 0,
         }
     }
 
@@ -31,6 +34,7 @@ impl PlayerVoice {
 
     pub fn push(&mut self, index: u8, frame: VoiceFrame) {
         let slot = (index % 64) as usize;
+        self.volume_level = frame.volume;
         self.frames[slot] = Some(frame);
         self.current = index.wrapping_add(1) % 64;
     }

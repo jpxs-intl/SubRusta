@@ -28,8 +28,13 @@ pub enum Team {
     OXS = 2,
     Nexaco = 3,
     Pentacom = 4,
+    Prodocon = 5,
 
     Spectator = 17
+}
+
+impl Team {
+    pub const CORPORATIONS: [Team; 6] = [Team::Goldmen, Team::Monsota, Team::OXS, Team::Nexaco, Team::Pentacom, Team::Prodocon];
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

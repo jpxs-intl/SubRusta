@@ -16,6 +16,16 @@ pub mod map;
 pub mod grid;
 pub mod roads;
 pub mod ground;
+pub mod collide;
+pub mod blocks;
+pub mod area;
+pub mod city;
+pub mod building;
+pub mod level;
+pub mod mesh;
+pub mod meshes;
+pub mod trace;
+pub mod capsule;
 
 pub struct World {
     sun_angle: u16,

@@ -1,6 +1,7 @@
-use crate::{clientbound::game::events::{bullet_hit::EventBulletHit, chat::EventChat, sound::EventSound, team_door::EventTeamDoor, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
+use crate::{clientbound::game::events::{bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, sound::EventSound, team_door::EventTeamDoor, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
 
 pub mod bullet_hit;
+pub mod bullet_hole;
 pub mod chat;
 pub mod sound;
 pub mod team_door;
@@ -19,6 +20,7 @@ pub struct Event {
 #[derive(Clone, PartialEq, Debug)]
 pub enum ServerEvent {
     BulletHit(EventBulletHit),
+    BulletHole(EventBulletHole),
     Chat(EventChat),
     Sound(EventSound),
     TeamDoor(EventTeamDoor),
@@ -47,6 +49,7 @@ impl WireWrite for Event {
             ServerEvent::UpdatePlayerRound(e) => (8, e),
             ServerEvent::Sound(e) => (9, e),
             ServerEvent::TeamDoor(e) => (10, e),
+            ServerEvent::BulletHole(e) => (0x10, e),
             ServerEvent::Empty => {
                 w.bits(0x17, 6);
 

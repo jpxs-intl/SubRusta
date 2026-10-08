@@ -9,3 +9,6 @@ rosa-sim.workspace = true
 
 reqwest = "0.13.5"
 tokio.workspace = true
+
+[lints]
+workspace = true

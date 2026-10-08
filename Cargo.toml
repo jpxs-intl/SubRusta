@@ -2,6 +2,10 @@
 resolver="3"
 members = ["crates/rosa-bin", "crates/rosa-map","crates/rosa-math", "crates/rosa-net", "crates/rosa-physics", "crates/rosa-protocol", "crates/rosa-sim"]
 
+[workspace.lints.clippy]
+neg_cmp_op_on_partial_ord = "allow"
+approx_constant = "allow"
+
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.229", features = [ "derive" ] }
@@ -14,3 +18,4 @@ rosa-sim = { path = "crates/rosa-sim", default-features = false }
 rosa-math = { path = "crates/rosa-math", default-features = false }
 rosa-net = { path = "crates/rosa-net", default-features = false }
 rosa-protocol = { path = "crates/rosa-protocol", default-features = false }
+rosa-physics = { path = "crates/rosa-physics", default-features = false }

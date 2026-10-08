@@ -9,3 +9,6 @@ glam.workspace = true
 
 [features]
 binrw = ["dep:binrw"]
+
+[lints]
+workspace = true

@@ -9,6 +9,10 @@ slab = "0.4.12"
 rosa-protocol.workspace = true
 rosa-map.workspace = true
 rosa-math.workspace = true
+rosa-physics.workspace = true
 
 glam.workspace = true
 tokio.workspace = true
+
+[lints]
+workspace = true

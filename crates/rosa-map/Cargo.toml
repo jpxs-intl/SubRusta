@@ -8,3 +8,6 @@ rosa-math = { workspace = true, features = ["binrw"] }
 
 glam.workspace = true
 binrw.workspace = true
+
+[lints]
+workspace = true

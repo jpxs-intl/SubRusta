@@ -8,3 +8,6 @@ bitflags = "2.13.2"
 
 rosa-math.workspace = true
 serde.workspace = true
+
+[lints]
+workspace = true

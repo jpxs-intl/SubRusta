@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use rosa_protocol::{Team, clientbound::game::{GameState, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
+use rosa_protocol::{Team, clientbound::game::{GameState, MenuType, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
 
 use crate::{Client, ConnId, PlayerId, SimJoinMsg};
 use super::Sim;
@@ -32,13 +32,20 @@ impl Sim {
                 addr: src,
                 event_cursor: 0,
                 last_sdl_tick: 0,
+                earshots: [None; 8],
                 player_id,
             },
         );
 
-        let player = self.players.get(player_id.idx()).unwrap();
+        let player = self.players.get_mut(player_id.idx()).unwrap();
         self.events.push(player.make_update_player_event(self.tick));
         self.events.push(player.make_update_round_event(self.tick));
+
+        if self.gamestate == GameState::Intermission {
+            player.menu = MenuType::Lobby
+        } else {
+            player.menu = MenuType::Empty
+        }
 
         self.send_initial_sync(src);
     }
@@ -84,6 +91,13 @@ impl Sim {
     }
 
     pub(crate) fn on_chat_action(&mut self, player_id: PlayerId, action: ChatAction) {
+        match action.message.trim() {
+            "/watermelon" => return self.spawn_watermelon_for(player_id),
+            "/human" => return self.spawn_human_for(player_id),
+            "/kill" => return self.kill_human_for(player_id),
+            _ => {}
+        }
+
         match self.gamestate {
             GameState::Intermission => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
             _ => self.send_chat(&action.message, ChatType::Chat, player_id.idx() as i32, 0),

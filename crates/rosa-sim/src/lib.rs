@@ -3,7 +3,9 @@ use std::net::SocketAddr;
 use rosa_protocol::{masterserver::AuthPacket, serverbound::{game::ClientGamePacket, join_request::JoinRequest}};
 use tokio::sync::mpsc::UnboundedSender;
 
+pub mod human;
 pub mod player;
+pub mod rng;
 pub mod world;
 pub mod sim;
 
@@ -40,4 +42,5 @@ pub struct Client {
     addr: SocketAddr,
     event_cursor: u16,
     last_sdl_tick: u32,
+    earshots: [Option<sim::Earshot>; 8],
 }

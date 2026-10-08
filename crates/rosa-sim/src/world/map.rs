@@ -2,13 +2,18 @@ use std::path::Path;
 
 use rosa_map::file_types::{LoaderError, csx::CityFileCSX, sbc::CityFileSBC};
 
-use crate::world::{grid::AreaGrid, ground::{Ground, generate_grass}, roads::RoadNetwork};
+use crate::world::{
+    grid::write_world_ppm,
+    ground::{Ground, generate_grass},
+    level::{Level, build_level},
+    roads::RoadNetwork,
+};
 
 pub struct Map {
     pub map_name: String,
     pub city: CityFileSBC,
     pub city_data: CityFileCSX,
-    pub grid: AreaGrid,
+    pub level: Level,
     pub ground: Ground
 }
 
@@ -29,26 +34,22 @@ impl Map {
         println!("[Map] Attempting to load {}/test.csx", map_name);
         let city_data = CityFileCSX::load(dir)?;
 
-        // reset_game: hack_roundcity_traffic = 1 only for the "round" map
         let roundcity = map_name == "round";
 
-        // road graph first: its intersection bbox gates terrain-mask clearing (load_map order)
         let mut roads = RoadNetwork::from_city(&city);
 
-        let mut ground = Ground::new(generate_grass(!roundcity), roundcity); // border applies on non-round maps
+        let mut ground = Ground::new(generate_grass(!roundcity), roundcity);
         if let Some(bounds) = roads.bounds() {
             ground.set_street_bounds(bounds);
         }
 
         println!("[Map] Attempting to build grid...");
-        let grid = AreaGrid::build(&city, &city_data, &mut ground, &roads);
+        let level = build_level(&city, &city_data, &mut ground, &roads, dir, Path::new("data"), &map_name, 0);
 
-        // intersection_compute_world_bounds widens the lanes after the roads are placed...
         roads.compute_world_bounds();
-        // ...then build_traffic_navmap runs last: rewrites the hardcoded city blocks from the roadmap
         ground.build_city_blocks(&roads);
 
-        let _ = grid.write_world_ppm(&ground, "map.ppm", 1);
+        let _ = write_world_ppm(&level.area, &ground, "map.ppm", 1);
 
         println!("[Map] Loading complete!");
 
@@ -56,7 +57,7 @@ impl Map {
             map_name,
             city,
             city_data,
-            grid,
+            level,
             ground
         })
     }
