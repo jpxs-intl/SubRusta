@@ -7,6 +7,7 @@ use crate::world::{
     ground::{Ground, generate_grass},
     level::{Level, build_level},
     roads::RoadNetwork,
+    streets::StreetMap,
 };
 
 pub struct Map {
@@ -14,7 +15,9 @@ pub struct Map {
     pub city: CityFileSBC,
     pub city_data: CityFileCSX,
     pub level: Level,
-    pub ground: Ground
+    pub ground: Ground,
+    /// The streets, lanes and route graph traffic drives on.
+    pub streets: StreetMap,
 }
 
 impl Map {
@@ -48,6 +51,8 @@ impl Map {
 
         roads.compute_world_bounds();
         ground.build_city_blocks(&roads);
+        // TODO: driving mode (game type 1) builds no streets
+        let streets = StreetMap::build(&roads);
 
         let _ = write_world_ppm(&level.area, &ground, "map.ppm", 1);
 
@@ -58,7 +63,8 @@ impl Map {
             city,
             city_data,
             level,
-            ground
+            ground,
+            streets,
         })
     }
 }

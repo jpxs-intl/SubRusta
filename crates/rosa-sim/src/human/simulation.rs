@@ -9,8 +9,9 @@ use super::{
     arms::{calculate_arm_angles, calculate_spread_vector},
     inventory::{action_simulation, hand_grab_and_inventory, unlink_item},
     bones::BoneId,
-    locomotion::{FOOT_FREE, FOOT_PLANTED, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint, update_locomotion_constraints},
-    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_world_contacts, human_contacts, joint_limits, update_networked_bones},
+    locomotion::{FOOT_FREE, FOOT_PLANTED, Surface, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint, update_locomotion_constraints},
+    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_world_contacts, find_nearby_vehicles, human_contacts, joint_limits, update_networked_bones, vehicle_contacts},
+    seated::{ENTER_KEY, fall_out, simulate_seated, walk_simulation},
 };
 use crate::{sim::items::Touchables, world::map::Map};
 
@@ -31,8 +32,9 @@ pub enum HumanTick {
 /// ragdoll for the dead, and the contacts holding the bones against the world.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], out: &mut Vec<HumanOutput>, ticks: u32, noise_seed: &mut i32) -> HumanTick {
-    h.unk_218 = 0;
-    // TODO: the scan over vehicles for one this human is grabbing
+    find_nearby_vehicles(h, touch);
+    let nearby = h.nearby_vehicles.clone();
+    let seated = h.vehicle;
     health_sim(id, h, ticks, out);
     if ticks & 0x1f == 0 {
         if h.stamina > h.max_stamina {
@@ -59,11 +61,15 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     if ticks & 7 == 0 && h.pain > 0 {
         h.pain -= 1;
     }
-    if h.unk_40 > 0 {
-        h.unk_40 -= 1;
+    if h.eat_cooldown > 0 {
+        h.eat_cooldown -= 1;
     }
-    // TODO: turning while seated in a vehicle
-    if h.vehicle.is_none() {
+    if h.vehicle.is_some() {
+        h.yaw_offset = h.look_yaw;
+        h.pitch_offset = h.look_pitch;
+        h.unk_128 = h.look_yaw;
+        h.unk_12c = h.look_pitch;
+    } else {
         turn_towards_view(h);
     }
     // TODO: the player's network state flag at 0x6fd4 (from the owning player's state)
@@ -72,11 +78,11 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     if h.old_health <= 24 {
         h.strength = weak_strength(id, h.old_health, ticks, base_strength);
     }
-    // TODO: whether the human holds an item (inventory slots) is read here for the walking code
+    let has_item = h.inventory[0].count > 0 || h.inventory[1].count > 0;
 
     h.is_on_ground = false;
     for (j, bone) in h.bones.iter_mut().enumerate() {
-        // TODO: seated bones are handled here when in a vehicle; the per-bone strength (bone +0xc8) is set to `base_strength`
+        bone.strength = if seated.is_some() && (j == 0 || j > 9) { 0.0 } else { base_strength };
         bone.ground_contact = 0;
         if (j == BoneId::HandLeft as usize || j == BoneId::HandRight as usize)
             && let Some(b) = bodies.get_mut(bone.body)
@@ -86,7 +92,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     }
     for bone in &h.bones {
         if let Some(b) = bodies.get_mut(bone.body) {
-            b.settled = false;
+            b.settled = bone.strength == 0.0;
         }
     }
     calculate_center_of_mass(h);
@@ -111,34 +117,17 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         h.locomotion.feet[k].plant_pitch = pitch;
     }
 
-    let alive = h.old_health > 0;
-    let standing = alive && h.health > 49;
-    // TODO: vehicles
-    if alive && h.movement_state == 0 && h.input_flags & 4 != 0 && h.locomotion.jump_charge <= 31 {
-        h.locomotion.jump_charge += 1;
-    }
-    for bone in h.bones.iter_mut() {
-        bone.ground_contact = 0;
-    }
-    if standing && h.movement_state != 2 {
-        update_foot_ground_constraint(h, bodies, map, 0);
-        update_foot_ground_constraint(h, bodies, map, 1);
-    }
-    let feet_down = h.locomotion.feet[0].mode == FOOT_PLANTED
-        && h.locomotion.feet[1].mode == FOOT_PLANTED
-        && h.bones[BoneId::FootLeft as usize].ground_contact != 0
-        && h.bones[BoneId::FootRight as usize].ground_contact != 0;
-    if h.movement_state != 3 && h.locomotion.jump_charge > 0 && h.input_flags & 4 == 0 && feet_down {
-        start_step(h, 1);
-    }
-    bone_world_contacts(h, bodies, map, out);
-    if h.last_vehicle_cooldown > 0 {
-        h.last_vehicle_cooldown -= 1;
+    if let Some(vid) = seated {
+        simulate_seated(h, bodies, map, touch, vid, has_item, base_strength);
+        if h.old_health <= 0 || h.health <= 49 {
+            fall_out(h, touch, vid);
+        }
+        if h.input_flags & ENTER_KEY != 0 && h.last_input_flags & ENTER_KEY == 0 {
+            h.seat_exit = 1;
+        }
     } else {
-        h.last_vehicle = -1;
+        walk_and_collide(h, bodies, map, touch, &nearby, out);
     }
-    // TODO: the 0x218 counter (set while grabbed) is handled here
-    h.pos = h.bones[0].pos;
     if h.old_health > 0 {
         hand_grab_and_inventory(h, id, bodies, touch);
         action_simulation(h, id, bodies, touch, out);
@@ -153,25 +142,59 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         bone.ang_vel = b.ang_vel;
     }
     calculate_arm_angles(h, bodies, map, touch, noise_seed);
-    simulate_movement(h, bodies, map, ticks);
+    simulate_movement(h, bodies, &Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby: &nearby }, ticks);
     if h.old_health <= 0 || h.health <= 49 {
         joint_limits(h, bodies);
     }
 
     h.pos = h.bones[0].pos;
-    h.unk_2c = 1;
-    // TODO: seated humans skip the world contacts below
+    h.unk_2c = (seated.is_none() || has_item || h.seat_exit != 0) as i32;
     if -32.0 > h.bones[0].pos.y {
         h.old_health = -100;
     }
-    // TODO: train track triangles come first in human_generate_world_item_self_contacts
-    bone_item_contacts(h, bodies, touch);
-    human_contacts(h, bodies, others);
+    if h.vehicle.is_none() {
+        // TODO: train track triangles come first in human_generate_world_item_self_contacts
+        bone_item_contacts(h, bodies, touch);
+        human_contacts(h, bodies, others);
+    }
 
     let result = despawn_timer(h, out);
     h.last_input_flags = h.input_flags;
     update_networked_bones(h);
     result
+}
+
+/// The part of human_simulation for a human on foot: the jump charging, the feet held to the ground, the bones
+/// against the level and against nearby vehicles.
+fn walk_and_collide(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, nearby: &[usize], out: &mut Vec<HumanOutput>) {
+    let alive = h.old_health > 0;
+    let standing = alive && h.health > 49;
+    if alive && h.movement_state == 0 && h.input_flags & 4 != 0 && h.locomotion.jump_charge <= 31 {
+        h.locomotion.jump_charge += 1;
+    }
+    for bone in h.bones.iter_mut() {
+        bone.ground_contact = 0;
+    }
+    if standing && h.movement_state != 2 {
+        let surface = Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby };
+        update_foot_ground_constraint(h, bodies, &surface, 0);
+        update_foot_ground_constraint(h, bodies, &surface, 1);
+    }
+    let feet_down = h.locomotion.feet[0].mode == FOOT_PLANTED
+        && h.locomotion.feet[1].mode == FOOT_PLANTED
+        && h.bones[BoneId::FootLeft as usize].ground_contact != 0
+        && h.bones[BoneId::FootRight as usize].ground_contact != 0;
+    if h.movement_state != 3 && h.locomotion.jump_charge > 0 && h.input_flags & 4 == 0 && feet_down {
+        start_step(h, 1);
+    }
+    bone_world_contacts(h, bodies, map, out);
+    if h.last_vehicle_cooldown > 0 {
+        h.last_vehicle_cooldown -= 1;
+    } else {
+        h.last_vehicle = -1;
+    }
+    vehicle_contacts(h, bodies, touch, out);
+    h.pos = h.bones[0].pos;
 }
 
 /// A dead human lets go of the first item in every slot, which flies off with the pelvis's speed plus a little
@@ -221,7 +244,7 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
 }
 
 fn turn_towards_view(h: &mut Human) {
-    let (a, b) = (h.unk_170, h.unk_100);
+    let (a, b) = (h.client_body_yaw, h.body_yaw);
     let mut b2 = b;
     if ((a - b) as f64) >= PI {
         b2 = (b as f64 + TWO_PI) as f32;
@@ -230,7 +253,7 @@ fn turn_towards_view(h: &mut Human) {
     if (d as f64) >= PI {
         d = b2 - (a as f64 + TWO_PI) as f32;
     }
-    let mut c = h.unk_160;
+    let mut c = h.look_yaw;
     if ((d - c) as f64) >= PI {
         c = (c as f64 + TWO_PI) as f32;
     }
@@ -238,7 +261,7 @@ fn turn_towards_view(h: &mut Human) {
     if (e as f64) >= PI {
         e = c - (d as f64 + TWO_PI) as f32;
     }
-    h.unk_e0 = e;
+    h.view_turn = e;
     let step = e.clamp(-TURN_STEP, TURN_STEP);
     let (step, rest) = if h.is_standing { (step, e - step) } else { (0.0, e) };
     h.yaw_offset = if -HALF_PI > rest as f64 {
@@ -273,8 +296,8 @@ fn turn_towards_view(h: &mut Human) {
         body = (body as f64 - TWO_PI) as f32;
     }
     h.view_yaw = yaw;
-    h.unk_100 = body;
-    h.view_pitch = h.unk_164;
+    h.body_yaw = body;
+    h.view_pitch = h.look_pitch;
     h.unk_128 = 0.0;
     h.unk_12c = 0.0;
 }
@@ -297,12 +320,12 @@ fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
 /// human_health_sim: bleeding, regeneration and death from wounds.
 fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     // TODO: game mode 6 and the owning player's flag (player +0x2d18) kill humans below 50 health here
-    if h.unk_68 != 0 {
-        if h.unk_6c > 0 {
-            h.unk_6c -= 1;
+    if h.is_immortal {
+        if h.down_timer > 0 {
+            h.down_timer -= 1;
         }
         if h.health <= 49 {
-            h.unk_6c = 1800;
+            h.down_timer = 1800;
         }
     } else if h.health <= 74 {
         let p = (75 - h.health) * 2;
@@ -312,7 +335,7 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
         }
     }
     if h.old_health <= 0 {
-        h.unk_6d80 = 0;
+        h.bleeding = false;
         h.health = 0;
         return;
     }
@@ -324,10 +347,10 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
             *hp = 0;
         }
     }
-    let bleeding = h.unk_6d80 != 0;
-    let unconscious = h.unk_68 != 0;
+    let bleeding = h.bleeding;
+    let immortal = h.is_immortal;
     let (mut stage, mut fast) = (0, false);
-    if unconscious {
+    if immortal {
         if ticks & 7 == 0 {
             if h.health <= 99 {
                 h.health += 1;
@@ -376,7 +399,7 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
     if stage == 3 {
         bleed(id, h, ticks, out);
     }
-    if h.unk_68 == 0 && h.blood_level <= 10 {
+    if !h.is_immortal && h.blood_level <= 10 {
         h.old_health = 0;
     }
 }
@@ -402,7 +425,7 @@ fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
         }
     }
     let id = id as i32;
-    if (id.wrapping_mul(id).wrapping_mul(id) ^ ticks as i32) as u8 == 0 && h.unk_68 == 0 {
+    if (id.wrapping_mul(id).wrapping_mul(id) ^ ticks as i32) as u8 == 0 && !h.is_immortal {
         h.blood_level = blood - 3;
         let p = h.bones[1].pos;
         out.push(HumanOutput::Blood(Vec3::new(0.0 * 0.5 + p.x, 1.0 * 0.5 + p.y, 0.5 * 0.0 + p.z)));
@@ -410,7 +433,7 @@ fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
 }
 
 /// human_simulate_movement: picks the movement simulation for the human's movement state.
-fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, map: &Map, ticks: u32) {
+fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface, ticks: u32) {
     if 0.707 > h.bones[0].rot[1].y {
         h.locomotion.jump_charge = 0;
     }
@@ -425,7 +448,7 @@ fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, map: &Map, ticks: 
                 h.locomotion.active_foot = 0;
             }
             2 if h.input_flags & 0x80000 == 0 => h.movement_state = 0,
-            3 => return step_locomotion_ik(h, bodies, map),
+            3 => return step_locomotion_ik(h, bodies, surface),
             _ => {}
         }
     }
@@ -433,10 +456,10 @@ fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, map: &Map, ticks: 
         h.movement_state = 2;
     }
     match h.movement_state {
-        0 | 1 | 5 => update_locomotion_constraints(h, bodies, map, ticks),
+        0 | 1 | 5 => update_locomotion_constraints(h, bodies, surface, ticks),
         2 => slide_simulation(h, bodies),
-        3 => step_locomotion_ik(h, bodies, map),
-        // TODO: walk_simulation (4) drives a human seated in a vehicle
+        3 => step_locomotion_ik(h, bodies, surface),
+        4 => walk_simulation(h, bodies),
         _ => {}
     }
 }

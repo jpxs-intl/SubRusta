@@ -30,7 +30,89 @@ pub enum ItemState {
     Arcade { frame: i32, top_line: i32 },
     /// A car key and its vehicle (+0x280).
     Key { vehicle: Option<usize> },
-    // TODO: cash (spread, bill count, values), computers, disks, doors, pay phone home positions
+    /// A stack of world cash.
+    Cash(Cash),
+    // TODO: computers, disks, doors, pay phone home positions
+}
+
+/// What each bill code is worth (raw 0x2e9e80).
+pub const BILL_VALUES: [i32; 8] = [1, 5, 10, 20, 50, 100, 1000, 0];
+
+/// A stack of up to ten bills: one less than the count (+0x2a4), which bill is picked out (+0x2a0) and each bill's
+/// code, three bits apiece from the bottom (+0x2a8).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Cash {
+    pub spread: i32,
+    pub bills: i32,
+    pub codes: u32,
+}
+
+impl Cash {
+    /// The code of bill `k`.
+    pub fn code(&self, k: i32) -> u32 {
+        (self.codes >> ((k * 3) & 31)) & 7
+    }
+
+    /// What the stack is worth.
+    pub fn value(&self) -> i32 {
+        (0..=self.bills).map(|k| BILL_VALUES[self.code(k) as usize]).sum()
+    }
+
+    /// cash_separate: puts a bill of `code` in at `index` (on top past the end), moving the bills above it up; a
+    /// stack holds ten.
+    pub fn insert(&mut self, index: i32, code: u32) -> bool {
+        let c = self.bills;
+        if c > 8 {
+            return false;
+        }
+        self.bills = c + 1;
+        let mut v = self.codes;
+        let pos = if c + 1 <= index {
+            3 * (c + 1)
+        } else {
+            let mut k = 3 * c;
+            loop {
+                let mask = !(7u32 << ((k + 3) & 31)) & v;
+                v = (((v >> (k & 31)) & 7) << ((k + 3) & 31)) | mask;
+                k -= 3;
+                if k == 3 * index - 3 {
+                    break;
+                }
+            }
+            3 * index
+        };
+        v = (v & !(7u32 << (pos & 31))) | (code << (pos & 31));
+        self.spread += 1;
+        self.codes = v;
+        true
+    }
+
+    /// cash_combine: takes out bill `index`, moving the bills above it down. Returns false when it was the last
+    /// bill, which leaves the stack to despawn.
+    pub fn remove(&mut self, index: i32) -> bool {
+        let c = self.bills;
+        if c == 0 {
+            return false;
+        }
+        if c < 0 {
+            return true;
+        }
+        self.bills = c - 1;
+        if c - 1 < index {
+            return true;
+        }
+        let (mut v, mut k) = (self.codes, 3 * index);
+        loop {
+            let mask = !(7u32 << (k & 31)) & v;
+            v = (((mask >> ((k + 3) & 31)) & 7) << (k & 31)) | mask;
+            k += 3;
+            if k == 3 * c {
+                break;
+            }
+        }
+        self.codes = v;
+        true
+    }
 }
 
 /// Where a phone is in a call (item +0x27c).
@@ -78,6 +160,7 @@ impl ItemState {
             ItemKind::Radio => Self::Radio { channel: 0, transmitting: false },
             ItemKind::Arcade => Self::Arcade { frame: 0, top_line: 0 },
             ItemKind::Key => Self::Key { vehicle: None },
+            ItemKind::CashWorld => Self::Cash(Cash::default()),
             _ if ty.is_gun => Self::Gun { rounds: left, cooldown: 0, trigger_ticks: 0 },
             _ if left > 0 => Self::Stock { left },
             _ => Self::Plain,
@@ -92,6 +175,14 @@ impl ItemState {
             Self::Grenade { pin, .. } => *pin,
             _ => 0,
         }
+    }
+
+    pub fn cash(&self) -> Option<&Cash> {
+        if let Self::Cash(c) = self { Some(c) } else { None }
+    }
+
+    pub fn cash_mut(&mut self) -> Option<&mut Cash> {
+        if let Self::Cash(c) = self { Some(c) } else { None }
     }
 
     pub fn phone(&self) -> Option<&Phone> {

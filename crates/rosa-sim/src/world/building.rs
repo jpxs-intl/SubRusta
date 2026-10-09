@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::IVec3;
+use glam::{IVec3, Vec3};
 use rosa_protocol::Team;
 use rosa_map::file_types::{
     csx::CityFileCSX,
@@ -55,6 +55,60 @@ pub fn building_type(name: &str, roundcity: bool) -> i32 {
     }
 }
 
+/// The kinds of building record (buildings +0x00): a corporation's base, a car dealership, a lab, a clothing store, a
+/// bank, a gun store and a burger shop.
+pub const CORPORATION_BASE: i32 = 1;
+pub const CAR_DEALER: i32 = 3;
+pub const LAB: i32 = 4;
+pub const CLOTHING_STORE: i32 = 5;
+pub const BANK: i32 = 6;
+pub const GUN_STORE: i32 = 8;
+pub const BURGER_SHOP: i32 = 9;
+/// What a clothing store sells (two suits, a third, two necklaces) and a burger shop's single burger.
+const CLOTHING_STOCK: [(i32, i32); 5] = [(0, 1000), (1, 5000), (2, 10000), (3, 10000), (4, 100000)];
+const BURGER_PRICE: i32 = 20;
+
+/// A shop's stock entry (building +0xc9f8, 0xc each): an item or vehicle type, its price and a third value (a
+/// dealership car's colour).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ShopEntry {
+    pub kind: i32,
+    pub price: i32,
+    pub extra: i32,
+}
+
+/// A building the game keeps a record of (buildings, 0xdb0c each, created in placement order): its kind, the box inside
+/// it (+0x40, +0x4c) and what it sells (+0xc9f4 count).
+#[derive(Clone, Debug, Default)]
+pub struct BuildingRecord {
+    pub kind: i32,
+    pub interior_min: Vec3,
+    pub interior_max: Vec3,
+    pub shop: Vec<ShopEntry>,
+}
+
+impl BuildingRecord {
+    /// is_in_building: whether `pos` is inside the box, grown by `margin`.
+    pub fn contains(&self, pos: Vec3, margin: f32) -> bool {
+        let (a, b) = (self.interior_min, self.interior_max);
+        !(pos.x < a.x - margin) && !(b.x + margin <= pos.x) && !(pos.y < a.y - margin) && !(b.y + margin <= pos.y) && !(pos.z < a.z - margin) && margin + b.z > pos.z
+    }
+}
+
+/// The record kind a building type gets, if any.
+fn record_kind(building_type: i32) -> Option<i32> {
+    match building_type {
+        0..=5 => Some(CORPORATION_BASE),
+        10 => Some(LAB),
+        11 => Some(CAR_DEALER),
+        12 => Some(BANK),
+        13 => Some(CLOTHING_STORE),
+        14 => Some(GUN_STORE),
+        16 => Some(BURGER_SHOP),
+        _ => None,
+    }
+}
+
 pub struct Buildings<'a> {
     csx: &'a CityFileCSX,
     custom_names: Vec<&'a str>,
@@ -63,6 +117,7 @@ pub struct Buildings<'a> {
     runtime: Vec<Tile>,
     mesh_cache: HashMap<u32, u32>,
     pub generated: Vec<(u32, u32)>,
+    pub records: Vec<BuildingRecord>,
     game_type: u32,
 }
 
@@ -76,6 +131,7 @@ impl<'a> Buildings<'a> {
             runtime: vec![Tile::default(); RT_LAYERS * 4096],
             mesh_cache: HashMap::new(),
             generated: Vec::new(),
+            records: Vec::new(),
             game_type,
         }
     }
@@ -107,6 +163,9 @@ impl<'a> Buildings<'a> {
         let o = pos - off;
 
         self.instantiate(area, ground, tables, dims, o, w, l, h, off_y, rot, corp);
+        if let Some(kind) = record_kind(ty) {
+            self.records.push(building_record(kind, &raw, o, rot));
+        }
     }
 
     fn setup(&self, b: &BuildingFile) -> Vec<Tile> {
@@ -391,4 +450,29 @@ pub fn clear_collision_cell(area: &mut AreaGrid, x: i32, y: i32, z: i32) {
     }
 
     area.clear_cell(x, y, z);
+}
+
+/// The record area_instantiate_building_blocks makes: the interior is the building past its offset margin, turned with
+/// the building, from `o` (the building's lowest corner).
+fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32) -> BuildingRecord {
+    let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
+    let (w, l, h) = (raw.width as i32, raw.length as i32, raw.height as i32);
+    let (x, z) = match rot & 3 {
+        0 => ((off.x, w), (off.z, l)),
+        1 => ((0, l - off.z), (off.x, w)),
+        2 => ((0, w - off.x), (0, l - off.z)),
+        _ => ((off.z, l), (0, w - off.x)),
+    };
+    let cell = |v: i32| v as f32 * 4.0;
+    let shop = match kind {
+        CLOTHING_STORE => CLOTHING_STOCK.iter().map(|&(k, price)| ShopEntry { kind: k, price, extra: 0 }).collect(),
+        BURGER_SHOP => vec![ShopEntry { kind: 0, price: BURGER_PRICE, extra: 0 }],
+        _ => Vec::new(),
+    };
+    BuildingRecord {
+        kind,
+        interior_min: Vec3::new(cell(o.x + x.0), cell(o.y + off.y), cell(o.z + z.0)),
+        interior_max: Vec3::new(cell(o.x + x.1), cell(o.y + h), cell(o.z + z.1)),
+        shop,
+    }
 }

@@ -76,14 +76,26 @@ pub struct GroundContact {
     pub lift: f32,
 }
 
+/// Where a solver iteration is when `RigidBodies::solve_bonds_with` calls its step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SolverStep {
+    BeforeBonds,
+    AfterBonds,
+}
+
+/// How much a free body's vertical speed drops each tick: 9.8 / 60².
+pub const GRAVITY: f32 = 9.8 / (60.0 * 60.0);
+
 pub struct RigidBodies {
     bodies: Table<RigidBody>,
     bonds: Table<Bond>,
+    /// A multiplier on gravity (1 as in the game), changed by the /gravity command.
+    pub gravity_scale: f32,
 }
 
 impl Default for RigidBodies {
     fn default() -> Self {
-        Self { bodies: Table::new(8192), bonds: Table::new(MAX_BONDS) }
+        Self { bodies: Table::new(8192), bonds: Table::new(MAX_BONDS), gravity_scale: 1.0 }
     }
 }
 
@@ -147,11 +159,12 @@ impl RigidBodies {
     }
 
     pub fn simulate(&mut self) {
+        let gravity = GRAVITY * self.gravity_scale;
         for (_, b) in self.bodies.iter_mut() {
             if b.settled {
                 continue;
             }
-            let vy = b.vel.y - (9.8 / (60.0 * 60.0));
+            let vy = b.vel.y - gravity;
             b.vel.y = vy;
             b.pos.x += b.vel.x;
             b.pos.y += vy;
@@ -186,7 +199,13 @@ impl RigidBodies {
     }
 
     pub fn solve_bonds(&mut self) {
-        let Self { bodies, bonds } = self;
+        self.solve_bonds_with(|_, _| {});
+    }
+
+    /// bond_simulation: the bonds solved 32 times, `step` running on the bodies before (vehicles_step_wheel_constraints)
+    /// and after (apply_vehicle_wheel_forces) each pass over the bonds.
+    pub fn solve_bonds_with(&mut self, mut step: impl FnMut(&mut Table<RigidBody>, SolverStep)) {
+        let Self { bodies, bonds, .. } = self;
         for (_, bond) in bonds.iter_mut() {
             match bond {
                 Bond::Joint(j) => j.prepare(bodies),
@@ -203,6 +222,7 @@ impl RigidBodies {
                 b.impulse = Vec3::ZERO;
                 b.ang_impulse = Vec3::ZERO;
             }
+            step(bodies, SolverStep::BeforeBonds);
             for (_, bond) in bonds.iter() {
                 match bond {
                     Bond::Joint(j) => j.solve(bodies),
@@ -221,6 +241,7 @@ impl RigidBodies {
                     }
                 }
             }
+            step(bodies, SolverStep::AfterBonds);
             for (_, b) in bodies.iter_mut() {
                 if !b.settled {
                     apply_impulses(b);

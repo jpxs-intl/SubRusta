@@ -12,6 +12,7 @@ serde = { version = "1.0.229", features = [ "derive" ] }
 # hecs = "0.11.2"
 glam = "0.34.1"
 binrw = "0.15.0"
+rand = "0.10"
 
 rosa-map = { path = "crates/rosa-map", default-features = false }
 rosa-sim = { path = "crates/rosa-sim", default-features = false }

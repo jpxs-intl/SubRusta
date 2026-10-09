@@ -54,7 +54,7 @@ pub fn trace_ray_human(h: &Human, start: Vec3, end: Vec3, radius: f32) -> Option
 /// directly, arms lose three times the damage and legs twice; torso and leg hits cost health the more blood is
 /// already gone, and any hit may start bleeding.
 pub fn damage_human(h: &mut Human, bone: usize, damage: i32) {
-    if h.unk_68 == 0 {
+    if !h.is_immortal {
         h.blood_level -= damage / 2;
     }
     let blood_health = |health: i32, blood: i32| (health as f32 - ((FULL_BLOOD - blood) * damage) as f32 / LEG_LOSS_SCALE) as i32;
@@ -88,7 +88,7 @@ pub fn damage_human(h: &mut Human, bone: usize, damage: i32) {
     }
     // TODO: the binary uses glibc rand() here (seeded at startup), so which hits start bleeding differs
     if damage > 0 && ((rand() & 0x1f) as i32) < damage {
-        h.unk_6d80 = 1;
+        h.bleeding = true;
     }
     if h.pain > PAIN_CAP {
         h.pain = PAIN_CAP;

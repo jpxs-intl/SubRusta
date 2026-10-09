@@ -21,9 +21,11 @@ use glam::Vec3;
 use slab::Slab;
 use tokio::sync::mpsc;
 
+use self::traffic::traffic_section;
 use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
 
 pub mod bullets;
+pub mod crime;
 pub mod economy;
 pub mod events;
 pub mod item_logic;
@@ -33,6 +35,10 @@ pub mod humans;
 pub mod item_grid;
 pub mod item_types;
 pub mod items;
+pub mod shops;
+pub mod tps;
+pub mod traffic;
+pub mod vehicles;
 
 /// One of a client's 8 voice slots: a speaker it can hear.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,10 +85,17 @@ struct TickCtx<'a> {
     own_humans: HashMap<usize, rosa_protocol::clientbound::game::OwnHumanData>,
     heads: HashMap<usize, (Vec3, bool)>,
     items: Vec<rosa_protocol::clientbound::game::ServerItemObject>,
+    vehicles: Vec<rosa_protocol::clientbound::game::ServerVehicleObject>,
     tick: u32,
     gamestate: GameState,
-    ready_states: Option<[bool; 32]>
+    ready_states: Option<[bool; 32]>,
+    traffic: &'a crate::traffic::Traffic,
+    /// The items no client is sent (in a pocket or closed briefcase).
+    pocketed: std::collections::HashSet<u16>,
 }
+
+/// The length of a tick.
+const TICK_MS: u64 = 16;
 
 pub struct Sim {
     tick: u32,
@@ -105,10 +118,14 @@ pub struct Sim {
     noise_seed: i32,
     corporations: [economy::Corporation; economy::CORPORATIONS],
     bullets: Vec<bullets::Bullet>,
+    vehicles: rosa_physics::Table<crate::vehicle::Vehicle>,
+    vehicle_types: Vec<crate::vehicle::types::VehicleType>,
     /// The world mode clock (0xe3b21e0).
     world_time: i32,
     /// Per account, the spawn timer kept while its player is away (account record +0x48, not saved to disk).
     account_spawn_timers: HashMap<u32, i32>,
+    traffic: crate::traffic::Traffic,
+    tick_stats: tps::TickStats,
 }
 
 impl Sim {
@@ -125,7 +142,7 @@ impl Sim {
         // TODO: reset_game also restocks the shop and car dealership vehicles here
         events.push(economy::stock_event(&corporations, 0));
 
-        Self {
+        let mut sim = Self {
             tick: 0,
             in_rx,
             out_tx,
@@ -146,9 +163,15 @@ impl Sim {
             noise_seed: 0,
             corporations,
             bullets: Vec::new(),
+            vehicles: rosa_physics::Table::new(crate::vehicle::MAX_VEHICLES),
+            vehicle_types: crate::vehicle::types::vehicle_types(Path::new("data")),
             world_time: economy::WORLD_TIME_START,
             account_spawn_timers: HashMap::new(),
-        }
+            traffic: crate::traffic::Traffic::default(),
+            tick_stats: tps::TickStats::default(),
+        };
+        sim.reset_game();
+        sim
     }
 
     fn apply(&mut self, input: Inbound) {
@@ -226,7 +249,7 @@ impl Sim {
     }
 
     pub fn run(mut self) {
-        let tick = Duration::from_millis(16);
+        let tick = Duration::from_millis(TICK_MS);
         let mut last_tick = Instant::now();
 
         loop {
@@ -239,6 +262,7 @@ impl Sim {
                 } else {
                     last_tick = Instant::now();
                 }
+                let started = Instant::now();
                 while let Ok(inp) = self.in_rx.try_recv() {
                     self.apply(inp);
                 }
@@ -249,6 +273,10 @@ impl Sim {
 
                 self.process_actions(pending);
                 self.start_round_if_all_ready();
+                self.update_shop_menus();
+                if self.gamestate == GameState::InGame {
+                    self.simulate_traffic();
+                }
                 if self.gamemode == GameMode::World {
                     self.logic_world();
                 }
@@ -267,6 +295,7 @@ impl Sim {
                     self.bullet_simulation();
                     self.bullet_ttl();
                 }
+                self.tick_stats.record(started, started.elapsed());
             }
         }
     }
@@ -321,6 +350,8 @@ impl Sim {
         let own_humans = self.own_human_data();
         let heads = self.humans.iter().map(|(id, h)| (id, (h.bones[3].pos, h.old_health > 0))).collect();
         let items = self.item_objects();
+        let vehicles = self.vehicle_objects();
+        let pocketed = self.items.iter().filter(|(_, i)| i.in_pocket).map(|(id, _)| id as u16).collect();
         let Sim {
             clients,
             players,
@@ -329,6 +360,7 @@ impl Sim {
             out_tx,
             tick,
             gamestate,
+            traffic,
             ..
         } = self;
 
@@ -346,9 +378,12 @@ impl Sim {
             own_humans,
             heads,
             items,
+            vehicles,
             tick: *tick,
             gamestate: *gamestate,
             ready_states,
+            traffic,
+            pocketed,
         };
 
         for client in clients.values_mut() {
@@ -370,8 +405,9 @@ impl Sim {
         let first_event = client.event_cursor as u32;
         let (global_event_count, events) = Self::collect_events(client, ctx);
         let earshots = Self::calculate_earshot(client, player_id, ctx);
-        let (object_packs, pack_offset) = Self::object_packs(client, ctx);
         let player = ctx.players.get(player_id.idx()).unwrap();
+        let (object_packs, pack_offset, packed_items) = Self::object_packs(client, ctx, player.camera_pos.0);
+        let (traffic, signal) = traffic_section(client, ctx.traffic, &ctx.world.map.streets, player.camera_pos.0);
 
         let mut voice_data: [Option<ServerVoiceData>; 8] = [const { None }; 8];
 
@@ -396,6 +432,12 @@ impl Sim {
             network_tick: ctx.tick,
             last_sdl_tick: client.last_sdl_tick,
             menu_type: player.menu,
+            menu_tab: player.menu_tab,
+            shop: if player.menu == MenuType::WorldStore {
+                usize::try_from(player.menu_tab).ok().and_then(|k| ctx.world.map.level.buildings.get(k)).map_or(Vec::new(), |b| b.shop.iter().map(|e| (e.kind, e.price, e.extra)).collect())
+            } else {
+                Vec::new()
+            },
             // TODO: the store menu (10) sends something else here
             money: player.money,
             gamestate: ctx.gamestate,
@@ -403,9 +445,13 @@ impl Sim {
             follow_pos: Vector::new(0.0, 0.0, 0.0),
             own_human: ctx.own_humans.get(&player_id.idx()).cloned(),
             humans: ctx.humans.clone(),
-            items: ctx.items.clone(),
+            items: ctx.items.iter().filter(|i| packed_items.contains(&i.slot)).cloned().collect(),
+            vehicles: ctx.vehicles.clone(),
             object_packs,
             pack_offset,
+            traffic_count: ctx.traffic.cars.len() as i32,
+            traffic,
+            signal,
             global_event_count,
             first_event,
             events,
@@ -413,11 +459,13 @@ impl Sim {
         }
     }
 
-    /// object_packet_update_relevance and the pack part of append_object_packet: every object gets a slot on the
-    /// client through a pack entry and gives it back with an unpack entry when it is gone; the entries go into a
-    /// 2048 entry ring and every packet carries those the client has not acknowledged.
-    // TODO: relevance by distance (items within 256 of the camera, humans always) and pocketed items being unpacked
-    fn object_packs(client: &mut Client, ctx: &TickCtx) -> (Vec<ObjectPack>, u16) {
+    /// object_packet_update_relevance and the pack part of append_object_packet: every object the client should see gets
+    /// a slot through a pack entry and gives it back with an unpack entry when it is gone; the entries go into a 2048
+    /// entry ring and every packet carries those the client has not acknowledged. Humans are always seen; an item is
+    /// packed within 256 of the camera and unpacked past 264, or when pocketed. Returns the item slots packed.
+    fn object_packs(client: &mut Client, ctx: &TickCtx, camera: Vec3) -> (Vec<ObjectPack>, u16, std::collections::HashSet<u16>) {
+        const PACK_RANGE: f32 = 256.0;
+        const UNPACK_RANGE: f32 = 264.0;
         const RING: u16 = 0x800;
         if client.pack_ring.is_empty() {
             client.pack_ring = vec![ObjectPack { slot: 0, unpack: true, kind: 0, item_type: 0, index: 0 }; RING as usize];
@@ -426,7 +474,20 @@ impl Sim {
             .humans
             .iter()
             .map(|h| (h.slot, ObjectPack { slot: h.slot, unpack: false, kind: 0, item_type: 0, index: h.human_id }))
-            .chain(ctx.items.iter().map(|i| (i.slot, ObjectPack { slot: i.slot, unpack: false, kind: 1, item_type: i.item_type as u16, index: i.item_id })))
+            .chain(
+                ctx.items
+                    .iter()
+                    .filter(|i| {
+                        if ctx.pocketed.contains(&i.item_id) {
+                            return false;
+                        }
+                        let d = Vec3::new(i.pos.0.x - camera.x, i.pos.0.y - camera.y, i.pos.0.z - camera.z);
+                        let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+                        let packed = client.packed.get(&i.slot).is_some_and(|p| p.kind == 1 && p.index == i.item_id);
+                        if packed { dist <= UNPACK_RANGE } else { !(PACK_RANGE <= dist) }
+                    })
+                    .map(|i| (i.slot, ObjectPack { slot: i.slot, unpack: false, kind: 1, item_type: i.item_type as u16, index: i.item_id })),
+            )
             .collect();
         let queue = |client: &mut Client, pack: ObjectPack| {
             let next = (client.pack_count + 1) & (RING - 1);
@@ -450,7 +511,8 @@ impl Sim {
         }
         let pending = client.pack_count.wrapping_sub(client.pack_ack) & (RING - 1);
         let packs = (0..pending).map(|k| client.pack_ring[((client.pack_ack + k) & (RING - 1)) as usize]).collect();
-        (packs, client.pack_ack)
+        let items = client.packed.values().filter(|p| p.kind == 1).map(|p| p.slot).collect();
+        (packs, client.pack_ack, items)
     }
 
     fn collect_events(

@@ -15,6 +15,7 @@ pub enum Weekday {
 pub mod map;
 pub mod grid;
 pub mod roads;
+pub mod streets;
 pub mod ground;
 pub mod collide;
 pub mod blocks;
@@ -26,6 +27,7 @@ pub mod mesh;
 pub mod meshes;
 pub mod trace;
 pub mod capsule;
+pub mod sphere;
 
 pub struct World {
     sun_angle: u16,

@@ -11,7 +11,7 @@ use rosa_protocol::{
 use super::{
     Sim,
     bullets::{BULLET_DATA, create_bullet},
-    item_state::{ItemState, PhoneStatus},
+    item_state::{Cash, ItemState, PhoneStatus},
 };
 use crate::human::arms::calculate_spread_vector;
 use crate::PlayerId;
@@ -26,6 +26,8 @@ const PHONE_DIAL_COOLDOWN: i32 = 180;
 const GRENADE_HELD_FUSE: i32 = 240;
 const GRENADE_KILL_RANGE: f32 = 4.0;
 const GRENADE_PUSH_RANGE: f32 = 8.0;
+/// The damage a grenade kill scores for the primer's criminal rating and team kill punishment.
+const GRENADE_SCORE: i32 = 100;
 const BANDAGE_RANGE: f32 = 2.0;
 const BANDAGE_TICKS: i32 = 255;
 const BURGER_COOLDOWN: i32 = 300;
@@ -119,11 +121,11 @@ impl Sim {
             }
             false
         };
-        if *rounds == 0 && chamber(&mut self.items) {
-            if let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
+
+        if *rounds == 0 && chamber(&mut self.items) && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
                 *rounds = 1;
-            }
         }
+        
         let item = self.items.get_mut(id).unwrap();
         let ItemState::Gun { rounds, cooldown, trigger_ticks } = &mut item.state else { return };
         if *cooldown > 0 || *trigger_ticks != fire_tick || *rounds <= 0 {
@@ -137,7 +139,7 @@ impl Sim {
         vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
         let muzzle = Vec3::new(r2.x * 0.0 + p.x, r2.y * 0.0 + p.y, 0.0 * r2.z + p.z);
         let shooter = self.humans.get(holder as usize).and_then(|h| h.player);
-        create_bullet(&mut self.bullets, bullet_type, muzzle, vel, shooter);
+        create_bullet(&mut self.bullets, bullet_type, muzzle, vel, shooter, self.bodies.gravity_scale);
         let shown = Vec3::new(p.x - bv.x, p.y - bv.y, p.z - bv.z);
         let e = EventBullet { bullet_type, item_id: id as i32, pos: Vector(shown), vel: Vector(vel) };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Bullet(e) });
@@ -242,10 +244,10 @@ impl Sim {
     fn eat(&mut self, id: usize) {
         let item = self.items.get(id).unwrap();
         let Some(h) = (item.parent_human != -1).then(|| self.humans.get_mut(item.parent_human as usize)).flatten() else { return };
-        if h.unk_40 != 0 {
+        if h.eat_cooldown != 0 {
             return;
         }
-        h.unk_40 = BURGER_COOLDOWN;
+        h.eat_cooldown = BURGER_COOLDOWN;
         h.max_stamina = (h.max_stamina + 16).min(255);
         h.unk_3c = (h.unk_3c + 8).min(105);
         let item = self.items.get_mut(id).unwrap();
@@ -262,7 +264,7 @@ impl Sim {
         let (pos, holder) = (self.bodies.get(item.body).map_or(item.pos2, |b| b.pos), item.parent_human);
         let mut nearest = (BANDAGE_RANGE, None);
         for (k, h) in self.humans.iter() {
-            if !(h.old_health > 0 && (h.unk_6d80 != 0 || h.old_health <= 9)) {
+            if !(h.old_health > 0 && (h.bleeding || h.old_health <= 9)) {
                 continue;
             }
             let d = Vec3::new(h.pos.x - pos.x, h.pos.y - pos.y, h.pos.z - pos.z);
@@ -290,7 +292,7 @@ impl Sim {
             item.despawn_time = 0;
         }
         if let Some(t) = self.humans.get_mut(target) {
-            t.unk_6d80 = 0;
+            t.bleeding = false;
             if t.old_health <= 9 {
                 t.old_health = 10;
             }
@@ -336,18 +338,20 @@ impl Sim {
         item.despawn_time = 0;
         let pos = self.bodies.get(item.body).map_or(item.pos2, |b| b.pos);
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Explosion(EventExplosion { size: 0, pos: Vector(pos) }) });
-        self.grenade_explosion(pos);
+        let primer = *primer;
+        self.grenade_explosion(pos, primer);
     }
 
     /// grenade_explosion: kills every human within 4 of it and throws the bones of everyone within 8 outwards.
-    fn grenade_explosion(&mut self, at: Vec3) {
-        // TODO: the primer's team kill punishment and criminal rating
+    fn grenade_explosion(&mut self, at: Vec3, primer: Option<PlayerId>) {
+        let mut killed = Vec::new();
         for (_, h) in self.humans.iter_mut() {
             let p = h.bones[0].pos;
             let (dx, dy, dz) = (p.x - at.x, p.y - at.y, p.z - at.z);
             let dist = (dz * dz + (dx * dx + dy * dy)).sqrt();
             if !(GRENADE_KILL_RANGE <= dist) {
                 h.old_health = 0;
+                killed.push(h.player);
             }
             if GRENADE_PUSH_RANGE <= dist {
                 continue;
@@ -367,6 +371,13 @@ impl Sim {
                 let v = ((v * v) * 1.5) * weight;
                 b.vel = Vec3::new(dir.x * v + b.vel.x, dir.y * v + b.vel.y, v * dir.z + b.vel.z);
             }
+        }
+        let Some(primer) = primer else { return };
+        for victim in killed.into_iter().flatten().filter(|&v| v != primer) {
+            if self.same_team(primer, victim) {
+                self.punish_team_kill(primer, GRENADE_SCORE);
+            }
+            self.handle_criminal_rating(primer, victim, GRENADE_SCORE);
         }
     }
 
@@ -555,10 +566,14 @@ impl Sim {
 
     /// The item action (type 2) a player sends for an item in their hands: a dialling phone takes a digit.
     pub(crate) fn item_action(&mut self, pid: PlayerId, item_id: usize, key: i32) {
-        // TODO: computer key presses (computer_handle_keypress) and splitting world cash
-        let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|id| self.humans.get(id)) else { return };
-        let in_hand = (0..2).any(|s| h.inventory[s].count > 0 && h.inventory[s].items[0] == item_id as i32);
-        if !in_hand || !self.is_phone(item_id) {
+        // TODO: computer key presses (computer_handle_keypress)
+        let Some(human) = self.players.get(pid.idx()).and_then(|p| p.human) else { return };
+        let Some(h) = self.humans.get(human) else { return };
+        let Some(hand) = (0..2).find(|&s| h.inventory[s].count > 0 && h.inventory[s].items[0] == item_id as i32) else { return };
+        if self.items.get(item_id).is_some_and(|i| i.item_type == ItemKind::CashWorld) {
+            self.cash_action(human, hand, item_id, key);
+        }
+        if !self.is_phone(item_id) {
             return;
         }
         let p = self.items.get_mut(item_id).unwrap().state.phone_mut().unwrap();
@@ -569,5 +584,61 @@ impl Sim {
         p.display_number = p.entered_number;
         self.phone_sound(Sound::PHONE_KEYS[key as usize], item_id, 1.0);
         self.phone_update(item_id);
+    }
+
+    /// The world cash part of logic_playerinteractions: key 0 and 1 move the pick along the stack; a higher key (with
+    /// enough bills) hands the picked bill to the other hand, onto its stack or as a stack of its own.
+    fn cash_action(&mut self, human: usize, hand: usize, item_id: usize, key: i32) {
+        let Some(cash) = self.items.get(item_id).and_then(|i| i.state.cash()).copied() else { return };
+        match key {
+            0 => self.items.get_mut(item_id).unwrap().state.cash_mut().unwrap().spread += 1,
+            1 => self.items.get_mut(item_id).unwrap().state.cash_mut().unwrap().spread -= 1,
+            _ if cash.bills >= key - 2 => self.move_bill(human, hand, item_id, cash),
+            _ => {}
+        }
+        let Some(c) = self.items.get_mut(item_id).and_then(|i| i.state.cash_mut()) else { return };
+        if c.spread < 0 {
+            c.spread = 0;
+        }
+        if c.bills < c.spread {
+            c.spread = c.bills;
+        }
+    }
+
+    /// The picked bill to the other hand: onto the stack there, or as a new one-bill stack when that hand is empty.
+    fn move_bill(&mut self, human: usize, hand: usize, item_id: usize, cash: Cash) {
+        let other = hand ^ 1;
+        let code = cash.code(cash.spread);
+        let held = self.humans.get(human).and_then(|h| (h.inventory[other].count > 0).then_some(h.inventory[other].items[0] as usize));
+        match held {
+            None => {
+                let Some(item) = self.items.get(item_id) else { return };
+                let (vel, body) = (item.vel, item.body);
+                let Some((pos, rot)) = self.bodies.get(body).map(|b| (b.pos, b.rot)) else { return };
+                if let Some(new) = self.create_item(ItemKind::CashWorld, pos, Some(vel), rot) {
+                    if let Some(c) = self.items.get_mut(new).and_then(|i| i.state.cash_mut()) {
+                        c.bills = 0;
+                        c.codes = code;
+                    }
+                    let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
+                    if let Some(h) = humans.get_mut(human) {
+                        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
+                        crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, new, other);
+                    }
+                }
+            }
+            Some(o) => {
+                let added = self.items.get_mut(o).and_then(|i| i.state.cash_mut()).is_some_and(|c| c.insert(0, code));
+                if !added {
+                    return;
+                }
+            }
+        }
+        let Some(item) = self.items.get_mut(item_id) else { return };
+        let Some(c) = item.state.cash_mut() else { return };
+        let spread = c.spread;
+        if !c.remove(spread) {
+            item.despawn_time = 0;
+        }
     }
 }

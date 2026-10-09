@@ -144,13 +144,17 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
     if h.input_flags & 0x2000 != 0 && h.last_input_flags & 0x2000 == 0 {
         swap_hands(h, human_id, bodies, touch);
     }
+    let mut armed = false;
     for slot in &h.inventory {
         for &item_id in &slot.items[..slot.count as usize] {
             if let Some(item) = touch.items.get_mut(item_id as usize) {
                 item.physics_settled = false;
-                // TODO: carrying a gun ends spawn protection
+                armed |= touch.types[item.item_type as usize].is_gun;
             }
         }
+    }
+    if armed {
+        h.spawn_protection = 0;
     }
 }
 
@@ -487,7 +491,11 @@ fn pickup(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut 
         }
     }
     let Some(item_id) = found else {
-        // TODO: with no item in reach, the human gets into the nearest vehicle seat within 1.375
+        if let Some((vehicle, seat)) = super::seated::find_seat(h, touch) {
+            h.vehicle = Some(vehicle);
+            h.seat = seat;
+            touch.occupied.push((vehicle, seat));
+        }
         return;
     };
     let kind = touch.items.get(item_id).unwrap().item_type;

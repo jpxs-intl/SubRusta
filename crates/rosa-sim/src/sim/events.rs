@@ -1,9 +1,13 @@
 use std::net::SocketAddr;
 
+use glam::Vec3;
 use rosa_protocol::{Team, clientbound::game::{GameState, ItemKind, MenuType, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
 
 use crate::{Client, ConnId, PlayerId, SimJoinMsg};
 use super::Sim;
+
+/// The gravity the game is tuned for, in m/s², which /gravity values are relative to.
+const EARTH_GRAVITY: f32 = 9.8;
 
 impl Sim {
     pub(crate) fn on_join(&mut self, conn: ConnId, src: SocketAddr, j: SimJoinMsg) {
@@ -37,6 +41,8 @@ impl Sim {
                 pack_count: 0,
                 pack_ack: 0,
                 packed: Default::default(),
+                traffic_priority: Vec::new(),
+                signal_cursor: 0,
                 player_id,
             },
         );
@@ -79,6 +85,10 @@ impl Sim {
         if self.players.get(player_id.idx()).is_some_and(|p| p.menu == MenuType::RoundCorpStock) {
             return self.stock_menu_selection(player_id, action.button);
         }
+        let id = match action.menu { Menu::Lobby => 2, Menu::Other(m) => m };
+        if self.players.get(player_id.idx()).is_some_and(|p| p.menu as u8 == id && matches!(id, 9..=11)) {
+            return self.shop_menu_action(player_id, action.button);
+        }
         let player = self.players.get_mut(player_id.idx()).unwrap();
 
         match action.menu {
@@ -106,7 +116,7 @@ impl Sim {
         let kind = kinds.clone().find(|k| arg.parse::<u8>().ok() == Some(*k as u8) || format!("{k:?}").to_lowercase() == arg);
         match kind {
             Some(k) => {
-                self.spawn_item_for(player_id, k);
+                self.spawn_item_for(player_id, k, Vec3::Z);
             }
             None => {
                 let names: Vec<String> = kinds.map(|k| format!("{k:?}").to_lowercase()).collect();
@@ -116,9 +126,35 @@ impl Sim {
     }
 
     /// `/phone <number>`: spawns a phone with that number (9999 by default, like the binary's admin /phone).
+    /// Test command (/gravity [m/s² | reset]): sets gravity for everyone, as Earth's 9.8 by default; with no value it
+    /// announces the current gravity.
+    fn gravity_command(&mut self, message: &str) {
+        let arg = message.split_whitespace().nth(1);
+        let scale = match arg {
+            None => None,
+            Some("reset") => Some(1.0),
+            Some(v) => match v.parse::<f32>() {
+                Ok(g) if g.is_finite() && (-1000.0..=1000.0).contains(&g) => Some(g / EARTH_GRAVITY),
+                _ => {
+                    self.send_chat("Usage: /gravity [m/s² | reset]", ChatType::Announce, -1, 0);
+                    return;
+                }
+            },
+        };
+        if let Some(scale) = scale {
+            self.bodies.gravity_scale = scale;
+            for (_, item) in self.items.iter_mut() {
+                item.physics_settled = false;
+                item.settled_timer = 0;
+            }
+        }
+        let g = self.bodies.gravity_scale * EARTH_GRAVITY;
+        self.send_chat(&format!("Gravity is {g} m/s²"), ChatType::Announce, -1, 0);
+    }
+
     fn phone_command(&mut self, player_id: PlayerId, message: &str) {
         let number = message.trim_start_matches("/phone").trim().parse::<i32>().unwrap_or(9999);
-        let Some(id) = self.spawn_item_for(player_id, ItemKind::Phone) else { return };
+        let Some(id) = self.spawn_item_for(player_id, ItemKind::Phone, Vec3::Z) else { return };
         if let Some(p) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
             p.number = number;
         }
@@ -131,20 +167,40 @@ impl Sim {
             "/human" => return self.spawn_human_for(player_id),
             "/kill" => return self.kill_human_for(player_id),
             "/guns" => return self.spawn_guns_for(player_id),
+            "/clear" => return self.clear_command(),
+            "/tps" => return self.tps_command(),
+            m if m.starts_with("/car") => return self.car_command(player_id, m),
             m if m.starts_with("/item") => return self.item_command(player_id, m),
             m if m.starts_with("/phone") => return self.phone_command(player_id, m),
+            m if m.starts_with("/gravity") => return self.gravity_command(m),
             "/stocks" => {
                 if let Some(p) = self.players.get_mut(player_id.idx()) {
                     p.menu = if p.menu == MenuType::RoundCorpStock { MenuType::Empty } else { MenuType::RoundCorpStock };
                 }
                 return;
             }
+            "/heal" => {
+                if let Some(p) = self.players.get(player_id.idx()) && let Some(human) = p.human {
+                        let human = self.humans.get_mut(human).unwrap();
+
+                        human.chest_hp = 100;
+                        human.head_hp = 100;
+                        human.right_arm_hp = 100;
+                        human.left_arm_hp = 100;
+                        human.left_leg_hp = 100;
+                        human.right_leg_hp = 100;
+                        human.old_health = 100;
+                        human.blood_level = 100;
+                    }
+                return;
+            }
             _ => {}
         }
 
-        match self.gamestate {
-            GameState::Intermission => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
-            _ => self.send_chat(&action.message, ChatType::Chat, player_id.idx() as i32, 0),
+        let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.old_health > 0));
+        match (self.gamestate, speaker) {
+            (GameState::Intermission, _) | (_, None) => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
+            (_, Some(human)) => self.send_chat(&action.message, ChatType::Chat, human as i32, 0),
         }
     }
 }

@@ -23,7 +23,7 @@ pub struct ConvexHull {
 }
 
 impl ConvexHull {
-    fn new(verts: Vec<Vec3>, faces: Vec<[usize; 4]>, edges: Vec<[usize; 2]>) -> Self {
+    pub(crate) fn new(verts: Vec<Vec3>, faces: Vec<[usize; 4]>, edges: Vec<[usize; 2]>) -> Self {
         let faces = faces
             .into_iter()
             .map(|f| HullFace { verts: f, normal: calculate_face_normal(verts[f[0]], verts[f[1]], verts[f[2]]) })
@@ -205,6 +205,24 @@ impl ConvexHull {
         let [r0, r1, r2] = *rot;
         let c = Vec3::ZERO;
         Vec3::new(((r0.x * c.x + r1.x * c.y) + r2.x * c.z) + pos.x, ((r0.y * c.x + r1.y * c.y) + r2.y * c.z) + pos.y, ((c.x * r0.z + c.y * r1.z) + c.z * r2.z) + pos.z)
+    }
+
+    /// trace_segment_item_mesh: the segment against each face of the hull placed as `world`, both triangles of a face
+    /// under the first one's normal; the nearest hit as (fraction, point, normal).
+    pub fn trace_mesh(&self, world: &[Vec3], start: Vec3, end: Vec3) -> Option<(f32, Vec3, Vec3)> {
+        let mut best = (1.0f32, Vec3::ZERO, Vec3::ZERO);
+        for f in &self.faces {
+            let [a, b, c, d] = f.verts.map(|i| world[i]);
+            let n = calculate_face_normal(a, b, c);
+            for (p, q) in [(b, c), (c, d)] {
+                if let Some((t, hit)) = segment_intersect_face(n, start, end, a, p, q)
+                    && !(best.0 <= t)
+                {
+                    best = (t, hit, n);
+                }
+            }
+        }
+        (1.0 > best.0).then_some(best)
     }
 
     /// segment_cast_hull_face_groups: the first face the segment enters, as the hit point and the face's world normal.

@@ -12,6 +12,7 @@ rosa-math.workspace = true
 rosa-physics.workspace = true
 
 glam.workspace = true
+rand.workspace = true
 tokio.workspace = true
 
 [lints]

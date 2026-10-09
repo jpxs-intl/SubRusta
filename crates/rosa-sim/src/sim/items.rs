@@ -1,9 +1,13 @@
 use glam::{IVec3, Vec3};
+use rand::RngExt;
 use rosa_math::vector::Vector;
 use rosa_physics::{
     RotMatrix, Table, body::RigidBodyType, rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
 };
-use rosa_protocol::clientbound::game::{ItemKind, ServerItemObject};
+use rosa_protocol::clientbound::game::{
+    ItemKind, ItemTail, ServerItemObject,
+    events::{Event, ServerEvent, bullet_hit::EventBulletHit},
+};
 
 use super::item_state::ItemState;
 use super::{
@@ -20,6 +24,7 @@ const SETTLE_SPEED: f32 = f32::from_bits(0x3b88_8889);
 const SETTLE_TICKS: i32 = 60;
 const CONTACT_FRICTION: f32 = f32::from_bits(0x3f19_999a);
 const CONTACT_DEPTH_SCALE: f32 = 1.0 / 64.0;
+const ITEM_HEALTH: i32 = 100;
 const ITEM_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
 const CONTACT_SOFTNESS: f32 = 1.0 / 32.0;
 const SPAWN_IMPULSE: f32 = 0.05;
@@ -39,10 +44,17 @@ fn random_direction() -> Vec3 {
 pub struct Item {
     pub item_type: ItemKind,
     pub body: usize,
+    /// Hit points (+0x138, 100 at creation); an item at none is destroyed, a watermelon shot bursting.
+    pub health: i32,
     pub pos2: Vec3,
+    /// The body's velocity at the last sync (+0x80), what a burst sends.
+    pub vel: Vec3,
     pub physics_sim: bool,
     pub physics_settled: bool,
     pub settled_timer: i32,
+    /// Whether the item is out of sight (item +0x30): in a closed briefcase, on an item in a pocket, or in a pocket
+    /// itself unless it is a phone or walkie-talkie. Clients are not sent pocketed items.
+    pub in_pocket: bool,
     pub despawn_time: i32,
     pub aabb_min: Vec3,
     pub aabb_max: Vec3,
@@ -64,11 +76,16 @@ pub struct Item {
     pub last_input_flags: u32,
 }
 
-/// What a human needs to collide with items: the broadphase grid, the items and their hulls.
+/// What a human needs to collide with items and vehicles: the broadphase grid, the items and their hulls, the
+/// vehicles and their types.
 pub struct Touchables<'a> {
     pub grid: &'a ItemGrid,
     pub items: &'a mut Table<Item>,
     pub types: &'a [ItemType],
+    pub vehicles: &'a mut Table<crate::vehicle::Vehicle>,
+    pub vehicle_types: &'a [crate::vehicle::types::VehicleType],
+    /// The (vehicle, seat) pairs humans sit in, kept up to date as humans get in and out.
+    pub occupied: Vec<(usize, usize)>,
 }
 
 impl Sim {
@@ -80,10 +97,13 @@ impl Sim {
         let item = Item {
             item_type,
             body,
+            health: ITEM_HEALTH,
             pos2: pos,
+            vel: vel.unwrap_or(Vec3::ZERO),
             physics_sim: false,
             physics_settled: false,
             settled_timer: 0,
+            in_pocket: false,
             despawn_time: 65535,
             aabb_min: Vec3::ZERO,
             aabb_max: Vec3::ZERO,
@@ -120,7 +140,7 @@ impl Sim {
         if parent != -1
             && let Some(h) = self.humans.get_mut(parent as usize)
         {
-            let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+            let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: Vec::new() };
             crate::human::inventory::detach_item(h, &mut self.bodies, &mut touch, id, slot);
         }
         if let Some(item) = self.items.remove(id) {
@@ -129,11 +149,24 @@ impl Sim {
     }
 
     pub(crate) fn spawn_watermelon_for(&mut self, player_id: PlayerId) {
-        self.spawn_item_for(player_id, ItemKind::Watermelon);
+        let mut rng = rand::rng();
+
+        for _ in 0..100 {
+            let rand_x = rng.random_range(1.0..=5.0);
+            let rand_z = rng.random_range(1.0..=5.0);
+            let rand_y = rng.random_range(1.0..=5.0);
+
+            let mut v = Vec3::Z;
+            v.x += rand_x;
+            v.y += rand_y;
+            v.z += rand_z;
+
+            self.spawn_item_for(player_id, ItemKind::Watermelon, v);
+        }
     }
 
     /// Test command: an item of any type in front of the player's camera.
-    pub(crate) fn spawn_item_for(&mut self, player_id: PlayerId, kind: ItemKind) -> Option<usize> {
+    pub(crate) fn spawn_item_for(&mut self, player_id: PlayerId, kind: ItemKind, pos_offset: Vec3) -> Option<usize> {
         let player = self.players.get(player_id.idx())?;
 
         let mut view = IDENTITY;
@@ -142,7 +175,9 @@ impl Sim {
         let right = -view[2];
         rotate_orientation(&mut view, right, player.view_pitch);
 
-        let pos = player.camera_pos.0 - view[0] * SPAWN_DISTANCE;
+        let mut pos = player.camera_pos.0 - view[0] * SPAWN_DISTANCE;
+        pos += pos_offset;
+
         let Some(id) = self.create_item(kind, pos, None, IDENTITY) else {
             println!("[Sim] Item table full");
             return None;
@@ -193,18 +228,31 @@ impl Sim {
     }
 
     pub fn physics_tick(&mut self) {
+        self.physics_step();
+        self.physics_solve();
+    }
+
+    /// The first part of physics_simulation: the bodies moved, then vehicles, humans and items simulated.
+    pub fn physics_step(&mut self) {
         for (_, h) in self.humans.iter_mut() {
             h.progress_bar = 0;
         }
         self.bodies.simulate();
+        self.update_vehicle_bounds();
         self.sync_humans();
         self.sync_items_from_bodies();
         self.rebuild_item_grid();
+        self.simulate_vehicles();
         self.simulate_humans();
         self.item_simulation();
         self.logic_item();
-        self.bodies.solve_bonds();
+    }
+
+    /// The rest of physics_simulation: the bonds solved and the items left over cleaned up.
+    pub fn physics_solve(&mut self) {
+        self.solve_bonds();
         self.cleanup_items();
+        self.cleanup_vehicles();
     }
 
     fn sync_items_from_bodies(&mut self) {
@@ -223,6 +271,7 @@ impl Sim {
                 body.pos = Vec3::new(d.x * t + from.x, d.y * t + from.y, t * d.z + from.z);
             }
             item.pos2 = body.pos;
+            item.vel = body.vel;
 
             let (pos, [r0, r1, r2]) = (body.pos, body.rot);
             let (mut mn, mut mx) = ([65536.0f32; 3], [-65536.0f32; 3]);
@@ -259,17 +308,28 @@ impl Sim {
 
     fn item_simulation(&mut self) {
         for id in self.items.ids() {
+            let in_pocket = self.items.get(id).is_some_and(|item| {
+                let parent = usize::try_from(item.parent_item).ok().and_then(|p| self.items.get(p));
+                parent.is_some_and(|p| p.item_type == ItemKind::Briefcase || (p.parent_human != -1 && p.parent_slot > 2))
+                    || (item.parent_human != -1 && !matches!(item.item_type, ItemKind::Phone | ItemKind::Radio) && item.parent_slot > 2)
+            });
             let Some(item) = self.items.get_mut(id) else { continue };
+            item.in_pocket = in_pocket;
             if !(-32.0 <= item.pos2.y) {
+                item.despawn_time = 0;
+            }
+            if item.health <= 0 {
+                let e = EventBulletHit { unk: 0, hit_type: 0, pos: Vector(item.pos2), normal: Vector(item.vel) };
+                self.events.push(Event { tick_created: self.tick, kind: ServerEvent::BulletHit(e) });
                 item.despawn_time = 0;
             }
             item.physics_sim = false;
             let (body_id, item_type, parent) = (item.body, item.item_type, item.parent_human);
             let holder = (parent != -1).then(|| self.humans.get(parent as usize)).flatten();
-            // TODO: the isInPocket flag (items in a closed briefcase or a pocketed parent, pocketed non-phones)
             if item.parent_item != -1 {
                 item.physics_settled = false;
                 item.settled_timer = 0;
+                item.vel = Vec3::ZERO;
                 let pose = item.mount_pose;
                 if let Some(body) = self.bodies.get_mut(body_id) {
                     if let Some((pos, rot)) = pose {
@@ -286,6 +346,7 @@ impl Sim {
             }
             if let Some(h) = holder.filter(|_| item.parent_slot > 1) {
                 let vel = h.bones[0].vel;
+                item.vel = vel;
                 item.physics_settled = false;
                 item.settled_timer = 0;
                 let pose = item.pocket_pose;
@@ -521,7 +582,16 @@ impl Sim {
             .filter_map(|(id, item)| {
                 let body = self.bodies.get(item.body)?;
                 let rot = rot_matrix_to_quaternion(&body.rot);
-                Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot })
+                let tail = match (&item.state, item.item_type) {
+                    (ItemState::Cash(c), _) => ItemTail::Cash { bills: c.bills, spread: c.spread, codes: c.codes },
+                    (ItemState::Radio { transmitting, .. }, _) => ItemTail::Radio(*transmitting),
+                    (_, ItemKind::CashWorld) => ItemTail::Cash { bills: 0, spread: 0, codes: 0 },
+                    (_, ItemKind::Radio) => ItemTail::Radio(false),
+                    // TODO: the computer's cursor (item +0x370) once computers are ported
+                    (_, ItemKind::Computer) => ItemTail::Computer(0),
+                    _ => ItemTail::None,
+                };
+                Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot, tail })
             })
             .collect()
     }

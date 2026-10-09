@@ -27,6 +27,22 @@ pub fn rotate_orientation(rot: &mut RotMatrix, axis: Vec3, angle: f32) {
     }
 }
 
+/// rotate_vector_about_axis: `v` turned by `angle` about the unit `axis`.
+pub fn rotate_vector_about_axis(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
+    let (s, c) = (angle as f64).sin_cos();
+    let (s, c) = (s as f32, c as f32);
+    let a = axis;
+    let cx = v.y * a.z - v.z * a.y;
+    let cy = v.z * a.x - v.x * a.z;
+    let cz = v.x * a.y - v.y * a.x;
+    let d = (v.y * a.y + v.x * a.x) + v.z * a.z;
+    Vec3::new(
+        ((cz * a.y - cy * a.z) * c + d * a.x) + s * cx,
+        ((cx * a.z - cz * a.x) * c + d * a.y) + s * cy,
+        ((cy * a.x - cx * a.y) * c + d * a.z) + s * cz,
+    )
+}
+
 pub fn angular_velocity(rot: &RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> Vec3 {
     let [r0, r1, r2] = *rot;
     let l = momentum;

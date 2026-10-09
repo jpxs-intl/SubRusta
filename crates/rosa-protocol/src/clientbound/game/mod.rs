@@ -158,6 +158,20 @@ pub struct ServerItemObject {
     pub parent_item: i32,
     pub parent_human: i32,
     pub parent_slot: i32,
+    pub tail: ItemTail,
+}
+
+/// The type-specific end of an item's state (write_iteminfo_to_object).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ItemTail {
+    #[default]
+    None,
+    /// World cash: one less than the bill count (4 bits), the picked bill (4) and the bill codes (30).
+    Cash { bills: i32, spread: i32, codes: u32 },
+    /// A walkie-talkie: whether it is transmitting.
+    Radio(bool),
+    /// A computer's cursor (12 bits).
+    Computer(i32),
 }
 
 impl ServerItemObject {
@@ -176,6 +190,87 @@ impl ServerItemObject {
         }
 
         write_quaternion(w, self.rot, 14);
+        match self.tail {
+            ItemTail::None => {}
+            ItemTail::Cash { bills, spread, codes } => {
+                w.bits(bills, 4);
+                w.bits(spread, 4);
+                w.bits(codes as i32, 30);
+            }
+            ItemTail::Radio(on) => w.bits(on as i32, 1),
+            ItemTail::Computer(cursor) => w.bits(cursor, 12),
+        }
+    }
+}
+
+/// A vehicle's state in the game packet (the vehicle part of append_object_packet), always written in full.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerVehicleObject {
+    pub vehicle_id: u16,
+    pub traffic_car: i32,
+    pub pos: Vector,
+    pub rot: [f32; 4],
+    /// The steering angle as a share of half a turn, in 255ths.
+    pub steer: i32,
+    /// Per wheel: its suspension height (0 to 255), spin (-255 to 255) and skid (0 to 255).
+    pub wheels: [[i32; 3]; 4],
+    pub engine_rpm: i32,
+}
+
+impl ServerVehicleObject {
+    fn write_body(&self, w: &mut Writer) {
+        // TODO: the update tier (2 bits: the two most overdue vehicles 0, the next six 1, the rest 2) and the
+        // per-connection snapshot each delta is taken from
+        w.bits(self.vehicle_id as i32, 10);
+        w.bits(0, 2);
+        w.bits(self.traffic_car, 10);
+        w.bits(0, 8);
+        let p = self.pos.0;
+        for v in [(p.x + 4096.0) * 4096.0, (0.0 + p.y) * 4096.0, (p.z + 4096.0) * 4096.0] {
+            write_absolute(w, v as i32, 28);
+        }
+        write_quaternion(w, self.rot, 14);
+        write_absolute(w, self.steer, 9);
+        for [height, spin, skid] in self.wheels {
+            write_absolute(w, height, 8);
+            write_absolute(w, spin, 9);
+            write_absolute(w, skid, 8);
+        }
+        w.bits(self.engine_rpm, 13);
+    }
+}
+
+/// A traffic car the client is told about this packet (the traffic part of the game packet).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrafficEntry {
+    pub index: u16,
+    /// Whether the car is a real vehicle right now.
+    pub vehicle: bool,
+    pub kind: i32,
+    pub color: i32,
+    pub pos: Vector,
+    pub yaw: f32,
+}
+
+/// The double precision pi the yaw is scaled by.
+const TRAFFIC_PI: f64 = 3.14159265359;
+
+impl TrafficEntry {
+    fn write_body(&self, w: &mut Writer) {
+        // TODO: the tick of the client's snapshot (8 bits) and deltas from it; every value is sent absolute, and the
+        // type and colour every time rather than when the car's generation changes
+        w.bits(1, 1);
+        w.bits(0, 8);
+        w.bits(self.vehicle as i32, 1);
+        w.bits(1, 1);
+        w.bits(self.kind, 6);
+        w.bits(self.color, 4);
+        let p = self.pos.0;
+        for v in [(p.x + 4096.0) * 4096.0, (p.y + 0.0) * 4096.0, (p.z + 4096.0) * 4096.0] {
+            write_absolute(w, v as i32, 28);
+        }
+        let yaw = ((self.yaw as f64 / TRAFFIC_PI * 255.0) as i32).clamp(-255, 255);
+        write_absolute(w, yaw, 9);
     }
 }
 
@@ -274,8 +369,8 @@ pub struct OwnHumanData {
     pub view_yaw: f32,
     pub view_pitch: f32,
     pub yaw_offset: f32,
-    pub unk_124: f32,
-    pub unk_100: f32,
+    pub pitch_offset: f32,
+    pub body_yaw: f32,
     pub is_standing: bool,
     pub pain: i32,
     pub unk_6e08: i32,
@@ -299,6 +394,9 @@ pub struct ServerGamePacket {
     pub network_tick: u32,
     pub last_sdl_tick: u32,
     pub menu_type: MenuType,
+    /// The building whose menu is open, and in a shop's list (menu 10) what it sells: type, price and a third value.
+    pub menu_tab: i32,
+    pub shop: Vec<(i32, i32, i32)>,
     pub money: i32,
     pub gamestate: GameState,
     pub ready_states: Option<[bool; 32]>,
@@ -309,9 +407,15 @@ pub struct ServerGamePacket {
     pub own_human: Option<OwnHumanData>,
     pub humans: Vec<ServerHumanObject>,
     pub items: Vec<ServerItemObject>,
+    pub vehicles: Vec<ServerVehicleObject>,
     /// The pack entries the client has not acknowledged yet, starting at `pack_offset` in its 2048 entry ring.
     pub object_packs: Vec<ObjectPack>,
     pub pack_offset: u16,
+    /// How many traffic cars there are, and the ones sent this packet in index order.
+    pub traffic_count: i32,
+    pub traffic: Vec<TrafficEntry>,
+    /// One intersection's index and its first four lights, a different intersection each packet.
+    pub signal: (i32, [i32; 4]),
 
     pub global_event_count: u32,
     pub first_event: u32,
@@ -355,7 +459,7 @@ impl WireWrite for ServerGamePacket {
 
         let head_vel = match &self.own_human {
             Some(h) => {
-                for v in [h.view_yaw, h.view_pitch, h.yaw_offset, h.unk_124, h.unk_100] {
+                for v in [h.view_yaw, h.view_pitch, h.yaw_offset, h.pitch_offset, h.body_yaw] {
                     w.f32(v);
                 }
                 w.bits(h.is_standing as i32, 1);
@@ -380,7 +484,15 @@ impl WireWrite for ServerGamePacket {
 
         w.bits(0, 1);
         w.bits(self.menu_type as i32, 8);
-        w.bits(0, 16);
+        w.bits(self.menu_tab, 16);
+        if self.menu_type == MenuType::WorldStore {
+            w.bits(self.shop.len() as i32, 8);
+            for &(kind, price, extra) in &self.shop {
+                w.bits(kind, 8);
+                w.bits(price, 24);
+                w.bits(extra, 4);
+            }
+        }
 
         w.i32(self.money);
         w.u32(0);
@@ -428,17 +540,33 @@ impl WireWrite for ServerGamePacket {
             item.write_body(w);
         }
 
-        w.bits(0, 8);
+        w.bits(self.vehicles.len() as i32, 8);
+        for vehicle in &self.vehicles {
+            vehicle.write_body(w);
+        }
 
         w.bits(0, 8);
-        w.bits(0, 10);
-        w.bits(0, 8);
+        w.bits(self.traffic_count, 10);
+        w.bits(self.traffic.len() as i32, 8);
+        let mut next = 0;
+        for car in &self.traffic {
+            let skip = car.index as i32 - next;
+            if skip > 0 {
+                w.bits(0, 1);
+                w.bits(skip, 10);
+            }
+            car.write_body(w);
+            next = car.index as i32 + 1;
+        }
+        if self.traffic_count > next {
+            w.bits(0, 1);
+            w.bits(self.traffic_count - next, 10);
+        }
 
-        w.bits(0, 10);
-        w.bits(2, 2);
-        w.bits(2, 2);
-        w.bits(3, 2);
-        w.bits(1, 2);
+        w.bits(self.signal.0, 10);
+        for light in self.signal.1 {
+            w.bits(light, 2);
+        }
 
         for voice in &self.voice {
             if let Some(voice) = voice {

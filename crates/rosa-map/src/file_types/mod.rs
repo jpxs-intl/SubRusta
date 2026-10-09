@@ -4,6 +4,8 @@ pub mod sbc;
 pub mod csx;
 pub mod sbb;
 pub mod cmo;
+pub mod sbv;
+pub mod tst;
 
 #[derive(Debug)]
 pub enum LoaderError {

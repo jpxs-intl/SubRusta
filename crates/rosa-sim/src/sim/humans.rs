@@ -30,17 +30,18 @@ impl Sim {
 
     pub(crate) fn spawn_human_for(&mut self, player_id: PlayerId) {
         let Some(player) = self.players.get(player_id.idx()) else { return };
-        let mut rot = IDENTITY;
-        rotate_orientation(&mut rot, Vec3::Y, player.view_yaw);
-        let pos = player.camera_pos.0 - rot[0] * SPAWN_DISTANCE;
-        let Some(id) = self.spawn_human(pos, &rot, Some(player_id)) else {
+
+        let pos = player.camera_pos.0;
+        let Some(id) = self.spawn_human(pos, &IDENTITY, Some(player_id)) else {
             return println!("[Sim] Human table full");
         };
         if let Some(player) = self.players.get_mut(player_id.idx()) {
             player.human = Some(id);
+            player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
+            player.items_bought = 0;
             self.events.push(player.make_update_player_event(self.tick));
         }
-        println!("[Sim] Spawned human #{id} at {pos:?}");
+        println!("[Sim] Spawned human #{id} at {:?}", pos);
     }
 
     /// player_simulation: hands each player's latest controls to their human.
@@ -53,24 +54,36 @@ impl Sim {
             let Some(h) = player.human.and_then(|id| self.humans.get_mut(id)) else { continue };
             h.stocks = player.stocks;
             if h.vehicle.is_some() {
-                // TODO: vehicle controls (control modes 2 and 3 copy the first 8 control floats)
+                if matches!(player.control_mode, 2 | 3) {
+                    let c = &player.controls;
+                    h.gear_x_input = c[0];
+                    h.strafe_input = c[1];
+                    h.gear_y_input = c[2];
+                    h.walk_input = c[3];
+                    h.look_yaw = c[4];
+                    h.look_pitch = c[5];
+                    h.free_look_yaw = c[6];
+                    h.free_look_pitch = c[7];
+                }
             } else if player.control_mode == 1 {
                 let c = &player.controls;
-                // TODO: record 0x150, 0x158, 0x174, 0x178 and 0x17c..0x18c (controls 0, 2, 9, 10 and 11..15) and
-                // 0x198, 0x19c (extra controls 2 and 3) are not ported
+                // TODO: record 0x174, 0x178 and 0x17c..0x18c (controls 9, 10 and 11..15) and 0x198, 0x19c (extra
+                // controls 2 and 3) are not ported
+                h.gear_x_input = c[0];
+                h.gear_y_input = c[2];
                 h.strafe_input = c[1];
                 h.walk_input = c[3];
-                h.unk_160 = c[4];
-                h.unk_164 = c[5];
-                h.unk_168 = c[6];
-                h.unk_16c = c[7];
-                h.unk_170 = c[8];
+                h.look_yaw = c[4];
+                h.look_pitch = c[5];
+                h.free_look_yaw = c[6];
+                h.free_look_pitch = c[7];
+                h.client_body_yaw = c[8];
                 h.unk_190 = player.controls_extra[0];
                 h.unk_194 = player.controls_extra[1];
                 // TODO: in versus mode the human cannot move during the start delay
             } else {
-                h.unk_160 = h.view_yaw;
-                h.unk_164 = h.view_pitch;
+                h.look_yaw = h.view_yaw;
+                h.look_pitch = h.view_pitch;
             }
             h.input_flags = player.input_bits;
             h.movement_mode = player.zoom_level as i32;
@@ -87,7 +100,7 @@ impl Sim {
     pub(crate) fn simulate_humans(&mut self) {
         let map = &mut self.world.map;
         let mut out = Vec::new();
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         let mut deleted = Vec::new();
         for id in self.humans.ids() {
             let others = later_humans(&self.humans, id);
@@ -102,7 +115,7 @@ impl Sim {
         }
     }
 
-    fn apply_human_outputs(&mut self, out: Vec<HumanOutput>) {
+    pub(crate) fn apply_human_outputs(&mut self, out: Vec<HumanOutput>) {
         for o in out {
             let kind = match o {
                 HumanOutput::Glass(b) => ServerEvent::BulletHole(EventBulletHole {
@@ -121,6 +134,10 @@ impl Sim {
                     continue;
                 }
                 HumanOutput::Sound { sound, pos, volume, pitch } => ServerEvent::Sound(EventSound { sound_type: sound, pos: Vector(pos), volume, pitch }),
+                HumanOutput::RunOver { driver, victim } => {
+                    self.score_run_over(driver, victim);
+                    continue;
+                }
                 HumanOutput::TaxAccount(account) => {
                     if let Some(a) = self.saved_accounts.get_player_data(account) {
                         economy::account_wealth_tax(a);
@@ -135,7 +152,7 @@ impl Sim {
     pub fn simulate_human_at(&mut self, id: usize, ticks: u32, noise_seed: &mut i32) -> HumanTick {
         let map = &mut self.world.map;
         let mut out = Vec::new();
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         let others = later_humans(&self.humans, id);
         let Some(h) = self.humans.get_mut(id) else { return HumanTick::Keep };
         let result = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, ticks, noise_seed);
@@ -145,14 +162,14 @@ impl Sim {
 
     pub fn calculate_arm_angles_at(&mut self, id: usize, noise_seed: &mut i32) {
         let map = &self.world.map;
-        let touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+        let touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         let Some(h) = self.humans.get_mut(id) else { return };
         crate::human::arms::calculate_arm_angles(h, &mut self.bodies, map, &touch, noise_seed);
     }
 
     pub(crate) fn delete_human(&mut self, id: usize) {
         let Some(mut h) = self.humans.remove(id) else { return };
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         for slot in 0..h.inventory.len() {
             while h.inventory[slot].count > 0 {
                 let item = h.inventory[slot].items[h.inventory[slot].count as usize - 1] as usize;
@@ -197,12 +214,15 @@ impl Sim {
         self.humans.get(id)
     }
 
-    pub fn human_and_map(&mut self, id: usize) -> (&mut Human, &crate::world::map::Map) {
-        (self.humans.get_mut(id).unwrap(), &self.world.map)
+    /// A human and the level and vehicles its feet stand on (without the nearby vehicles it would trace).
+    pub fn human_and_map(&mut self, id: usize) -> (&mut Human, crate::human::locomotion::Surface<'_>) {
+        let surface = crate::human::locomotion::Surface { map: &self.world.map, vehicles: &self.vehicles, vehicle_types: &self.vehicle_types, nearby: &[] };
+        (self.humans.get_mut(id).unwrap(), surface)
     }
 
-    pub fn human_parts(&mut self, id: usize) -> (&mut Human, &mut RigidBodies, &crate::world::map::Map) {
-        (self.humans.get_mut(id).unwrap(), &mut self.bodies, &self.world.map)
+    pub fn human_parts(&mut self, id: usize) -> (&mut Human, &mut RigidBodies, crate::human::locomotion::Surface<'_>) {
+        let surface = crate::human::locomotion::Surface { map: &self.world.map, vehicles: &self.vehicles, vehicle_types: &self.vehicle_types, nearby: &[] };
+        (self.humans.get_mut(id).unwrap(), &mut self.bodies, surface)
     }
 
     pub(crate) fn human_objects(&self) -> Vec<ServerHumanObject> {
@@ -216,7 +236,7 @@ impl Sim {
                     player_id: h.player.map_or(-1, |p| p.0 as i32),
                     customization: h.customization,
                     vehicle: h.vehicle.map_or(-1, |v| v as i32),
-                    vehicle_seat: 0,
+                    vehicle_seat: h.seat as i32,
                     alive: h.old_health > 0,
                     bleeding: false,
                     pos: Vector(root.pos),
@@ -242,8 +262,8 @@ impl Sim {
                         view_pitch: h.view_pitch,
                         yaw_offset: h.yaw_offset,
                         // TODO: human record 0x124 is not ported yet
-                        unk_124: 0.0,
-                        unk_100: h.unk_100,
+                        pitch_offset: 0.0,
+                        body_yaw: h.body_yaw,
                         is_standing: h.is_standing,
                         pain: h.pain,
                         unk_6e08: h.action_type,
@@ -297,4 +317,9 @@ impl Sim {
 /// The unseated humans after `id`, which human `id` collides with this tick.
 fn later_humans(humans: &rosa_physics::Table<Human>, id: usize) -> Vec<crate::human::physics::OtherHuman> {
     humans.iter().filter(|&(k, h)| k > id && h.vehicle.is_none()).map(|(_, h)| crate::human::physics::OtherHuman::of(h)).collect()
+}
+
+/// The (vehicle, seat) pairs humans sit in.
+pub(crate) fn occupied_seats(humans: &rosa_physics::Table<Human>) -> Vec<(usize, usize)> {
+    humans.iter().filter_map(|(_, h)| h.vehicle.map(|v| (v, h.seat))).collect()
 }

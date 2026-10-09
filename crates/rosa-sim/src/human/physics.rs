@@ -1,5 +1,6 @@
 use glam::{IVec3, Vec3};
 use rosa_physics::{Bond, RigidBodies};
+use rosa_protocol::clientbound::game::events::sound::Sound;
 
 use super::{
     BONE_COUNT, Human,
@@ -22,7 +23,14 @@ const LIMIT_DAMPING: f32 = 0.5;
 const ITEM_FRICTION: f32 = 0.4;
 const ITEM_DEPTH_SCALE: f32 = 0.0625;
 const ITEM_SOFTNESS: f32 = 0.125;
-const NO_ITEM_CONTACT: [BoneId; 4] = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight];
+const MAX_NEARBY_VEHICLES: usize = 8;
+const VEHICLE_FRICTION: f32 = 0.4;
+const VEHICLE_DEPTH_SCALE: f32 = 0.03125;
+const VEHICLE_SOFTNESS: f32 = 0.0625;
+/// How fast a vehicle's point of contact must move into a bone to hurt (legs take a third of a unit a tick).
+const RUN_OVER: f32 = 0.2;
+const LEG_RUN_OVER: f32 = f32::from_bits(0x3eaa_aaab);
+const NO_ITEM_CONTACT:[BoneId; 4] = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight];
 
 /// human_update_bones_bbox_wake_items: pull every bone's state from its body and rebuild the bone capsules and bounds.
 pub fn sync_bones(h: &mut Human, bodies: &mut RigidBodies, map: &Map) {
@@ -199,6 +207,70 @@ pub(super) fn bone_item_contacts(h: &Human, bodies: &mut RigidBodies, touch: &mu
     }
 }
 
+/// human_simulation's scan for the vehicles whose bounds overlap the human's, at most 8 in vehicle order.
+pub(super) fn find_nearby_vehicles(h: &mut Human, touch: &Touchables) {
+    let (lo, hi) = (h.aabb_min, h.aabb_max);
+    h.nearby_vehicles = touch
+        .vehicles
+        .iter()
+        .filter(|(_, v)| {
+            let (mn, mx) = (v.bounds_min, v.bounds_max);
+            !(mn.x > hi.x || lo.x > mx.x || mn.z > hi.z || lo.z > mx.z || mn.y > hi.y || lo.y > mx.y)
+        })
+        .map(|(id, _)| id)
+        .take(MAX_NEARBY_VEHICLES)
+        .collect();
+}
+
+/// human_collide_vehicle: every bone capsule but the feet against each nearby vehicle's chassis, pushing the two
+/// apart; a vehicle the human was not last hit by hurts it when its point of contact moves into the bone fast
+/// enough.
+pub(super) fn vehicle_contacts(h: &mut Human, bodies: &mut RigidBodies, touch: &Touchables, out: &mut Vec<HumanOutput>) {
+    for k in 0..h.nearby_vehicles.len() {
+        let vid = h.nearby_vehicles[k];
+        let Some(v) = touch.vehicles.get(vid) else { continue };
+        let Some(t) = touch.vehicle_types.get(v.kind) else { continue };
+        for j in 0..BONE_COUNT {
+            if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
+                continue;
+            }
+            let shin = j == BoneId::ShinLeft as usize || j == BoneId::ShinRight as usize;
+            let shape = &BONES[j];
+            let bone = &h.bones[j];
+            let row = bone.rot[shape.shape as usize];
+            let (len, p) = (shape.shape_size[0], bone.pos);
+            let back = if shin { -len * 0.125 } else { 0.5 * -len };
+            let start = Vec3::new(back * row.x + p.x, back * row.y + p.y, back * row.z + p.z);
+            let half = len * 0.5;
+            let end = Vec3::new(p.x + row.x * half, p.y + row.y * half, p.z + half * row.z);
+            let radius = shape.shape_size[1];
+            let Some((hit, n, dist)) = crate::vehicle::physics::capsule_intersect_vehicle(v, t, start, end, radius) else { continue };
+            let (Some(bp), Some((vp, vvel, w))) = (bodies.get(bone.body).map(|b| b.pos), bodies.get(v.body).map(|b| (b.pos, b.vel, b.ang_vel))) else { continue };
+            let off_a = Vec3::new(hit.x - bp.x, hit.y - bp.y, hit.z - bp.z);
+            let r = Vec3::new(hit.x - vp.x, hit.y - vp.y, hit.z - vp.z);
+            bodies.add_body_contact(bone.body, v.body, off_a, r, n, radius - dist, VEHICLE_FRICTION, VEHICLE_DEPTH_SCALE, VEHICLE_SOFTNESS);
+            let arm = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight].iter().any(|&b| b as usize == j);
+            if h.last_vehicle == vid as i32 || arm {
+                continue;
+            }
+            let point = Vec3::new((w.z * r.y - w.y * r.z) + vvel.x, (r.z * w.x - w.z * r.x) + vvel.y, (r.x * w.y - r.y * w.x) + vvel.z);
+            let rel = Vec3::new(point.x - bone.vel.x, point.y - bone.vel.y, point.z - bone.vel.z);
+            let leg = shin || j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize;
+            let threshold = if leg { LEG_RUN_OVER } else { RUN_OVER };
+            if h.is_immortal || ((rel.y * n.y + rel.x * n.x) + rel.z * n.z) <= threshold {
+                continue;
+            }
+            h.old_health -= 120;
+            if (-119..=0).contains(&h.old_health) {
+                out.push(HumanOutput::Sound { sound: Sound::BodyHit, pos: h.pos, volume: 1.0, pitch: 0.5 });
+                if v.last_driver != -1 {
+                    out.push(HumanOutput::RunOver { driver: crate::PlayerId(v.last_driver as u32), victim: h.player });
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn joint_limits(h: &mut Human, bodies: &mut RigidBodies) {
     for child in 1..BONE_COUNT {
         let parent = BONES[child].parent;
@@ -348,6 +420,8 @@ pub enum HumanOutput {
     TaxAccount(u32),
     /// A sound at a place (event 9), e.g. a magazine going in.
     Sound { sound: rosa_protocol::clientbound::game::events::sound::Sound, pos: Vec3, volume: f32, pitch: f32 },
+    /// A vehicle's last driver killed the human by running it over.
+    RunOver { driver: crate::PlayerId, victim: Option<crate::PlayerId> },
 }
 
 /// A breakable face of a level cell that broke this tick, for the bullet-hole event.

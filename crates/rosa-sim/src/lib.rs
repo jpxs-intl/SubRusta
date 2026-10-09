@@ -8,6 +8,8 @@ pub mod player;
 pub mod rng;
 pub mod world;
 pub mod sim;
+pub mod traffic;
+pub mod vehicle;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct PlayerId(pub u32);
@@ -50,4 +52,8 @@ pub struct Client {
     pack_ack: u16,
     /// What each slot holds as far as the queued entries go.
     packed: std::collections::HashMap<u16, rosa_protocol::clientbound::game::ObjectPack>,
+    /// How overdue each traffic car is for this client (connection +0x6da4), and which intersection's lights it gets
+    /// next (connection +0x54).
+    traffic_priority: Vec<i32>,
+    signal_cursor: i32,
 }

@@ -12,6 +12,7 @@ pub mod ik;
 pub mod inventory;
 pub mod locomotion;
 pub mod physics;
+pub mod seated;
 pub mod simulation;
 
 pub use bones::{BONE_COUNT, BoneId};
@@ -41,6 +42,9 @@ pub struct Bone {
     pub capsule: [Vec3; 2],
     pub joint: Option<usize>,
     pub ground_contact: i32,
+    /// How hard the bone holds its pose (bone +0xc8): the human's strength, nothing for the pelvis and legs of a
+    /// seated human.
+    pub strength: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -102,7 +106,16 @@ pub struct Human {
     pub stamina: i32,
     pub max_stamina: i32,
     pub vehicle: Option<usize>,
+    /// The seat taken in `vehicle` (record 0x54).
+    pub seat: usize,
+    /// Ticks the human has been getting out of its seat (record 0x74, 0 when not), which slides it outwards.
+    pub seat_exit: i32,
+    /// The gear stick a driver moves (controls 0 and 2, record 0x150 and 0x158).
+    pub gear_x_input: f32,
+    pub gear_y_input: f32,
     pub last_vehicle_cooldown: i32,
+    /// An immortal human (record 0x68) loses no blood, cannot die of its wounds and is not hurt by falls or
+    /// vehicles; it recovers quickly while knocked down.
     pub is_immortal: bool,
     pub is_on_ground: bool,
     pub spawn_protection: i32,
@@ -124,9 +137,10 @@ pub struct Human {
     // TODO: name once their writers are ported (copied into the locomotion step state when a step starts)
     pub unk_190: f32,
     pub unk_194: f32,
-    // TODO: name once their writers are ported (extra yaw and pitch added to the body's turn towards the view)
-    pub unk_168: f32,
-    pub unk_16c: f32,
+    /// Where the player looks around without turning (controls 6 and 7, record 0x168 and 0x16c): the waist and
+    /// chest turn part of the way, and a pointing arm follows them.
+    pub free_look_yaw: f32,
+    pub free_look_pitch: f32,
     pub hand_sway: Vec3,
     pub hand_sway_vel: Vec3,
     pub inventory: [InventorySlot; INVENTORY_SLOTS],
@@ -144,22 +158,35 @@ pub struct Human {
     pub strength: f32,
     // TODO: name these once more of their readers and writers are ported
     pub unk_2c: i32,
-    pub unk_40: i32,
+    /// Ticks until the human can eat again (record 0x40).
+    pub eat_cooldown: i32,
     // TODO: name once its readers are ported (record 0x3c, starts at 105, a burger adds 8 up to 105)
     pub unk_3c: i32,
     /// The progress bar shown to the player (record 0x6e04), e.g. while bandaging.
     pub progress_bar: i32,
-    pub unk_68: i32,
-    pub unk_6c: i32,
-    pub unk_e0: f32,
-    pub unk_100: f32,
+    /// Ticks an immortal human knocked below 50 health is kept from being shot (record 0x6c, 1800 when knocked down).
+    pub down_timer: i32,
+    /// How far the body still has to turn to face the view (record 0xe0).
+    pub view_turn: f32,
+    /// The body's heading (record 0x100), turned towards the view a step at a time.
+    pub body_yaw: f32,
+    /// The pitch counterpart of `yaw_offset` (record 0x124): the seated human's look pitch.
+    pub pitch_offset: f32,
     pub unk_128: f32,
     pub unk_12c: f32,
-    pub unk_160: f32,
-    pub unk_164: f32,
-    pub unk_170: f32,
-    pub unk_218: i32,
-    pub unk_6d80: i32,
+    /// Where the player looks (controls 4 and 5, record 0x160 and 0x164): the view's yaw from the body and its pitch,
+    /// or the look around a seat.
+    pub look_yaw: f32,
+    pub look_pitch: f32,
+    /// The body heading the client last saw (control 8, record 0x170), which the look yaw is relative to.
+    pub client_body_yaw: f32,
+    /// The vehicles whose bounds overlap the human's (record +0x218 count, +0x21c ids), at most 8.
+    pub nearby_vehicles: Vec<usize>,
+    // TODO: name once its writers are found (record 0xb4, zero for every human seen; its length sets how long getting
+    // out of a seat takes)
+    pub unk_b4: Vec3,
+    /// Whether the human is bleeding (record 0x6d80): a hit starts it, bandaging or death stops it.
+    pub bleeding: bool,
     pub unk_6adc: Vec3,
     pub pos: Vec3,
     pub aabb_min: Vec3,

@@ -125,9 +125,9 @@ pub fn capsule_intersect_triangle(start: Vec3, end: Vec3, a: Vec3, b: Vec3, c: V
 }
 
 #[derive(Default)]
-struct TerrainMesh {
-    verts: Vec<Vec3>,
-    faces: Vec<[usize; 3]>,
+pub(crate) struct TerrainMesh {
+    pub(crate) verts: Vec<Vec3>,
+    pub(crate) faces: Vec<[usize; 3]>,
 }
 
 impl TerrainMesh {
@@ -143,7 +143,7 @@ impl TerrainMesh {
         self.verts.len() - 1
     }
 
-    fn build(ground: &Ground, min: Vec3, max: Vec3) -> Self {
+    pub(crate) fn build(ground: &Ground, min: Vec3, max: Vec3) -> Self {
         let mut mesh = Self::default();
         let (x0, x1) = (cvtt(min.x - ORIGIN), cvtt(max.x - ORIGIN));
         let (z0, z1) = (cvtt(min.z - ORIGIN), cvtt(max.z - ORIGIN));

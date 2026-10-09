@@ -65,6 +65,11 @@ impl RoadNetwork {
         )).collect()
     }
 
+    /// Each street's two intersections and its left and right lane counts, in city file order.
+    pub fn street_ends(&self) -> Vec<(usize, usize, i32, i32)> {
+        self.streets.iter().map(|s| (s.i0, s.i1, s.left, s.right)).collect()
+    }
+
     pub fn build(city_inters: &[IVec3], city_streets: &[(usize, usize, i32, i32)]) -> Self {
         let mut intersections: Vec<Intersection> = city_inters
             .iter()

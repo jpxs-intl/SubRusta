@@ -1,21 +1,33 @@
-use glam::Vec3;
+use glam::{IVec3, Vec3};
 use rosa_math::vector::Vector;
-use rosa_protocol::clientbound::game::events::{Event, ServerEvent, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole};
+use rosa_protocol::clientbound::game::{
+    ItemKind,
+    events::{Event, ServerEvent, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, update_vehicle::EventUpdateVehicle},
+};
 
-use super::Sim;
+use super::{
+    Sim,
+    vehicles::{TYRE_BURST, WINDOW_BROKEN},
+};
 use crate::{
     PlayerId,
     human::{
         damage::{damage_human, trace_ray_human},
         physics::{HumanOutput, add_bullet_hole},
     },
+    vehicle::physics::{VehicleHit, VehiclePart, trace_vehicle_parts},
     world::{capsule::CapsuleHit, trace::line_intersect_level},
 };
 
 pub const MAX_BULLETS: usize = 0x4000;
 const LIFETIME: i32 = 600;
+const BULLET_GRAVITY: f32 = f32::from_bits(0x3b32_6750);
 const HIT_WORLD: i32 = 0;
 const HIT_BODY: i32 = 1;
+const HIT_VEHICLE: i32 = 2;
+const VEHICLE_DAMAGE_SCALE: f32 = 1.5;
+const TYRE_BURST_RADIUS: f32 = 0.75;
+const TRAIN: usize = 13;
 const HEAD: usize = 3;
 const DAMAGE_SCALE: f32 = 5.5;
 const TICKS_PER_SECOND: f32 = 60.0;
@@ -40,8 +52,9 @@ pub struct Bullet {
     pub time: i32,
     pub player: Option<PlayerId>,
     pub mass: f32,
-    // TODO: name once its writers are ported (+0x10, subtracted from the vertical speed every tick, always 0 here)
-    pub unk_10: f32,
+    /// Taken from the vertical speed every tick (+0x10): create_bullet stores the bytes "Pg2;", a little under
+    /// 9.8 / 60².
+    pub gravity: f32,
     /// Where it was before this tick's move (+0x20) and where it is now (+0x14).
     pub prev: Vec3,
     pub pos: Vec3,
@@ -49,24 +62,70 @@ pub struct Bullet {
 }
 
 /// create_bullet: a bullet of `kind` leaving `pos` at `vel`, fired by `player`.
-pub fn create_bullet(bullets: &mut Vec<Bullet>, kind: i32, pos: Vec3, vel: Vec3, player: Option<PlayerId>) {
+pub fn create_bullet(bullets: &mut Vec<Bullet>, kind: i32, pos: Vec3, vel: Vec3, player: Option<PlayerId>, gravity_scale: f32) {
     // TODO: create_bullet also keeps two axes across the flight direction (+0x38, +0x44) that nothing here reads
     if bullets.len() >= MAX_BULLETS {
         return;
     }
     let mass = BULLET_DATA.get(kind as usize).map_or(0.0, |d| d.0);
-    bullets.push(Bullet { kind, time: LIFETIME, player, mass, unk_10: 0.0, prev: pos, pos, vel });
+    bullets.push(Bullet { kind, time: LIFETIME, player, mass, gravity: BULLET_GRAVITY * gravity_scale, prev: pos, pos, vel });
 }
 
 impl Sim {
+    /// create_bullet for a bullet nobody fired.
+    pub fn spawn_bullet(&mut self, kind: i32, pos: Vec3, vel: Vec3) {
+        create_bullet(&mut self.bullets, kind, pos, vel, None, self.bodies.gravity_scale);
+    }
+
+    /// A bullet stopped by a vehicle: a tyre loses health and bursts, a window breaks, or the vehicle is hurt.
+    fn bullet_hit_vehicle(&mut self, i: usize, vid: usize, hit: VehicleHit) {
+        let b = self.bullets[i].clone();
+        self.bullets[i].time = 0;
+        let v = b.vel;
+        let speed = ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt();
+        let damage = ((b.mass * (speed * VEHICLE_DAMAGE_SCALE)) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
+        let damage = if damage >= 0 { damage } else { 0 };
+        let Some(vehicle) = self.vehicles.get_mut(vid) else { return };
+        let update = |kind: i32, part: usize| EventUpdateVehicle { vehicle_id: vid as i32, kind, part: part as i32, pos: Vector(hit.pos), velocity: Vector(v) };
+        let event = match hit.part {
+            VehiclePart::Wheel(k) => {
+                let Some(w) = vehicle.wheels.get_mut(k) else { return };
+                if w.health <= 0 {
+                    return;
+                }
+                w.health -= damage;
+                if w.health > 0 {
+                    return;
+                }
+                w.drive |= 1;
+                w.radius *= TYRE_BURST_RADIUS;
+                w.popped = 1;
+                ServerEvent::UpdateVehicle(update(TYRE_BURST, k))
+            }
+            _ if vehicle.kind == TRAIN => return,
+            VehiclePart::Window(k) => {
+                if let Some(w) = vehicle.broken_windows.get_mut(k) {
+                    *w = true;
+                }
+                ServerEvent::UpdateVehicle(update(WINDOW_BROKEN, k))
+            }
+            VehiclePart::Body(_) => {
+                let e = EventBulletHit { unk: 0, hit_type: HIT_VEHICLE, pos: Vector(hit.pos), normal: Vector(hit.normal) };
+                self.events.push(Event { tick_created: self.tick, kind: ServerEvent::BulletHit(e) });
+                self.vehicle_take_damage(vid, damage);
+                return;
+            }
+        };
+        self.events.push(Event { tick_created: self.tick, kind: event });
+    }
+
     /// bullet_simulation: every bullet slows down with drag and moves; the nearest human bone or level surface on
     /// the way stops it. A human takes damage (more on the head) and a push; the level shows a hit.
-    pub(crate) fn bullet_simulation(&mut self) {
-        // TODO: vehicles and items (check_object_collisions, trace_segment_item_mesh: watermelons burst, items
-        // wake) are tested between humans and the level; level hits on item-set cells spawn their items
+    pub fn bullet_simulation(&mut self) {
+        // TODO: level hits on item-set cells spawn their items
         for i in 0..self.bullets.len() {
             let b = &mut self.bullets[i];
-            let vy = b.vel.y - b.unk_10;
+            let vy = b.vel.y - b.gravity;
             let (vx, vz) = (b.vel.x, b.vel.z);
             b.prev = b.pos;
             b.vel.y = vy;
@@ -96,6 +155,37 @@ impl Sim {
                 // TODO: players in god mode are not hit
                 best = hit.fraction;
                 human_hit = Some((id, hit));
+            }
+            let mut vehicle_hit = None;
+            for (vid, v) in self.vehicles.iter() {
+                let Some(t) = self.vehicle_types.get(v.kind) else { continue };
+                if let Some(hit) = trace_vehicle_parts(v, t, from, to, true)
+                    && !(best <= hit.fraction)
+                {
+                    best = hit.fraction;
+                    vehicle_hit = Some((vid, hit));
+                    human_hit = None;
+                }
+            }
+            let block = |a: f32, b: f32| {
+                let (p, q) = ((0.25 * a) as i32, (0.25 * b) as i32);
+                if a <= b { (p, q) } else { (q, p) }
+            };
+            let ((x0, x1), (y0, y1), (z0, z1)) = (block(from.x, to.x), block(from.y, to.y), block(from.z, to.z));
+            let found = self.item_grid.query(IVec3::new(x0, y0, z0), IVec3::new(x1, y1, z1));
+            let mut item_hit = None;
+            for &id in &found {
+                let Some(item) = self.items.get(id) else { continue };
+                let Some(hull) = &self.item_types[item.item_type as usize].hull else { continue };
+                let Some(world) = self.bodies.get(item.body).map(|b| hull.world_verts(b.pos, &b.rot)) else { continue };
+                if let Some((fraction, _, _)) = hull.trace_mesh(&world, from, to)
+                    && !(best <= fraction)
+                {
+                    best = fraction;
+                    item_hit = Some(id);
+                    vehicle_hit = None;
+                    human_hit = None;
+                }
             }
 
             let map = &self.world.map;
@@ -130,6 +220,23 @@ impl Sim {
                 continue;
             }
 
+            if let Some((vid, hit)) = vehicle_hit {
+                self.bullet_hit_vehicle(i, vid, hit);
+                continue;
+            }
+            if let Some(hit_id) = item_hit {
+                if let Some(item) = self.items.get_mut(hit_id).filter(|i| i.item_type == ItemKind::Watermelon) {
+                    item.health = 0;
+                }
+                for &id in &found {
+                    if let Some(item) = self.items.get_mut(id) {
+                        item.physics_settled = false;
+                        item.settled_timer = 0;
+                    }
+                }
+                self.bullets[i].time = 0;
+                continue;
+            }
             let Some((id, hit)) = human_hit else { continue };
             let b = self.bullets[i].clone();
             let v = b.vel;
@@ -148,10 +255,10 @@ impl Sim {
             } else {
                 damage = 0;
             }
-            // TODO: handle_criminal_rating for shooting another player, punish_team_kill for a teammate (not in
-            // eliminator)
+            let victim = self.humans.get(id).and_then(|h| h.player);
+            self.score_hurt(b.player, victim, damage);
             let Some(h) = self.humans.get_mut(id) else { continue };
-            if h.unk_68 != 0 && h.unk_6c > 0 {
+            if h.is_immortal && h.down_timer > 0 {
                 damage = 0;
             }
             damage_human(h, hit.bone, damage);
@@ -173,7 +280,7 @@ impl Sim {
     }
 
     /// bullet_TTL: every bullet loses a tick of life and is gone at 0, the last bullet taking its place.
-    pub(crate) fn bullet_ttl(&mut self) {
+    pub fn bullet_ttl(&mut self) {
         let mut i = 0;
         while i < self.bullets.len() {
             let b = &mut self.bullets[i];

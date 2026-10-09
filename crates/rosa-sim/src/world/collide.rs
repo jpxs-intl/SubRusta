@@ -44,7 +44,7 @@ pub fn segment_intersect_plane_one_sided(n: Vec3, p: Vec3, start: Vec3, end: Vec
     let denom = n.x * dx + n.y * dy + n.z * dz;
 
     if denom == 0.0 {
-        return Some((d_start, start));
+        return None;
     }
 
     let t = d_start / denom;

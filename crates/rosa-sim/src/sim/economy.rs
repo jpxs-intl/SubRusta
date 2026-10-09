@@ -151,11 +151,14 @@ impl Sim {
         if self.world_time == WORLD_MISSIONS_TIME {
             // TODO: the day's world missions (create_world_mode_mission, world_distribute_document_missions)
         }
+        self.stock_burger_shops();
         // TODO: the day's end (reset_game past 0x3e9f3f), traffic and trains, and the 54000 checks
         if self.world_time % WORLD_SAVE_PERIOD != 0 {
             return;
         }
-        // TODO: count down the human +0x14 timers, restock the shop and car dealership vehicles
+        // TODO: count down the human +0x14 timers
+        self.restock_dealerships();
+        self.stock_gun_stores();
         self.save_accounts();
         for (_, p) in self.players.iter() {
             if let Some(a) = self.saved_accounts.get_player_data(p.account_id) {

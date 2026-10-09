@@ -12,6 +12,12 @@ pub struct Player {
     pub steam_id: u64,
     pub actions: ActionQueue,
     pub menu: MenuType,
+    /// The building whose shop or bank menu is open (player +0x168).
+    pub menu_tab: i32,
+    /// How many things the player has bought from gun stores and burger shops (player +0x68), cleared when they get a
+    /// new human, at reset_game, and every 3600 ticks in round mode.
+    // TODO: the round mode clear every 3600 ticks of the round timer (logic_round), once round mode is ported
+    pub items_bought: i32,
     pub account_id: u32,
     pub input: InputFlags,
     pub money: i32,
@@ -47,6 +53,8 @@ impl Player {
             actions: ActionQueue::default(),
             account_id,
             menu: MenuType::Empty,
+            menu_tab: 0,
+            items_bought: 0,
             input: InputFlags::empty(),
             team: Team::Spectator,
             username: j.join_packet.player_name,
