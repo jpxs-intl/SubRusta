@@ -10,7 +10,7 @@ use rosa_math::vector::Vector;
 use rosa_protocol::{
     GameMode, clientbound::{
         game::{
-            GameState, MenuType, ServerGamePacket, ServerVoiceData, events::{
+            GameState, MenuType, ObjectPack, ServerGamePacket, ServerVoiceData, events::{
                 Event, ServerEvent,
                 chat::{ChatType, EventChat},
             },
@@ -23,7 +23,11 @@ use tokio::sync::mpsc;
 
 use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
 
+pub mod bullets;
+pub mod economy;
 pub mod events;
+pub mod item_logic;
+pub mod item_state;
 pub mod hull;
 pub mod humans;
 pub mod item_grid;
@@ -39,11 +43,38 @@ pub struct Earshot {
     pub volume: f32,
 }
 
+/// server_events: every event ever announced, in a ring of 65536 slots that a client walks with its own count.
+pub struct EventRing {
+    slots: Vec<Option<Event>>,
+    count: u16,
+}
+
+impl Default for EventRing {
+    fn default() -> Self {
+        Self { slots: (0..65536).map(|_| None).collect(), count: 0 }
+    }
+}
+
+impl EventRing {
+    pub fn push(&mut self, event: Event) {
+        self.slots[self.count as usize] = Some(event);
+        self.count = self.count.wrapping_add(1);
+    }
+
+    pub fn get(&self, idx: u16) -> Option<&Event> {
+        self.slots[idx as usize].as_ref()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Event> {
+        self.slots.iter().flatten()
+    }
+}
+
 #[allow(unused)]
 struct TickCtx<'a> {
     players: &'a Slab<Player>,
     world: &'a World,
-    events: &'a [Event],
+    events: &'a EventRing,
     humans: Vec<rosa_protocol::clientbound::game::ServerHumanObject>,
     own_humans: HashMap<usize, rosa_protocol::clientbound::game::OwnHumanData>,
     heads: HashMap<usize, (Vec3, bool)>,
@@ -65,14 +96,19 @@ pub struct Sim {
     players: Slab<Player>,
     clients: HashMap<ConnId, Client>,
     max_players: u8,
-    // TODO: Leaks. Just like restart your server or whatever, but this should be a ring.
-    events: Vec<Event>,
+    events: EventRing,
     items: rosa_physics::Table<items::Item>,
     humans: rosa_physics::Table<crate::human::Human>,
     bodies: rosa_physics::RigidBodies,
     item_types: Vec<item_types::ItemType>,
     item_grid: item_grid::ItemGrid,
     noise_seed: i32,
+    corporations: [economy::Corporation; economy::CORPORATIONS],
+    bullets: Vec<bullets::Bullet>,
+    /// The world mode clock (0xe3b21e0).
+    world_time: i32,
+    /// Per account, the spawn timer kept while its player is away (account record +0x48, not saved to disk).
+    account_spawn_timers: HashMap<u32, i32>,
 }
 
 impl Sim {
@@ -84,6 +120,10 @@ impl Sim {
         max_players: u8,
     ) -> Self {
         let srk_data = SrkData::load(Path::new("server.srk")).unwrap();
+        let corporations = [economy::Corporation::default(); economy::CORPORATIONS];
+        let mut events = EventRing::default();
+        // TODO: reset_game also restocks the shop and car dealership vehicles here
+        events.push(economy::stock_event(&corporations, 0));
 
         Self {
             tick: 0,
@@ -97,13 +137,17 @@ impl Sim {
             players: Slab::with_capacity(256),
             clients: HashMap::new(),
             max_players,
-            events: Vec::new(),
+            events,
             items: rosa_physics::Table::new(items::MAX_ITEMS),
             humans: rosa_physics::Table::new(crate::human::MAX_HUMANS),
             bodies: rosa_physics::RigidBodies::default(),
             item_types: item_types::item_types(),
             item_grid: item_grid::ItemGrid::default(),
             noise_seed: 0,
+            corporations,
+            bullets: Vec::new(),
+            world_time: economy::WORLD_TIME_START,
+            account_spawn_timers: HashMap::new(),
         }
     }
 
@@ -116,6 +160,7 @@ impl Sim {
 
                 client.last_sdl_tick = g.sdl_tick;
                 client.event_cursor = g.received_events as u16;
+                client.pack_ack = g.unk & 0x7ff;
 
                 player.process_game_packet(g);
             }
@@ -159,8 +204,8 @@ impl Sim {
         ));
     }
 
-    pub fn events(&self) -> &[Event] {
-        &self.events
+    pub fn events(&self) -> impl Iterator<Item = &Event> {
+        self.events.iter()
     }
 
     pub fn announce_event(&mut self, event: Event) {
@@ -204,11 +249,24 @@ impl Sim {
 
                 self.process_actions(pending);
                 self.start_round_if_all_ready();
+                if self.gamemode == GameMode::World {
+                    self.logic_world();
+                }
                 self.player_simulation();
                 self.physics_tick();
                 self.broadcast_tick();
 
+                for player in self.saved_accounts.players.iter_mut() {
+                    if player.ban_time > 0 {
+                        player.ban_time -= 1;
+                    }
+                }
+
                 self.tick += 1;
+                if self.gamestate as u8 <= GameState::InGame as u8 {
+                    self.bullet_simulation();
+                    self.bullet_ttl();
+                }
             }
         }
     }
@@ -219,7 +277,7 @@ impl Sim {
                 match action {
                     GameAction::Menu(menu_action) => self.on_menu_action(player, menu_action),
                     GameAction::Chat(chat_action) => self.on_chat_action(player, chat_action),
-                    GameAction::Item(item_action) => println!("Item {:?}", item_action),
+                    GameAction::Item(item_action) => self.item_action(player, item_action.a as usize, item_action.b as i32),
                     GameAction::Inventory(inventory_action) => {
                         let human = self.players.get(player.idx()).and_then(|p| p.human);
                         if let Some(h) = human.and_then(|id| self.humans.get_mut(id)) {
@@ -283,7 +341,7 @@ impl Sim {
         let ctx = TickCtx {
             players,
             world,
-            events: events.as_slice(),
+            events,
             humans,
             own_humans,
             heads,
@@ -312,6 +370,7 @@ impl Sim {
         let first_event = client.event_cursor as u32;
         let (global_event_count, events) = Self::collect_events(client, ctx);
         let earshots = Self::calculate_earshot(client, player_id, ctx);
+        let (object_packs, pack_offset) = Self::object_packs(client, ctx);
         let player = ctx.players.get(player_id.idx()).unwrap();
 
         let mut voice_data: [Option<ServerVoiceData>; 8] = [const { None }; 8];
@@ -337,13 +396,16 @@ impl Sim {
             network_tick: ctx.tick,
             last_sdl_tick: client.last_sdl_tick,
             menu_type: player.menu,
-            money: 1000,
+            // TODO: the store menu (10) sends something else here
+            money: player.money,
             gamestate: ctx.gamestate,
             ready_states: ctx.ready_states,
             follow_pos: Vector::new(0.0, 0.0, 0.0),
             own_human: ctx.own_humans.get(&player_id.idx()).cloned(),
             humans: ctx.humans.clone(),
             items: ctx.items.clone(),
+            object_packs,
+            pack_offset,
             global_event_count,
             first_event,
             events,
@@ -351,26 +413,64 @@ impl Sim {
         }
     }
 
+    /// object_packet_update_relevance and the pack part of append_object_packet: every object gets a slot on the
+    /// client through a pack entry and gives it back with an unpack entry when it is gone; the entries go into a
+    /// 2048 entry ring and every packet carries those the client has not acknowledged.
+    // TODO: relevance by distance (items within 256 of the camera, humans always) and pocketed items being unpacked
+    fn object_packs(client: &mut Client, ctx: &TickCtx) -> (Vec<ObjectPack>, u16) {
+        const RING: u16 = 0x800;
+        if client.pack_ring.is_empty() {
+            client.pack_ring = vec![ObjectPack { slot: 0, unpack: true, kind: 0, item_type: 0, index: 0 }; RING as usize];
+        }
+        let current: HashMap<u16, ObjectPack> = ctx
+            .humans
+            .iter()
+            .map(|h| (h.slot, ObjectPack { slot: h.slot, unpack: false, kind: 0, item_type: 0, index: h.human_id }))
+            .chain(ctx.items.iter().map(|i| (i.slot, ObjectPack { slot: i.slot, unpack: false, kind: 1, item_type: i.item_type as u16, index: i.item_id })))
+            .collect();
+        let queue = |client: &mut Client, pack: ObjectPack| {
+            let next = (client.pack_count + 1) & (RING - 1);
+            if next == client.pack_ack {
+                return;
+            }
+            client.pack_ring[client.pack_count as usize] = pack;
+            client.pack_count = next;
+        };
+        let mut gone: Vec<u16> = client.packed.keys().filter(|s| !current.contains_key(s)).copied().collect();
+        gone.sort_unstable();
+        for slot in gone {
+            queue(client, ObjectPack { slot, unpack: true, kind: 0, item_type: 0, index: 0 });
+            client.packed.remove(&slot);
+        }
+        let mut changed: Vec<ObjectPack> = current.values().filter(|p| client.packed.get(&p.slot).is_none_or(|q| q.kind != p.kind || q.index != p.index)).copied().collect();
+        changed.sort_unstable_by_key(|p| p.slot);
+        for pack in changed {
+            queue(client, pack);
+            client.packed.insert(pack.slot, pack);
+        }
+        let pending = client.pack_count.wrapping_sub(client.pack_ack) & (RING - 1);
+        let packs = (0..pending).map(|k| client.pack_ring[((client.pack_ack + k) & (RING - 1)) as usize]).collect();
+        (packs, client.pack_ack)
+    }
+
     fn collect_events(
         client: &mut Client,
         ctx: &TickCtx
     ) -> (u32, Vec<(u32, Event)>) {
-        let total = ctx.events.len() as u16;
+        let total = ctx.events.count;
         let pending = total.wrapping_sub(client.event_cursor);
         let to_send = pending.min(0x3f); // 63 cap
 
         let mut out = Vec::with_capacity(to_send as usize);
         for i in 0..to_send {
             let idx = client.event_cursor.wrapping_add(i);
-            // TODO: the real server keeps events in a 65536-slot ring and sends whatever is in a slot; a client whose count
-            // is ahead of ours (left over from an earlier session) gets empty events until its count wraps round
-            let Some(ev) = ctx.events.get(idx as usize) else {
+            let Some(ev) = ctx.events.get(idx) else {
                 out.push((idx as u32, Event { tick_created: ctx.tick, kind: ServerEvent::Empty }));
                 continue;
             };
 
             let expired = ctx.tick.wrapping_sub(ev.tick_created) > 600;
-            let ephemeral = matches!(ev.kind, ServerEvent::Sound(_));
+            let ephemeral = matches!(ev.kind, ServerEvent::Sound(_) | ServerEvent::PhoneSound(_));
             let kind = if expired && ephemeral {
                 ServerEvent::Empty
             } else {

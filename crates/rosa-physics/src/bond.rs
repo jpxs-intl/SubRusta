@@ -308,18 +308,18 @@ impl Joint {
         if let Some(a) = bodies.get_mut(self.body_a) {
             a.impulse = Vec3::new(nwa * u.x + a.impulse.x, nwa * u.y + a.impulse.y, nwa * u.z + a.impulse.z);
             let mut l = a.ang_impulse;
-            l.x = (ra.z * u.y - u.z * ra.y) * nwa + l.x;
-            l.y = (u.z * ra.x - ra.z * u.x) * nwa + l.y;
-            l.z = (ra.y * u.x - ra.x * u.y) * nwa + l.z;
+            l.x += (ra.z * u.y - u.z * ra.y) * nwa;
+            l.y += (u.z * ra.x - ra.z * u.x) * nwa;
+            l.z += (ra.y * u.x - ra.x * u.y) * nwa;
             l = Vec3::new(wa_ * t.x + l.x, wa_ * t.y + l.y, wa_ * t.z + l.z);
             a.ang_impulse = l;
         }
         if let Some(b) = bodies.get_mut(self.body_b) {
             b.impulse = Vec3::new(wb_ * u.x + b.impulse.x, wb_ * u.y + b.impulse.y, wb_ * u.z + b.impulse.z);
             let mut l = b.ang_impulse;
-            l.x = (rb.z * u.y - u.z * rb.y) * wb_ + l.x;
-            l.y = (u.z * rb.x - rb.z * u.x) * wb_ + l.y;
-            l.z = (u.x * rb.y - u.y * rb.x) * wb_ + l.z;
+            l.x += (rb.z * u.y - u.z * rb.y) * wb_;
+            l.y += (u.z * rb.x - rb.z * u.x) * wb_;
+            l.z += (u.x * rb.y - u.y * rb.x) * wb_;
             l = Vec3::new(t.x * nwb + l.x, t.y * nwb + l.y, nwb * t.z + l.z);
             b.ang_impulse = l;
         }

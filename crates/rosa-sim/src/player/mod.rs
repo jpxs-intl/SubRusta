@@ -15,6 +15,11 @@ pub struct Player {
     pub account_id: u32,
     pub input: InputFlags,
     pub money: i32,
+    /// Shares held in the player's corporation (`team`).
+    pub stocks: i32,
+    pub corp_rating: i32,
+    pub crim_rating: i32,
+    pub spawn_timer: i32,
     pub phone_number: u32,
     pub is_ready: bool,
     pub voice: PlayerVoice,
@@ -46,6 +51,10 @@ impl Player {
             team: Team::Spectator,
             username: j.join_packet.player_name,
             money: 0,
+            stocks: 0,
+            corp_rating: 0,
+            crim_rating: 0,
+            spawn_timer: 0,
             phone_number: j.auth_packet.phone_number,
             is_ready: false,
             voice: PlayerVoice::new(),
@@ -55,7 +64,7 @@ impl Player {
                 hair_color: avatar_info.hair_color,
                 hair_style: avatar_info.hair,
                 head: avatar_info.head,
-                model: avatar_info.head,
+                model: 0,
                 necklace: 0,
                 skin: avatar_info.skin_color,
                 suit_color: 0,
@@ -112,7 +121,7 @@ impl Player {
                 client_id: self.player_id.0,
                 money: self.money,
                 phone_number: self.phone_number,
-                stocks: 0
+                stocks: self.stocks
             })
         }
     }

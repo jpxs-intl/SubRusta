@@ -43,4 +43,11 @@ pub struct Client {
     event_cursor: u16,
     last_sdl_tick: u32,
     earshots: [Option<sim::Earshot>; 8],
+    /// The client's object slot ring (2048 entries): what was queued, how far, and how far the client has
+    /// acknowledged (the 11 bits after the spectated human in its game packet).
+    pack_ring: Vec<rosa_protocol::clientbound::game::ObjectPack>,
+    pack_count: u16,
+    pack_ack: u16,
+    /// What each slot holds as far as the queued entries go.
+    packed: std::collections::HashMap<u16, rosa_protocol::clientbound::game::ObjectPack>,
 }

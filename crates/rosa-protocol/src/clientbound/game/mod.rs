@@ -127,6 +127,27 @@ pub struct ServerVoiceData {
     pub voice_frames: [VoiceFrame; 4]
 }
 
+/// One entry of a client's object slot ring: a slot taken by an object (pack) or given back (unpack).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectPack {
+    pub slot: u16,
+    pub unpack: bool,
+    /// 0 human, 1 item.
+    pub kind: u8,
+    pub item_type: u16,
+    pub index: u16,
+}
+
+impl ObjectPack {
+    fn write(&self, w: &mut Writer) {
+        w.bits(self.slot as i32, 10);
+        w.bits(self.unpack as i32, 2);
+        w.bits(self.kind as i32, 3);
+        w.bits(self.item_type as i32, 10);
+        w.bits(self.index as i32, 16);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerItemObject {
     pub slot: u16,
@@ -140,14 +161,6 @@ pub struct ServerItemObject {
 }
 
 impl ServerItemObject {
-    fn write_header(&self, w: &mut Writer) {
-        w.bits(self.slot as i32, 10);
-        w.bits(0, 2);
-        w.bits(1, 3);
-        w.bits(self.item_type as i32, 10);
-        w.bits(self.item_id as i32, 16);
-    }
-
     fn write_body(&self, w: &mut Writer) {
         w.bits(1, 1);
         w.bits(1, 1);
@@ -182,14 +195,6 @@ pub struct ServerHumanObject {
 }
 
 impl ServerHumanObject {
-    fn write_header(&self, w: &mut Writer) {
-        w.bits(self.slot as i32, 10);
-        w.bits(0, 2);
-        w.bits(0, 3);
-        w.bits(0, 10);
-        w.bits(self.human_id as i32, 16);
-    }
-
     fn write_body(&self, w: &mut Writer) {
         w.bits(1, 1);
         w.bits(1, 1);
@@ -304,6 +309,9 @@ pub struct ServerGamePacket {
     pub own_human: Option<OwnHumanData>,
     pub humans: Vec<ServerHumanObject>,
     pub items: Vec<ServerItemObject>,
+    /// The pack entries the client has not acknowledged yet, starting at `pack_offset` in its 2048 entry ring.
+    pub object_packs: Vec<ObjectPack>,
+    pub pack_offset: u16,
 
     pub global_event_count: u32,
     pub first_event: u32,
@@ -404,13 +412,10 @@ impl WireWrite for ServerGamePacket {
 
         w.u32(self.network_tick);
 
-        w.bits((self.humans.len() + self.items.len()) as i32, 11);
-        w.bits(0, 11);
-        for human in &self.humans {
-            human.write_header(w);
-        }
-        for item in &self.items {
-            item.write_header(w);
+        w.bits(self.object_packs.len() as i32, 11);
+        w.bits(self.pack_offset as i32, 11);
+        for pack in &self.object_packs {
+            pack.write(w);
         }
 
         w.bits(0, 8);

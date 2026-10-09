@@ -1,8 +1,11 @@
 use glam::Vec3;
-use crate::{sim::items::Touchables, world::map::Map};
+use crate::{
+    sim::{item_types::ItemType, items::Touchables},
+    world::{capsule::segment_closest_points, map::Map},
+};
 use rosa_physics::{
     Bond, ItemAngular, ItemPoint, RigidBodies, RotMatrix,
-    rotation::{IDENTITY, multiply_matrixes, quaternion_multiply, quaternion_to_axis_angle, rot_matrix_to_quaternion, rotate_orientation},
+    rotation::{IDENTITY, multiply_matrixes, quaternion_multiply, quaternion_to_axis_angle, quaternion_to_rot_matrix, rot_matrix_to_quaternion, rotate_orientation},
 };
 
 use super::{
@@ -15,6 +18,12 @@ use super::{
 const SPINE_TURN: f32 = 0.3926991;
 const SWAY_SCALE: f32 = 0.0078125;
 const ARM_LENGTH: f32 = 0.65625;
+const ZOOM_TILT: f32 = 0.19634954;
+const GUN_PITCH_OFFSET: f64 = 0.036815538909257817;
+const GUN_CONTACT_RADIUS: f32 = 0.125;
+const GUN_FRICTION: f32 = 0.4;
+const GUN_DEPTH_SCALE: f32 = 0.03125;
+const GUN_SOFTNESS: f32 = 0.0625;
 
 fn hash_noise(n: i32) -> f32 {
     let h = (n << 13) ^ n;
@@ -65,9 +74,8 @@ fn relative_spin_damping(h: &Human, parent: usize, child: usize) -> Vec3 {
     Vec3::new(l.x * -0.25, l.y * -0.25, l.z * -0.25)
 }
 
-/// Turns `child` (relative to `parent`) towards the pose `pose`, with the damping term `damping`, and rebuilds the
-/// predicted orientation `frame`.
-fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: usize, pose: [f32; 4], damping: Vec3, frame: &mut RotMatrix) {
+/// The turn (axis and angle, at most `SPINE_TURN`) taking `child`, relative to `parent`, to the pose `pose`.
+fn joint_turn(h: &Human, parent: usize, child: usize, pose: [f32; 4]) -> (Vec3, f32) {
     let m = multiply_matrixes(&h.bones[child].rot, &h.bones[parent].rot);
     let mut q = rot_matrix_to_quaternion(&m);
     let dot = ((pose[0] * q[0] + pose[1] * q[1]) + pose[2] * q[2]) + pose[3] * q[3];
@@ -76,7 +84,13 @@ fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: 
     }
     let q = [-q[0], -q[1], -q[2], q[3]];
     let (axis, angle) = quaternion_to_axis_angle(quaternion_multiply(q, pose));
-    let angle = angle.clamp(-SPINE_TURN, SPINE_TURN);
+    (axis, angle.clamp(-SPINE_TURN, SPINE_TURN))
+}
+
+/// Turns `child` (relative to `parent`) towards the pose `pose`, with the damping term `damping`, and rebuilds the
+/// predicted orientation `frame`.
+fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: usize, pose: [f32; 4], damping: Vec3, frame: &mut RotMatrix) {
+    let (axis, angle) = joint_turn(h, parent, child, pose);
     let t = Vec3::new(axis.x * angle * 0.75 + damping.x, axis.y * angle * 0.75 + damping.y, angle * axis.z * 0.75 + damping.z);
     let mut target = world(&h.bones[child].rot, t);
     super::ik::clamp_bone_relative_correction(h, parent, child, &mut target, 1.125, 1.0);
@@ -98,6 +112,47 @@ fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: 
     }
 }
 
+/// Aiming a gun: `child` turns (relative to `parent`) straight to the aim pose `pose`, undamped.
+fn aim_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: usize, pose: [f32; 4]) {
+    let (axis, angle) = joint_turn(h, parent, child, pose);
+    let target = world(&h.bones[child].rot, Vec3::new(axis.x * angle, axis.y * angle, angle * axis.z));
+    if let Some(id) = h.bones[child].joint
+        && let Some(Bond::Joint(j)) = bodies.bond_mut(id)
+    {
+        j.target_ang_vel = target;
+        j.spin_limit = 0.0;
+    }
+}
+
+fn pitch_turn(angle: f32) -> [f32; 4] {
+    let (s, c) = half_turn(angle);
+    [s, 0.0, 0.0, c]
+}
+
+fn yaw_turn(angle: f32) -> [f32; 4] {
+    let (s, c) = half_turn(angle);
+    [0.0, s, 0.0, c]
+}
+
+/// human_build_locomotion_orientation: the waist and chest poses of a human aiming a gun `yaw` to the side, and the
+/// aim itself (stored conjugated).
+fn aim_orientations(h: &Human, yaw: f32) -> [[f32; 4]; 3] {
+    let identity = [0.0, 0.0, 0.0, 1.0];
+    let waist = quaternion_multiply(identity, yaw_turn(0.5 * h.unk_168 + h.yaw_offset));
+    let pitch = pitch_turn(0.5 * h.view_pitch);
+    let waist = quaternion_multiply(waist, pitch);
+    let aim = quaternion_multiply(identity, pitch);
+    let waist = quaternion_multiply(waist, pitch_turn(0.75 * h.unk_16c));
+    let pitch = pitch_turn(0.25 * h.view_pitch);
+    let chest = quaternion_multiply(identity, pitch);
+    let aim = quaternion_multiply(aim, pitch);
+    let turn = yaw_turn(yaw);
+    let chest = quaternion_multiply(chest, turn);
+    let aim = quaternion_multiply(aim, turn);
+    let chest = quaternion_multiply(chest, yaw_turn(0.25 * h.unk_168));
+    [waist, chest, [-aim[0], -aim[1], -aim[2], aim[3]]]
+}
+
 fn add_turn(pose: [f32; 4], frame: &mut RotMatrix, row: usize, angle: f32) -> [f32; 4] {
     let (s, c) = half_turn(angle);
     let q = if row == 0 { [s, 0.0, 0.0, c] } else { [0.0, s, 0.0, c] };
@@ -110,7 +165,7 @@ fn add_turn(pose: [f32; 4], frame: &mut RotMatrix, row: usize, angle: f32) -> [f
 /// human_calculate_arm_angles: turns the waist, chest and head towards where the human looks and drives the arms
 /// (through the arm IK) towards their pose.
 pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, touch: &Touchables, seed: &mut i32) {
-    // TODO: guns, throwing, two-handed and phone poses, vehicles and the aim offsets they use
+    // TODO: throwing, two-handed and phone poses, vehicles and the aim offsets they use
     if h.action_type != 0 && h.input_flags & 0x20 != 0 {
         h.throw_pitch = 8.0 * h.unk_16c;
     }
@@ -127,10 +182,17 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         h.locomotion.step_angle = 0.0;
     }
 
-    let has_gun = false;
+    let hand_type = |slot: usize| {
+        let s = &h.inventory[slot];
+        (s.count > 0).then(|| touch.items.get(s.items[0] as usize)).flatten().map(|i| &touch.types[i.item_type as usize])
+    };
+    let has_gun = hand_type(0).is_some_and(|t| t.is_gun) || hand_type(1).is_some_and(|t| t.is_gun);
     let mut aim = if h.movement_mode == 2 { 0.7853982 } else { SPINE_TURN };
     if h.input_flags & 2 != 0 || !has_gun {
         aim = 0.0;
+    }
+    if hand_type(0).is_some_and(|t| t.mirrored_aim != 0) {
+        aim = -aim;
     }
 
     let (vehicle_yaw, vehicle_pitch) = (0.0f32, 0.0f32);
@@ -153,10 +215,24 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     let pose = add_turn(pose, &mut frame, 1, body_yaw);
     let chest_damping = relative_spin_damping(h, 1, 2);
     drive_spine_joint(h, bodies, 1, 2, pose, chest_damping, &mut frames[1]);
+    let aim_poses = (has_gun && h.vehicle.is_none()).then(|| aim_orientations(h, aim));
+    if let Some([waist, chest, _]) = aim_poses {
+        aim_spine_joint(h, bodies, 0, 1, waist);
+        aim_spine_joint(h, bodies, 1, 2, chest);
+    }
 
     let mut frame = IDENTITY;
-    let pose = add_turn(identity, &mut frame, 1, 0.5 * h.unk_168 - aim);
-    let pose = add_turn(pose, &mut frame, 0, 0.5 * h.view_pitch + 0.25 * h.unk_16c);
+    let mut pose = add_turn(identity, &mut frame, 1, 0.5 * h.unk_168 - aim);
+    if h.movement_mode == 2 && has_gun {
+        pose = quaternion_multiply(pose, [0.0, 0.0, f32::from_bits(0xbdc8bd36), f32::from_bits(0x3f7ec46d)]);
+        let axis = frame[2];
+        rotate_orientation(&mut frame, axis, ZOOM_TILT);
+    }
+    let mut pose = add_turn(pose, &mut frame, 0, 0.5 * h.view_pitch + 0.25 * h.unk_16c);
+    if let Some([_, _, aimed]) = aim_poses {
+        pose = quaternion_multiply(aimed, pitch_turn(h.view_pitch));
+        pose = quaternion_multiply(pose, yaw_turn(0.25 * h.unk_168));
+    }
     // TODO: the binary damps the head with the chest's relative spin, not the head's
     drive_spine_joint(h, bodies, 2, 3, pose, chest_damping, &mut frames[2]);
     h.locomotion.spine_frames = frames;
@@ -165,7 +241,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     for k in 0..2 {
         let first = 4 + 3 * k;
         let held = held_item(h, touch, k);
-        let hold = held.map(|(item, hand)| hold_frame(h, bodies, touch, k, item, hand));
+        let hold = held.map(|(item, hand)| hold_frame(h, bodies, touch, k, item, hand, -aim, aim_poses.map(|p| p[2])));
         if k == 0 {
             let s = calculate_spread_vector(seed, SWAY_SCALE, 0.0);
             let v = h.hand_sway_vel;
@@ -215,7 +291,8 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         if h.locomotion.jump_charge > 0 || state == 3 {
             max_turn = 0.7853982;
         }
-        // TODO: punching or aiming with one arm (input flags 1 and 2)
+        // TODO: with both hands empty and input flags 1 and 2 held, the right arm punches (its target turned by
+        // rotate_vector_about_axis towards unk_16c and unk_168)
         let hp = arm_hp[k];
         if let Some((item, hand)) = held {
             let kind = touch.items.get(item).unwrap().item_type as u32;
@@ -239,11 +316,18 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
             let params = IkParams { length: ARM_LENGTH, twist, max_turn, clamp_max: 0.2945243, pose_spin: [0.875; 3], spin_limit, flags: 0x16 + (1.0 > hp) as u32 };
             three_bone_ik(h, bodies, 2, first, target, &IDENTITY, Vec3::ZERO, &params, &mut end_rot);
             attach_item_to_bone(h, bodies, touch, first + 2, item, hand);
-            // TODO: human_arm_item_collision for a gun held in the right arm
+            if touch.types[kind as usize].is_gun && k == 1 && h.input_flags & 0x20 == 0 && h.action_type != 0 && h.vehicle.is_none() {
+                arm_item_collision(h, bodies, touch, item);
+            }
             continue;
         }
         let mut flags = IK_MIRROR + (1.0 > hp) as u32;
-        let airborne = (state == 1 && h.input_flags & 8 == 0) || (state == 3 && !(0.125 + h.locomotion.feet[0].swing_phase < 1.0));
+        let other_hand_input = 1 << (k ^ 1);
+        let one_arm = h.input_flags & other_hand_input == other_hand_input;
+        if one_arm {
+            max_turn = SPINE_TURN;
+        }
+        let airborne = !one_arm && h.vehicle.is_none() && ((state == 1 && h.input_flags & 8 == 0) || (state == 3 && !(0.125 + h.locomotion.feet[0].swing_phase < 1.0)));
         let params = if airborne {
             IkParams { length: ARM_LENGTH, twist: 0.0, max_turn, clamp_max: 0.07363108, pose_spin: [0.75; 3], spin_limit: [0.0625; 3], flags }
         } else {
@@ -313,14 +397,16 @@ fn held_item(h: &Human, touch: &Touchables, k: usize) -> Option<(usize, usize)> 
     if (touch.types[kind].hands <= 1 && kind != 0x24) || (!(h.bones[0].rot[1].y > 0.707) && h.input_flags & 8 != 0) {
         return None;
     }
-    // TODO: the AK and M16 types (0x22, 0x1d) take their second grip in the left arm as well
+    // TODO: the left arm holds paper (types 0x22 and 0x1d) by its second grip, at the paper's own offsets
     Some((item, 1))
 }
 
 /// The hold matrix and hand position of an arm holding an item (the item part of human_calculate_arm_angles): the
-/// matrix follows the view pitch, the hand sits below and in front of the shoulder, moved by the item's grip and
-/// pulled against the item's motion relative to the torso.
-fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, item_id: usize, hand: usize) -> (RotMatrix, Vec3) {
+/// matrix follows the view pitch (for a gun, the aim `aim`), turned `yaw` while the other hand aims; the hand sits
+/// below and in front of the shoulder (a gun at the right shoulder), moved by the item's grip and pulled against the
+/// item's motion relative to the torso.
+#[allow(clippy::too_many_arguments)]
+fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, item_id: usize, hand: usize, yaw: f32, aim: Option<[f32; 4]>) -> (RotMatrix, Vec3) {
     let item = touch.items.get(item_id).unwrap();
     let ty = &touch.types[item.item_type as usize];
     let mut m = IDENTITY;
@@ -341,13 +427,26 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         let tp = h.throw_pitch;
         rotate_orientation(&mut m, Vec3::X, tp + tp);
     }
-    // TODO: a gun in the right hand turns the hold by the aim angle instead of -0
-    rotate_orientation(&mut m, Vec3::Y, -0.0);
+    rotate_orientation(&mut m, Vec3::Y, yaw);
+    if ty.is_gun
+        && let Some(q) = aim
+    {
+        m = quaternion_to_rot_matrix([-q[0], -q[1], -q[2], q[3]]);
+        let axis = m[0];
+        rotate_orientation(&mut m, axis, (h.view_pitch as f64 - GUN_PITCH_OFFSET) as f32);
+        if h.input_flags & 2 != 0 {
+            let axis = m[0];
+            rotate_orientation(&mut m, axis, 0.7853982);
+        }
+        if throwing {
+            let (axis, tp) = (m[0], h.throw_pitch);
+            rotate_orientation(&mut m, axis, tp + tp);
+        }
+    }
     let mut v = if h.movement_mode == 2 { Vec3::new(0.0625, 0.125, 0.0) } else { Vec3::new(0.1875, 0.0625, 0.0) };
     if k == 0 && h.inventory[1].count > 0 {
         v = Vec3::new(-0.125, 0.125, 0.0);
     }
-    // TODO: guns hold at their own offsets
     let [m0, m1, r2] = m;
     if throwing {
         let z = (h.throw_pitch as f64 + 1.1780972450962501) as f32;
@@ -363,6 +462,13 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         ((-0.1875 * r2.z + v.z) + -0.375 * r2.z) + 0.0625 * m1.z,
     );
     // TODO: the per-type hold poses (computers, phones, briefcases, grenades, cash, disks, keys and doors)
+    if item.item_type as u32 == 0xb && h.vehicle.is_none() {
+        v = if h.movement_mode == 2 {
+            Vec3::new(-0.25 * r2.x + v.x, -0.25 * r2.y + v.y, -0.25 * r2.z + v.z)
+        } else {
+            Vec3::new(m1.x * -0.125 + v.x, m1.y * -0.125 + v.y, -0.125 * m1.z + v.z)
+        };
+    }
     if k == 0 && h.inventory[1].count > 0 {
         v = Vec3::new(r2.x * 0.125 + v.x, r2.y * 0.125 + v.y, 0.125 * r2.z + v.z);
     }
@@ -372,6 +478,9 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         r2.y * p.z + ((m0.y * p.x + v.y) + m1.y * p.y),
         p.z * r2.z + ((m0.z * p.x + v.z) + m1.z * p.y),
     );
+    if ty.is_gun && item.item_type as u32 != 0xb && (k | hand) != 0 {
+        v = gun_hold_pos(h, ty, hand, &m);
+    }
     // TODO: the inventory animation (action 1) slides the hand along the hold matrix by its progress
     // TODO: the binary skips this pull while the global byte at 0x5b08aec0 is set
     let vel = bodies.get(item.body).map_or(Vec3::ZERO, |b| b.vel);
@@ -389,6 +498,72 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         rotate_orientation(&mut m, axis, -r[3]);
     }
     (m, v)
+}
+
+/// get_item_hold_pos_rot: where an arm holds a gun by `hand`: in front of the right shoulder (lower unless zoomed in
+/// or busy with the inventory), back along the hold matrix `m` by the gun's holding offset and out to the grip.
+fn gun_hold_pos(h: &Human, ty: &ItemType, hand: usize, m: &RotMatrix) -> Vec3 {
+    let j = BONES[7].joint;
+    let mut y = j.y;
+    if h.action_type != 1 && h.movement_mode <= 1 {
+        y -= 0.25;
+    }
+    if h.vehicle.is_some() {
+        y += 0.25;
+    }
+    let (g, p) = (ty.gun_hold_pos, ty.hold_pos[hand]);
+    let along = |v: Vec3, k: [f32; 3]| m.iter().zip(k).fold(v, |v, (r, k)| Vec3::new(v.x + r.x * k, v.y + r.y * k, v.z + k * r.z));
+    along(along(Vec3::new(j.x - 0.0625, y, j.z - 0.09375), [-g.x, -g.y, -g.z]), [p.x, p.y, p.z])
+}
+
+/// human_arm_item_collision: the right upper arm and the chest push a gun held in the right hand out of them, each
+/// against the gun's barrel just either side of its holding point.
+fn arm_item_collision(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, item_id: usize) {
+    let item = touch.items.get(item_id).unwrap();
+    let ty = &touch.types[item.item_type as usize];
+    let Some(body) = bodies.get(item.body) else { return };
+    let (pos, [_, r1, r2]) = item.pocket_pose.unwrap_or((body.pos, body.rot));
+    let item_body = item.body;
+    let g = ty.gun_hold_pos;
+    let base = Vec3::new(r2.x * g.z + pos.x, r2.y * g.z + pos.y, g.z * r2.z + pos.z);
+    for i in 0..4 {
+        let bone = if i <= 1 { 7 } else { 2 };
+        let (b, t) = (&h.bones[bone], &BONES[bone]);
+        let (a, p) = (b.rot[t.shape as usize], b.pos);
+        let (start, end) = if i > 1 {
+            let back = (-t.shape_size[0]) * 0.5 - 0.0625;
+            let front = BONES[7].joint.x - 0.125;
+            let u = b.rot[1];
+            let (ux, uy, uz) = (u.x * 0.0625, u.y * 0.0625, u.z * 0.0625);
+            (
+                Vec3::new((back * a.x + p.x) + ux, (back * a.y + p.y) + uy, (back * a.z + p.z) + uz),
+                Vec3::new((p.x + a.x * front) + ux, (p.y + a.y * front) + uy, (front * a.z + p.z) + uz),
+            )
+        } else {
+            (
+                Vec3::new(0.2890625 * a.x + p.x, 0.2890625 * a.y + p.y, 0.2890625 * a.z + p.z),
+                Vec3::new(0.1640625 * a.x + p.x, 0.1640625 * a.y + p.y, 0.1640625 * a.z + p.z),
+            )
+        };
+        let gy = if i & 1 != 0 { g.y + 0.0625 } else { g.y - 0.0625 };
+        let grip = Vec3::new(base.x + r1.x * gy, base.y + r1.y * gy, base.z + r1.z * gy);
+        let (hit, on_arm, on_gun, dist) = segment_closest_points(start, end, grip, pos, GUN_CONTACT_RADIUS);
+        if !hit {
+            continue;
+        }
+        let d = Vec3::new(on_arm.x - on_gun.x, on_arm.y - on_gun.y, on_arm.z - on_gun.z);
+        let len = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let n = if len != 0.0 {
+            let inv = 1.0 / len;
+            Vec3::new(d.x * inv, d.y * inv, inv * d.z)
+        } else {
+            Vec3::ZERO
+        };
+        let mid = Vec3::new((on_arm.x + on_gun.x) * 0.5, (on_arm.y + on_gun.y) * 0.5, 0.5 * (on_arm.z + on_gun.z));
+        let off_arm = Vec3::new(mid.x - p.x, mid.y - p.y, mid.z - p.z);
+        let off_gun = Vec3::new(mid.x - pos.x, mid.y - pos.y, mid.z - pos.z);
+        bodies.add_body_contact(b.body, item_body, off_arm, off_gun, n, GUN_CONTACT_RADIUS - dist, GUN_FRICTION, GUN_DEPTH_SCALE, GUN_SOFTNESS);
+    }
 }
 
 /// bond_attach_item_to_human_bone: for this tick, a point bond pulls the item's grip onto the hand and an angular

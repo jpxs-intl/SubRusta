@@ -101,7 +101,7 @@ pub(super) fn update_networked_bones(h: &mut Human) {
     }
 }
 
-pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, breaks: &mut Vec<GlassBreak>) {
+pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, out: &mut Vec<HumanOutput>) {
     let movement_state = h.movement_state;
     for j in 0..BONE_COUNT {
         if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
@@ -139,7 +139,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let n = hit.normal;
         let impact = ((bone.vel.x * n.x + bone.vel.y * n.y) + bone.vel.z * n.z).abs();
         if !(impact <= 0.06666667) && hit.area != -1 && hit.block.x != -1 {
-            add_bullet_hole(map, hit, bone.pos, bone.vel, breaks);
+            add_bullet_hole(map, hit, bone.pos, bone.vel, out);
         }
         if h.last_vehicle_cooldown == 0 && !h.is_immortal {
             if j == BoneId::Head as usize {
@@ -335,6 +335,21 @@ pub fn human_contacts(h: &Human, bodies: &mut RigidBodies, others: &[OtherHuman]
     }
 }
 
+/// What a human's tick asks of the sim, in the order it happened.
+pub enum HumanOutput {
+    /// A glass pane broke (event 0x10).
+    Glass(GlassBreak),
+    /// The human lost blood: a blood drop (bullet-hit event, hit type 3) at this point.
+    Blood(Vec3),
+    /// The dead human lets go of its player, who settles their death (stocks, wealth tax) and gets an update-player
+    /// event.
+    ReleasePlayer(crate::PlayerId),
+    /// The dead human of a player who has left taxes their account.
+    TaxAccount(u32),
+    /// A sound at a place (event 9), e.g. a magazine going in.
+    Sound { sound: rosa_protocol::clientbound::game::events::sound::Sound, pos: Vec3, volume: f32, pitch: f32 },
+}
+
 /// A breakable face of a level cell that broke this tick, for the bullet-hole event.
 pub struct GlassBreak {
     pub area: i32,
@@ -346,7 +361,7 @@ pub struct GlassBreak {
 }
 
 /// add_bullet_hole: a hit on a breakable wall of a custom level shape (a glass pane) removes that wall from the cell.
-pub fn add_bullet_hole(map: &mut Map, hit: CapsuleHit, pos: Vec3, vel: Vec3, breaks: &mut Vec<GlassBreak>) -> bool {
+pub fn add_bullet_hole(map: &mut Map, hit: CapsuleHit, pos: Vec3, vel: Vec3, out: &mut Vec<HumanOutput>) -> bool {
     if hit.area as u32 > 3 || hit.block.x < 0 {
         return false;
     }
@@ -354,7 +369,7 @@ pub fn add_bullet_hole(map: &mut Map, hit: CapsuleHit, pos: Vec3, vel: Vec3, bre
         return false;
     }
     let face = hit.face_attr & 0xffff;
-    breaks.push(GlassBreak { area: hit.area, block: hit.block, cell: hit.cell, face: face as i32, pos, vel });
+    out.push(HumanOutput::Glass(GlassBreak { area: hit.area, block: hit.block, cell: hit.cell, face: face as i32, pos, vel }));
     let b = hit.block;
     map.level.area.set_layer1(b.x, b.y, b.z, (0x10000u32 << (face & 31)) | hit.cell);
     true

@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use rosa_protocol::{Team, clientbound::game::{GameState, MenuType, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
+use rosa_protocol::{Team, clientbound::game::{GameState, ItemKind, MenuType, events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer}}, serverbound::game::actions::{ChatAction, Menu, MenuAction}};
 
 use crate::{Client, ConnId, PlayerId, SimJoinMsg};
 use super::Sim;
@@ -33,10 +33,15 @@ impl Sim {
                 event_cursor: 0,
                 last_sdl_tick: 0,
                 earshots: [None; 8],
+                pack_ring: Vec::new(),
+                pack_count: 0,
+                pack_ack: 0,
+                packed: Default::default(),
                 player_id,
             },
         );
 
+        self.restore_account(player_id);
         let player = self.players.get_mut(player_id.idx()).unwrap();
         self.events.push(player.make_update_player_event(self.tick));
         self.events.push(player.make_update_round_event(self.tick));
@@ -52,6 +57,7 @@ impl Sim {
 
     pub(crate) fn on_leave(&mut self, conn: ConnId) {
         let client = self.clients.remove(&conn).unwrap();
+        self.settle_leave(client.player_id);
 
         let player = self.players.remove(client.player_id.idx());
 
@@ -70,6 +76,9 @@ impl Sim {
     }
 
     pub(crate) fn on_menu_action(&mut self, player_id: PlayerId, action: MenuAction) {
+        if self.players.get(player_id.idx()).is_some_and(|p| p.menu == MenuType::RoundCorpStock) {
+            return self.stock_menu_selection(player_id, action.button);
+        }
         let player = self.players.get_mut(player_id.idx()).unwrap();
 
         match action.menu {
@@ -90,11 +99,46 @@ impl Sim {
         }
     }
 
+    /// `/item <name or number>`: spawns that item in front of you (`/item` alone lists the names).
+    fn item_command(&mut self, player_id: PlayerId, message: &str) {
+        let arg = message.trim_start_matches("/item").trim().to_lowercase();
+        let kinds = (0..ItemKind::COUNT as u8).filter_map(|k| ItemKind::try_from(k).ok());
+        let kind = kinds.clone().find(|k| arg.parse::<u8>().ok() == Some(*k as u8) || format!("{k:?}").to_lowercase() == arg);
+        match kind {
+            Some(k) => {
+                self.spawn_item_for(player_id, k);
+            }
+            None => {
+                let names: Vec<String> = kinds.map(|k| format!("{k:?}").to_lowercase()).collect();
+                self.send_chat(&format!("/item {}", names.join(" ")), ChatType::Announce, -1, 0);
+            }
+        }
+    }
+
+    /// `/phone <number>`: spawns a phone with that number (9999 by default, like the binary's admin /phone).
+    fn phone_command(&mut self, player_id: PlayerId, message: &str) {
+        let number = message.trim_start_matches("/phone").trim().parse::<i32>().unwrap_or(9999);
+        let Some(id) = self.spawn_item_for(player_id, ItemKind::Phone) else { return };
+        if let Some(p) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
+            p.number = number;
+        }
+        self.send_chat(&format!("Phone {number} spawned"), ChatType::Announce, -1, 0);
+    }
+
     pub(crate) fn on_chat_action(&mut self, player_id: PlayerId, action: ChatAction) {
         match action.message.trim() {
             "/watermelon" => return self.spawn_watermelon_for(player_id),
             "/human" => return self.spawn_human_for(player_id),
             "/kill" => return self.kill_human_for(player_id),
+            "/guns" => return self.spawn_guns_for(player_id),
+            m if m.starts_with("/item") => return self.item_command(player_id, m),
+            m if m.starts_with("/phone") => return self.phone_command(player_id, m),
+            "/stocks" => {
+                if let Some(p) = self.players.get_mut(player_id.idx()) {
+                    p.menu = if p.menu == MenuType::RoundCorpStock { MenuType::Empty } else { MenuType::RoundCorpStock };
+                }
+                return;
+            }
             _ => {}
         }
 

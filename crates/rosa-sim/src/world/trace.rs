@@ -13,6 +13,10 @@ pub struct LevelHit {
     pub hit: TraceHit,
     pub area: i32,
     pub block: IVec3,
+    /// The area word of the cell hit (a footprint's origin cell word), and the face hit within a custom shape (its
+    /// quad index, or wall index | 0x10000).
+    pub cell: u32,
+    pub face_attr: u32,
 }
 
 #[inline]
@@ -83,22 +87,23 @@ fn masked_cell_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Opt
     None
 }
 
-fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Option<(f32, Vec3, Vec3)> {
+fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Option<(f32, Vec3, Vec3, u32)> {
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, s * p.z + base.z);
     let mut best = 1.0f32;
-    let mut out = (Vec3::ZERO, Vec3::ZERO);
-    let take = |n: Vec3, a: Vec3, b: Vec3, c: Vec3, best: &mut f32, out: &mut (Vec3, Vec3)| {
+    let mut out = (Vec3::ZERO, Vec3::ZERO, 0u32);
+    let take = |n: Vec3, a: Vec3, b: Vec3, c: Vec3, attr: u32, best: &mut f32, out: &mut (Vec3, Vec3, u32)| {
         if let Some((t, p)) = segment_intersect_face(n, start, end, a, b, c) && !(*best <= t) {
                 *best = t;
-                *out = (p, n);
+                *out = (p, n, attr);
             }
     };
-    for q in &mesh.quads {
+    for (i, q) in mesh.quads.iter().enumerate() {
         let [a, b, c, d] = q.map(|i| sc(mesh.verts[i as usize]));
-        take(calculate_face_normal(a, b, c), a, b, c, &mut best, &mut out);
-        take(calculate_face_normal(a, c, d), a, c, d, &mut best, &mut out);
+        let attr = i as u32;
+        take(calculate_face_normal(a, b, c), a, b, c, attr, &mut best, &mut out);
+        take(calculate_face_normal(a, c, d), a, c, d, attr, &mut best, &mut out);
     }
     let skip = (v >> 16) & 1023;
     for (i, w) in mesh.walls.iter().enumerate() {
@@ -106,17 +111,18 @@ fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s
             continue;
         }
         let [a, b, c, d] = w.map(sc);
+        let attr = i as u32 | 0x10000;
         let n = calculate_face_normal(a, b, c);
-        take(n, a, b, c, &mut best, &mut out);
-        take(n, a, c, d, &mut best, &mut out);
+        take(n, a, b, c, attr, &mut best, &mut out);
+        take(n, a, c, d, attr, &mut best, &mut out);
         let n = calculate_face_normal(a, c, b);
-        take(n, a, c, b, &mut best, &mut out);
-        take(n, a, d, c, &mut best, &mut out);
+        take(n, a, c, b, attr, &mut best, &mut out);
+        take(n, a, d, c, attr, &mut best, &mut out);
     }
-    (1.0 > best).then_some((best, out.0, out.1))
+    (1.0 > best).then_some((best, out.0, out.1, out.2))
 }
 
-pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3) -> Option<(TraceHit, IVec3)> {
+pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3) -> Option<(TraceHit, IVec3, u32, u32)> {
     let f = AreaFrame::new(area);
     let (s3, e3) = (start.to_array(), end.to_array());
     let (mn, mx) = (f.min.to_array(), f.max.to_array());
@@ -175,7 +181,7 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
     }
 
     let mut best = 1.0f32;
-    let mut result: Option<(TraceHit, IVec3)> = None;
+    let mut result: Option<(TraceHit, IVec3, u32, u32)> = None;
     let (sl, el) = (Vec3::from_array(ls), Vec3::from_array(le));
     let mut n = 0;
     loop {
@@ -188,21 +194,21 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                 if v == 0 {
                     continue;
                 }
-                let (hit, at) = match v & TYPE_MASK {
-                    CUBE => (masked_cell_faces(sl, el, cell, f.size, v), cell),
-                    MESH => (scaled_cell_mesh(meshes, sl, el, cell, f.size, v), cell),
+                let (hit, at, w) = match v & TYPE_MASK {
+                    CUBE => (masked_cell_faces(sl, el, cell, f.size, v).map(|(t, p, n)| (t, p, n, 0)), cell, v),
+                    MESH => (scaled_cell_mesh(meshes, sl, el, cell, f.size, v), cell, v),
                     FOOTPRINT => {
                         let o = cell - IVec3::new((v & 255) as i32, ((v >> 16) & 255) as i32, ((v >> 8) & 255) as i32);
                         let v2 = if layer == 0 { area.layer0(o.x, o.y, o.z) } else { area.layer1(o.x, o.y, o.z) };
-                        (scaled_cell_mesh(meshes, sl, el, o, f.size, v2), o)
+                        (scaled_cell_mesh(meshes, sl, el, o, f.size, v2), o, v2)
                     }
-                    _ => (None, cell),
+                    _ => (None, cell, v),
                 };
-                if let Some((t, p, nrm)) = hit && !(best <= t) {
+                if let Some((t, p, nrm, attr)) = hit && !(best <= t) {
                         best = t;
                         let p = f.rotate_back(p);
                         let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
-                        result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at));
+                        result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr));
                     }
             }
             if 1.0 > best {
@@ -243,15 +249,17 @@ pub fn line_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMesh
     let mut frac = 1.0f32;
     if let Some(h) = ground.line_intersect_landscape(start, end) && frac > h.fraction {
             frac = h.fraction;
-            best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1) });
+            best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0 });
         }
-    if let Some((h, block)) = line_intersect_area(area, meshes, start, end) {
+    if let Some((h, block, cell, face_attr)) = line_intersect_area(area, meshes, start, end) {
         if !(frac <= h.fraction) {
             frac = h.fraction;
-            best = Some(LevelHit { hit: h, area: 0, block });
+            best = Some(LevelHit { hit: h, area: 0, block, cell, face_attr });
         } else if let Some(b) = &mut best {
             b.area = 0;
             b.block = block;
+            b.cell = cell;
+            b.face_attr = face_attr;
         }
     }
     if 1.0 > frac { best } else { None }

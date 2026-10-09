@@ -6,11 +6,11 @@ use rosa_physics::{
 
 use super::{
     Human,
-    arms::calculate_arm_angles,
-    inventory::{action_simulation, hand_grab_and_inventory},
+    arms::{calculate_arm_angles, calculate_spread_vector},
+    inventory::{action_simulation, hand_grab_and_inventory, unlink_item},
     bones::BoneId,
     locomotion::{FOOT_FREE, FOOT_PLANTED, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint, update_locomotion_constraints},
-    physics::{GlassBreak, OtherHuman, bone_item_contacts, bone_world_contacts, human_contacts, joint_limits, update_networked_bones},
+    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_world_contacts, human_contacts, joint_limits, update_networked_bones},
 };
 use crate::{sim::items::Touchables, world::map::Map};
 
@@ -30,10 +30,10 @@ pub enum HumanTick {
 /// human_simulation for one human: health, turning towards the view, balance and walking for the conscious, the
 /// ragdoll for the dead, and the contacts holding the bones against the world.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], breaks: &mut Vec<GlassBreak>, ticks: u32, noise_seed: &mut i32) -> HumanTick {
+pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], out: &mut Vec<HumanOutput>, ticks: u32, noise_seed: &mut i32) -> HumanTick {
     h.unk_218 = 0;
     // TODO: the scan over vehicles for one this human is grabbing
-    health_sim(id, h, ticks);
+    health_sim(id, h, ticks, out);
     if ticks & 0x1f == 0 {
         if h.stamina > h.max_stamina {
             h.stamina = h.max_stamina;
@@ -131,7 +131,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     if h.movement_state != 3 && h.locomotion.jump_charge > 0 && h.input_flags & 4 == 0 && feet_down {
         start_step(h, 1);
     }
-    bone_world_contacts(h, bodies, map, breaks);
+    bone_world_contacts(h, bodies, map, out);
     if h.last_vehicle_cooldown > 0 {
         h.last_vehicle_cooldown -= 1;
     } else {
@@ -141,9 +141,9 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     h.pos = h.bones[0].pos;
     if h.old_health > 0 {
         hand_grab_and_inventory(h, id, bodies, touch);
-        action_simulation(h, id, bodies, touch);
+        action_simulation(h, id, bodies, touch, out);
     } else {
-        // TODO: dead humans drop the items in their inventory slots
+        drop_everything(h, bodies, touch, noise_seed);
     }
     for bone in h.bones.iter_mut() {
         let Some(b) = bodies.get(bone.body) else { continue };
@@ -168,20 +168,52 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     bone_item_contacts(h, bodies, touch);
     human_contacts(h, bodies, others);
 
-    let result = despawn_timer(h);
+    let result = despawn_timer(h, out);
     h.last_input_flags = h.input_flags;
     update_networked_bones(h);
     result
 }
 
-fn despawn_timer(h: &mut Human) -> HumanTick {
+/// A dead human lets go of the first item in every slot, which flies off with the pelvis's speed plus a little
+/// random spin.
+fn drop_everything(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, noise_seed: &mut i32) {
+    for slot in 0..h.inventory.len() {
+        if h.inventory[slot].count <= 0 {
+            continue;
+        }
+        let item_id = h.inventory[slot].items[0] as usize;
+        let Some(body) = touch.items.get(item_id).map(|item| item.body) else { continue };
+        let vel = h.bones[0].vel;
+        let s = calculate_spread_vector(noise_seed, 0.016666668, 0.0);
+        if let Some(b) = bodies.get_mut(body) {
+            b.vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
+        }
+        if let Some(item) = touch.items.get_mut(item_id) {
+            item.physics_settled = false;
+            item.settled_timer = 0;
+        }
+        unlink_item(h, bodies, touch, item_id);
+    }
+}
+
+fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
     if h.old_health > 0 {
         if h.player.is_some() {
             h.despawn_ticks = DESPAWN_TICKS;
             return HumanTick::Keep;
         }
-    } else if h.despawn_ticks < DEAD_PLAYER_TICKS && h.player.is_some() {
-        // TODO: detach the dead human from its player (and the game mode 4, 5 and 7 bookkeeping), mode 7 uses other limits
+    } else if h.despawn_ticks < DEAD_PLAYER_TICKS
+        && let Some(player) = h.player
+    {
+        // TODO: the game mode bookkeeping on death (world mode stocks, eliminator and versus scores, saved
+        // inventories, account cash) and versus's other limit
+        out.push(HumanOutput::ReleasePlayer(player));
+        h.player = None;
+        h.account = None;
+    } else if h.despawn_ticks < DEAD_PLAYER_TICKS
+        && let Some(account) = h.account.take()
+    {
+        out.push(HumanOutput::TaxAccount(account));
     }
     // TODO: in game modes 3 and 5 a dead human's timer stops at 3
     h.despawn_ticks -= 1;
@@ -263,7 +295,7 @@ fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
 }
 
 /// human_health_sim: bleeding, regeneration and death from wounds.
-fn health_sim(id: usize, h: &mut Human, ticks: u32) {
+fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     // TODO: game mode 6 and the owning player's flag (player +0x2d18) kill humans below 50 health here
     if h.unk_68 != 0 {
         if h.unk_6c > 0 {
@@ -342,7 +374,7 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32) {
         stage = 3;
     }
     if stage == 3 {
-        bleed(id, h, ticks);
+        bleed(id, h, ticks, out);
     }
     if h.unk_68 == 0 && h.blood_level <= 10 {
         h.old_health = 0;
@@ -357,7 +389,7 @@ fn regen_parts(h: &mut Human) {
     }
 }
 
-fn bleed(id: usize, h: &mut Human, ticks: u32) {
+fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     // TODO: game mode 6 stops bleeding at random (1 in 512 ticks)
     let blood = h.blood_level;
     if blood <= 19 {
@@ -371,9 +403,10 @@ fn bleed(id: usize, h: &mut Human, ticks: u32) {
     }
     let id = id as i32;
     if (id.wrapping_mul(id).wrapping_mul(id) ^ ticks as i32) as u8 == 0 && h.unk_68 == 0 {
-            h.blood_level = blood - 3;
-        }
-        // TODO: the blood drop bullet-hit event at the chest
+        h.blood_level = blood - 3;
+        let p = h.bones[1].pos;
+        out.push(HumanOutput::Blood(Vec3::new(0.0 * 0.5 + p.x, 1.0 * 0.5 + p.y, 0.5 * 0.0 + p.z)));
+    }
 }
 
 /// human_simulate_movement: picks the movement simulation for the human's movement state.

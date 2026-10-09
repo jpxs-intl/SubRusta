@@ -5,6 +5,7 @@ use rosa_physics::{
 };
 use rosa_protocol::clientbound::game::{ItemKind, ServerItemObject};
 
+use super::item_state::ItemState;
 use super::{
     Sim,
     humans::{HUMAN_SLOTS, OBJECT_SLOTS},
@@ -52,6 +53,15 @@ pub struct Item {
     pub parent_slot: i32,
     /// Where a pocketed item was last snapped to (active_item_pos_rot_snap); its body takes this place next tick.
     pub pocket_pose: Option<(Vec3, RotMatrix)>,
+    /// Items mounted on this one (+0x34 count, +0x38 ids), e.g. a gun's magazine; up to eight.
+    pub children: Vec<usize>,
+    /// Where a mounted item was last placed on its parent by logic_item; its body takes this place next tick.
+    pub mount_pose: Option<(Vec3, RotMatrix)>,
+    /// What only items of this type have.
+    pub state: ItemState,
+    /// Keys pressed on the item this tick by the hand holding it (+0x150: 1 use, 2 secondary), and last tick (+0x154).
+    pub input_flags: u32,
+    pub last_input_flags: u32,
 }
 
 /// What a human needs to collide with items: the broadphase grid, the items and their hulls.
@@ -83,6 +93,11 @@ impl Sim {
             parent_item: -1,
             parent_slot: 0,
             pocket_pose: None,
+            children: Vec::new(),
+            mount_pose: None,
+            state: ItemState::new(item_type, ty),
+            input_flags: 0,
+            last_input_flags: 0,
         };
 
         let Some(id) = self.items.insert(item) else {
@@ -97,14 +112,29 @@ impl Sim {
         Some(id)
     }
 
+    /// delete_item: takes the item out of its holder's inventory first.
     pub fn delete_item(&mut self, id: usize) {
+        // TODO: item-set grid bits, the counter at 0x45385f08 for type 0x1d, child items and a key's vehicle
+        let parent = self.items.get(id).map_or(-1, |i| i.parent_human);
+        let slot = self.items.get(id).map_or(0, |i| i.parent_slot as usize);
+        if parent != -1
+            && let Some(h) = self.humans.get_mut(parent as usize)
+        {
+            let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+            crate::human::inventory::detach_item(h, &mut self.bodies, &mut touch, id, slot);
+        }
         if let Some(item) = self.items.remove(id) {
             self.bodies.remove(item.body);
         }
     }
 
     pub(crate) fn spawn_watermelon_for(&mut self, player_id: PlayerId) {
-        let Some(player) = self.players.get(player_id.idx()) else { return };
+        self.spawn_item_for(player_id, ItemKind::Watermelon);
+    }
+
+    /// Test command: an item of any type in front of the player's camera.
+    pub(crate) fn spawn_item_for(&mut self, player_id: PlayerId, kind: ItemKind) -> Option<usize> {
+        let player = self.players.get(player_id.idx())?;
 
         let mut view = IDENTITY;
         rotate_orientation(&mut view, Vec3::Y, player.view_yaw);
@@ -113,14 +143,48 @@ impl Sim {
         rotate_orientation(&mut view, right, player.view_pitch);
 
         let pos = player.camera_pos.0 - view[0] * SPAWN_DISTANCE;
-        let Some(id) = self.create_item(ItemKind::Watermelon, pos, None, IDENTITY) else {
-            return println!("[Sim] Item table full");
+        let Some(id) = self.create_item(kind, pos, None, IDENTITY) else {
+            println!("[Sim] Item table full");
+            return None;
         };
+        println!("[Sim] Spawned {kind:?} #{id} at {pos:?}");
+        Some(id)
+    }
 
-        let body = self.items.get(id).unwrap().body;
-        //self.bodies.add_impulse(body, random_direction() * SPAWN_SPIN_OFFSET, random_direction() * SPAWN_IMPULSE);
+    /// Test command: every gun in a row in front of the player, each with three of its magazines beside it.
+    pub(crate) fn spawn_guns_for(&mut self, player_id: PlayerId) {
+        const GUNS: [(ItemKind, Option<ItemKind>); 7] = [
+            (ItemKind::Ak47, Some(ItemKind::Ak47Mag)),
+            (ItemKind::M16, Some(ItemKind::M16Mag)),
+            (ItemKind::Mp5, Some(ItemKind::Mp5Mag)),
+            (ItemKind::Uzi, Some(ItemKind::UziMag)),
+            (ItemKind::Pistol, Some(ItemKind::PistolMag)),
+            (ItemKind::Magnum, Some(ItemKind::MagnumMag)),
+            (ItemKind::Auto5, None),
+        ];
+        const GUN_SPACING: f32 = 0.75;
+        const MAG_SPACING: f32 = 0.25;
+        let Some(player) = self.players.get(player_id.idx()) else { return };
+        let mut view = IDENTITY;
+        rotate_orientation(&mut view, Vec3::Y, player.view_yaw);
+        let (forward, right) = (-view[0], -view[2]);
+        let centre = player.camera_pos.0 + forward * SPAWN_DISTANCE;
+        let first = -(GUNS.len() as f32 - 1.0) * 0.5;
+        for (k, (gun, mag)) in GUNS.into_iter().enumerate() {
+            let at = centre + right * ((first + k as f32) * GUN_SPACING);
+            self.create_item(gun, at, None, view);
+            for m in mag.into_iter().flat_map(|m| [m; 3]).enumerate() {
+                self.create_item(m.1, at + forward * (MAG_SPACING * (m.0 as f32 + 1.0)), None, view);
+            }
+        }
+    }
 
-        println!("[Sim] Spawned watermelon #{id} at {pos:?}");
+    pub fn item_mut(&mut self, id: usize) -> Option<&mut Item> {
+        self.items.get_mut(id)
+    }
+
+    pub fn set_game_state(&mut self, state: rosa_protocol::clientbound::game::GameState) {
+        self.gamestate = state;
     }
 
     pub fn item_body(&self, id: usize) -> Option<(&Item, &rosa_physics::RigidBody)> {
@@ -129,6 +193,9 @@ impl Sim {
     }
 
     pub fn physics_tick(&mut self) {
+        for (_, h) in self.humans.iter_mut() {
+            h.progress_bar = 0;
+        }
         self.bodies.simulate();
         self.sync_humans();
         self.sync_items_from_bodies();
@@ -199,7 +266,24 @@ impl Sim {
             item.physics_sim = false;
             let (body_id, item_type, parent) = (item.body, item.item_type, item.parent_human);
             let holder = (parent != -1).then(|| self.humans.get(parent as usize)).flatten();
-            // TODO: items hanging off another item and the isInPocket flag
+            // TODO: the isInPocket flag (items in a closed briefcase or a pocketed parent, pocketed non-phones)
+            if item.parent_item != -1 {
+                item.physics_settled = false;
+                item.settled_timer = 0;
+                let pose = item.mount_pose;
+                if let Some(body) = self.bodies.get_mut(body_id) {
+                    if let Some((pos, rot)) = pose {
+                        body.pos = pos;
+                        body.rot = rot;
+                        item.pos2 = pos;
+                    }
+                    body.vel = Vec3::ZERO;
+                    body.ang_momentum = Vec3::ZERO;
+                    body.ang_vel = Vec3::ZERO;
+                    body.settled = true;
+                }
+                continue;
+            }
             if let Some(h) = holder.filter(|_| item.parent_slot > 1) {
                 let vel = h.bones[0].vel;
                 item.physics_settled = false;
@@ -278,9 +362,51 @@ impl Sim {
         }
     }
 
-    /// logic_item: snaps every pocketed item to its human's chest (active_item_pos_rot_snap).
-    // TODO: the rest of logic_item (phones, grenades, computers, cash and the other item behaviours)
+    /// logic_item: snaps every pocketed item to its human's chest (active_item_pos_rot_snap), then runs each item's
+    /// behaviour.
     fn logic_item(&mut self) {
+        self.snap_pocketed_items();
+        self.place_mounted_items();
+        self.item_behaviours();
+    }
+
+    /// The child part of logic_item: a mounted item sits on its parent, cash fanned out across an open briefcase and
+    /// anything else 0.0625 below the parent's middle.
+    fn place_mounted_items(&mut self) {
+        const CASH_SPREAD: f32 = 0.1875;
+        const CASH_SCALE: f32 = 0.75;
+        const CASH_START: f32 = 0.2109375;
+        const BELOW: f32 = -0.0625;
+        for id in self.items.ids() {
+            let item = self.items.get(id).unwrap();
+            if item.parent_item == -1 {
+                continue;
+            }
+            let (kind, slot) = (item.item_type, item.parent_slot);
+            let Some(parent) = self.items.get(item.parent_item as usize) else { continue };
+            let Some(body) = self.bodies.get(parent.body) else { continue };
+            let (p, rot) = (body.pos, body.rot);
+            let [r0, r1, _] = rot;
+            let pos = match parent.item_type {
+                ItemKind::Briefcase | ItemKind::BriefcaseOpen => {
+                    if matches!(kind, ItemKind::CashRound | ItemKind::CashWorld) {
+                        let k = slot as f32 * CASH_SPREAD * CASH_SCALE * CASH_SCALE - CASH_START;
+                        Vec3::new(p.x + r0.x * k, r0.y * k + p.y, k * r0.z + p.z)
+                    } else {
+                        p
+                    }
+                }
+                // TODO: disks in a computer sit at the computer type's drive offset (item type 0x27 +0x11c8, +0x11cc)
+                ItemKind::Computer => p,
+                _ => Vec3::new(p.x + r1.x * BELOW, r1.y * BELOW + p.y, r1.z * BELOW + p.z),
+            };
+            let item = self.items.get_mut(id).unwrap();
+            item.mount_pose = Some((pos, rot));
+            item.pos2 = pos;
+        }
+    }
+
+    fn snap_pocketed_items(&mut self) {
         for id in self.items.ids() {
             let item = self.items.get_mut(id).unwrap();
             if item.parent_human == -1 {
@@ -398,5 +524,36 @@ impl Sim {
                 Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot })
             })
             .collect()
+    }
+}
+
+/// item_attach_child: mounts `child` on `parent` if its type mounts there; a parent takes one item, or up to five
+/// cash bundles, and at most eight in all.
+pub fn attach_child(items: &mut Table<Item>, types: &[ItemType], parent: usize, child: usize) -> bool {
+    let (Some(p), Some(c)) = (items.get(parent), items.get(child)) else { return false };
+    let n = p.children.len();
+    if n > 7 || types[c.item_type as usize].can_mount_to[p.item_type as usize] == 0 {
+        return false;
+    }
+    let room = if matches!(c.item_type, ItemKind::CashRound | ItemKind::CashWorld) { n <= 4 } else { n == 0 };
+    if !room {
+        return false;
+    }
+    items.get_mut(parent).unwrap().children.push(child);
+    let c = items.get_mut(child).unwrap();
+    c.parent_item = parent as i32;
+    c.parent_slot = n as i32;
+    true
+}
+
+/// item_removelink: takes `item` off `parent`, the last child taking its place.
+pub fn remove_link(items: &mut Table<Item>, item: usize, parent: usize) {
+    if let Some(p) = items.get_mut(parent) {
+        while let Some(i) = p.children.iter().position(|&c| c == item) {
+            p.children.swap_remove(i);
+        }
+    }
+    if let Some(c) = items.get_mut(item) {
+        c.parent_item = -1;
     }
 }

@@ -4,7 +4,8 @@ pub struct PlayerVoice {
     pub frames: [Option<VoiceFrame>; 64],
     pub current: u8,
     pub is_silenced: bool,
-    // TODO: the binary keeps a per-player volume level (0 whisper, 1 normal, 2 shout); this takes the newest frame's
+    /// The speaking volume (0 whisper, 1 normal, 2 shout), taken from the last frame of each packet like the binary's
+    /// server_voices volumeLevel; it sets how far the player is heard.
     pub volume_level: u8,
 }
 

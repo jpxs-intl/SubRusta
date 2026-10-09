@@ -15,19 +15,33 @@ pub struct ItemType {
     pub inv_inertia: Vec3,
     pub hull: Option<ConvexHull>,
     pub is_gun: bool,
-    // TODO: name once its readers are ported (set for the one-handed guns)
-    pub unk_14: i32,
+    /// The one-handed guns: the holder aims across the body, turning the chest the other way (messedUpAiming).
+    pub mirrored_aim: i32,
     pub hands: i32,
     pub magazine_ammo: i32,
     /// Which of the five pockets (inventory slots 2 to 6) the item fits in.
     pub pockets: [i32; 5],
     pub hold_pos: [Vec3; 2],
     pub hold_rot: [[f32; 4]; 2],
+    /// Ticks between shots (+0x18).
+    pub fire_rate: i32,
+    /// Index into the bullet table (+0x1c).
+    pub bullet_type: i32,
+    // TODO: name once its readers are ported (+0x20, 90 for most guns)
+    pub unk_20: i32,
+    /// Muzzle speed per tick (+0x28).
+    pub bullet_velocity: f32,
+    /// How far a shot strays (+0x2c).
+    pub bullet_spread: f32,
+    /// Which item types this one mounts on (+0x11c), e.g. a magazine on its gun.
+    pub can_mount_to: [i32; ItemKind::COUNT],
+    /// Where a gun sits relative to its holder's right shoulder, along the hold matrix (+0x1394, gunHoldingPos).
+    pub gun_hold_pos: Vec3,
 }
 
 impl ItemType {
     fn new(name: &str, price: i32, mass: f32, can_collide: bool, bounds: Vec3) -> Self {
-        Self { name: name.to_string(), price, mass, can_collide, bounds, inv_inertia: inverse_inertia(bounds), hull: None, is_gun: false, unk_14: 0, hands: 0, magazine_ammo: 0, pockets: [0; 5], hold_pos: [Vec3::ZERO; 2], hold_rot: [[0.0; 4]; 2] }
+        Self { name: name.to_string(), price, mass, can_collide, bounds, inv_inertia: inverse_inertia(bounds), hull: None, is_gun: false, mirrored_aim: 0, hands: 0, magazine_ammo: 0, pockets: [0; 5], hold_pos: [Vec3::ZERO; 2], hold_rot: [[0.0; 4]; 2], fire_rate: 0, bullet_type: 0, unk_20: 0, bullet_velocity: 0.0, bullet_spread: 0.0, can_mount_to: [0; ItemKind::COUNT], gun_hold_pos: Vec3::ZERO }
     }
 }
 
@@ -113,15 +127,28 @@ pub fn item_types() -> Vec<ItemType> {
         })
         .collect();
 
-    for (t, (is_gun, unk_14, hands, hold_pos, hold_rot)) in types.iter_mut().zip(hold_data()) {
+    for (t, (is_gun, mirrored_aim, hands, hold_pos, hold_rot)) in types.iter_mut().zip(hold_data()) {
         t.is_gun = is_gun != 0;
-        t.unk_14 = unk_14;
+        t.mirrored_aim = mirrored_aim;
         t.hands = hands;
         t.hold_pos = hold_pos;
         t.hold_rot = hold_rot;
     }
     for (t, ammo) in types.iter_mut().zip(MAGAZINE_AMMO) {
         t.magazine_ammo = ammo;
+    }
+    for (k, t) in types.iter_mut().enumerate() {
+        t.fire_rate = FIRE_RATE[k];
+        t.bullet_type = BULLET_TYPE[k];
+        t.unk_20 = UNK_20[k];
+        t.bullet_velocity = BULLET_VELOCITY[k];
+        t.bullet_spread = BULLET_SPREAD[k];
+        t.gun_hold_pos = GUN_HOLD_POS[k];
+    }
+    for (kind, onto) in MOUNTS {
+        for &o in onto {
+            types[kind as usize].can_mount_to[o as usize] = 1;
+        }
     }
     for (t, pockets) in types.iter_mut().zip(POCKETS) {
         t.pockets = pockets;
@@ -149,6 +176,36 @@ pub fn item_types() -> Vec<ItemType> {
     
     types
 }
+
+const FIRE_RATE: [i32; ItemKind::COUNT] = [6, 8, 0, 7, 0, 30, 0, 5, 0, 6, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const BULLET_TYPE: [i32; ItemKind::COUNT] = [2, 0, 0, 1, 0, 3, 0, 2, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const UNK_20: [i32; ItemKind::COUNT] = [90, 90, 0, 90, 0, 18, 0, 90, 0, 90, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const BULLET_VELOCITY: [f32; ItemKind::COUNT] = [f32::from_bits(0x40d55555), f32::from_bits(0x412aaaab), f32::from_bits(0x0), f32::from_bits(0x416aaaab), f32::from_bits(0x0), f32::from_bits(0x40f55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0)];
+const BULLET_SPREAD: [f32; ItemKind::COUNT] = [f32::from_bits(0x3daaaaab), f32::from_bits(0x3daaaaab), f32::from_bits(0x0), f32::from_bits(0x3d4ccccd), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x3d4ccccd), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0)];
+const GUN_HOLD_POS: [Vec3; ItemKind::COUNT] = {
+    let mut p = [Vec3::ZERO; ItemKind::COUNT];
+    p[ItemKind::Ak47 as usize] = Vec3::new(0.0, -0.0625, 0.375);
+    p[ItemKind::M16 as usize] = Vec3::new(0.0, -0.03125, 0.375);
+    p[ItemKind::Mp5 as usize] = Vec3::new(0.0, -0.0625, 0.375);
+    p[ItemKind::Uzi as usize] = Vec3::new(0.0, -0.0625, 0.375);
+    p
+};
+const MOUNTS: [(ItemKind, &[ItemKind]); 14] = [
+    (ItemKind::Ak47Mag, &[ItemKind::Ak47]),
+    (ItemKind::M16Mag, &[ItemKind::M16]),
+    (ItemKind::MagnumMag, &[ItemKind::Magnum]),
+    (ItemKind::Mp5Mag, &[ItemKind::Mp5]),
+    (ItemKind::UziMag, &[ItemKind::Uzi]),
+    (ItemKind::PistolMag, &[ItemKind::Pistol]),
+    (ItemKind::CashRound, &[ItemKind::BriefcaseOpen]),
+    (ItemKind::CashWorld, &[ItemKind::BriefcaseOpen]),
+    (ItemKind::DiskBlack, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+    (ItemKind::DiskGreen, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+    (ItemKind::DiskBlue, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+    (ItemKind::DiskWhite, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+    (ItemKind::DiskGold, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+    (ItemKind::DiskRed, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
+];
 
 const MAGAZINE_AMMO: [i32; ItemKind::COUNT] = [
     300, 0, 30, 0, 30, 0, 6, 0, 30, 0, 30, 0, 12, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

@@ -4,7 +4,10 @@ use rosa_protocol::clientbound::game::ItemKind;
 use rosa_physics::RigidBodies;
 
 use super::{Human, InventorySlot, QueuedAction};
-use crate::sim::items::Touchables;
+use rosa_protocol::clientbound::game::events::sound::Sound;
+
+use super::physics::HumanOutput;
+use crate::sim::items::{Touchables, attach_child, remove_link};
 
 const PICKUP_REACH: f32 = 1.5;
 const PICKUP_RADIUS: f32 = 0.5;
@@ -46,7 +49,10 @@ pub fn link_item_to_human(h: &mut Human, human_id: usize, bodies: &mut RigidBodi
     if (slot == 2 && !is_gun) || (slot > 2 && is_gun) {
         return false;
     }
-    // TODO: item_removelink when the item hangs off another item
+    if item.parent_item != -1 {
+        remove_link(touch.items, item_id, item.parent_item as usize);
+    }
+    let item = touch.items.get(item_id).unwrap();
     if item.parent_human != -1 {
         // TODO: item_detach_human from another human
         if item.parent_human as usize == human_id {
@@ -75,7 +81,7 @@ pub fn unlink_item(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchabl
 
 /// item_detach_human: takes the item out of the slot (the last item takes its place); items leaving a pocket appear
 /// in front of the chest.
-fn detach_item(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, item_id: usize, slot: usize) {
+pub(crate) fn detach_item(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, item_id: usize, slot: usize) {
     if slot > 1 {
         let chest = &h.bones[2];
         let (p, r1) = (chest.pos, chest.rot[1]);
@@ -121,7 +127,19 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             }
             break;
         }
-        // TODO: grabbing other humans and vehicles, the use key and item input flags
+        // TODO: grabbing other humans, doors and vehicles with an empty hand; disks, doors, ropes and computers in hand
+        if h.inventory[slot].count > 0
+            && let Some(item) = touch.items.get_mut(h.inventory[slot].items[0] as usize)
+        {
+            let input = h.input_flags;
+            let this_hand = input & 1 != 0 && (input & 0x10 != 0) == (slot == 1);
+            let mode_key = input & 0x7c0 != 0;
+            if input & 0x1000 != 0 {
+                item.input_flags |= 2;
+            } else if !mode_key && this_hand && input & 0x20 == 0 {
+                item.input_flags |= 1;
+            }
+        }
     }
     if h.input_flags & 0x2000 != 0 && h.last_input_flags & 0x2000 == 0 {
         swap_hands(h, human_id, bodies, touch);
@@ -173,7 +191,7 @@ pub fn queue_inventory_action(h: &mut Human, a: i32, b: i32) {
 }
 
 /// human_action_simulation: runs the oldest queued inventory action.
-pub fn action_simulation(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables) {
+pub fn action_simulation(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables, out: &mut Vec<HumanOutput>) {
     h.action_type = -1;
     if h.actions_finished == h.actions_queued {
         return;
@@ -194,11 +212,140 @@ pub fn action_simulation(h: &mut Human, human_id: usize, bodies: &mut RigidBodie
                 return;
             }
         }
+        1 => {
+            if !mount(h, human_id, bodies, touch, f, out) {
+                return;
+            }
+        }
         3 => pickup(h, human_id, bodies, touch, f),
-        // TODO: loading and unloading magazines (1) and using a computer (4)
+        // TODO: using a computer (4)
         _ => {}
     }
     h.actions_finished = (h.actions_finished + 1) & 7;
+}
+
+fn mounts_on(touch: &Touchables, item: usize, onto: usize) -> bool {
+    match (touch.items.get(item), touch.items.get(onto)) {
+        (Some(a), Some(b)) => touch.types[a.item_type as usize].can_mount_to[b.item_type as usize] != 0,
+        _ => false,
+    }
+}
+
+fn held(h: &Human, hand: usize) -> Option<usize> {
+    (h.inventory[hand].count > 0).then(|| h.inventory[hand].items[0] as usize)
+}
+
+fn is_gun(touch: &Touchables, item: usize) -> bool {
+    touch.items.get(item).is_some_and(|i| touch.types[i.item_type as usize].is_gun)
+}
+
+/// human_action_possible for action 1: a full hand can mount its item on the item in the other hand; an empty hand
+/// can take the mounted item off the item in the other hand.
+fn can_mount(h: &Human, touch: &Touchables, hand: usize) -> bool {
+    let Some(other) = held(h, hand ^ 1) else { return false };
+    match held(h, hand) {
+        Some(item) => mounts_on(touch, item, other),
+        None => touch.items.get(other).and_then(|o| o.children.first().copied()).is_some_and(|c| mounts_on(touch, c, other)),
+    }
+}
+
+/// link_item(item, -1, -1, -1) on a mounted item: it comes off and falls free.
+fn dismount(touch: &mut Touchables, item: usize) {
+    if let Some(parent) = touch.items.get(item).map(|i| i.parent_item).filter(|&p| p != -1) {
+        remove_link(touch.items, item, parent as usize);
+    }
+}
+
+/// Action 1: loads the item in one hand (a magazine) into the item in the other hand (its gun) over 30 ticks, or
+/// takes it out into an empty hand. Hand 3 picks: the hand whose item mounts on the other, or the empty hand next to
+/// a loaded gun. A loaded gun drops its old magazine at 87.5% and the loading starts over. Returns whether the
+/// action is finished.
+fn mount(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables, f: usize, out: &mut Vec<HumanOutput>) -> bool {
+    const STEP: f32 = 0.0333333351;
+    const EJECT_AT: f32 = 0.875;
+    const UNLOAD_PITCH: f32 = 0.875;
+    let mut hand = h.actions[f].slot;
+    if hand == 3 {
+        let loaded = |h: &Human, touch: &Touchables, hand: usize| held(h, hand).and_then(|i| touch.items.get(i)).is_some_and(|i| !i.children.is_empty());
+        hand = match (held(h, 0), held(h, 1)) {
+            (Some(right), Some(left)) => {
+                if mounts_on(touch, left, right) {
+                    1
+                } else if mounts_on(touch, right, left) {
+                    0
+                } else {
+                    -1
+                }
+            }
+            (None, Some(_)) => {
+                if loaded(h, touch, 1) { 0 } else { -1 }
+            }
+            (Some(_), None) => {
+                if loaded(h, touch, 0) { 1 } else { -1 }
+            }
+            (None, None) => 1,
+        };
+        h.actions[f].slot = hand;
+    }
+    if hand == -1 {
+        h.action_hand = -1;
+        return true;
+    }
+    let hand = hand as usize;
+    let other = hand ^ 1;
+    let progress = STEP + h.actions[f].progress;
+    h.actions[f].progress = progress;
+    let complete = if progress < EJECT_AT {
+        !can_mount(h, touch, hand)
+    } else if !(progress < 1.0) {
+        true
+    } else {
+        let swap = match (held(h, hand), held(h, other)) {
+            (Some(mag), Some(gun)) if mounts_on(touch, mag, gun) && is_gun(touch, gun) => touch.items.get(gun).and_then(|g| g.children.last().copied()),
+            _ => None,
+        };
+        if let Some(old) = swap {
+            dismount(touch, old);
+            h.actions[f].progress = 0.0;
+        }
+        !can_mount(h, touch, hand)
+    };
+    if !complete {
+        return false;
+    }
+    h.actions[f].progress = 1.0;
+    match (held(h, hand), held(h, other)) {
+        (Some(mag), Some(gun)) if mounts_on(touch, mag, gun) => {
+            let gun_type = is_gun(touch, gun);
+            if gun_type && let Some(old) = touch.items.get(gun).and_then(|g| g.children.last().copied()) {
+                dismount(touch, old);
+            }
+            if attach_child(touch.items, touch.types, gun, mag) {
+                let slot = touch.items.get(mag).map_or(0, |m| m.parent_slot);
+                detach_item(h, bodies, touch, mag, hand);
+                if let Some(m) = touch.items.get_mut(mag) {
+                    m.parent_slot = slot;
+                }
+                if gun_type {
+                    let pos = touch.items.get(mag).and_then(|m| bodies.get(m.body)).map_or(Vec3::ZERO, |b| b.pos);
+                    out.push(HumanOutput::Sound { sound: Sound::Reload, pos, volume: 1.0, pitch: 1.0 });
+                }
+            }
+        }
+        (None, Some(gun)) => {
+            let child = touch.items.get(gun).filter(|g| !g.children.is_empty()).map(|g| (g.children[0], *g.children.last().unwrap()));
+            if let Some((first, last)) = child
+                && mounts_on(touch, first, gun)
+                && link_item_to_human(h, human_id, bodies, touch, last, hand)
+                && is_gun(touch, gun)
+            {
+                let pos = held(h, hand).and_then(|m| touch.items.get(m)).and_then(|m| bodies.get(m.body)).map_or(Vec3::ZERO, |b| b.pos);
+                out.push(HumanOutput::Sound { sound: Sound::Reload, pos, volume: 1.0, pitch: UNLOAD_PITCH });
+            }
+        }
+        _ => {}
+    }
+    true
 }
 
 /// human_action_possible for action 2: a full hand can put its item in the pocket when the item fits there and the

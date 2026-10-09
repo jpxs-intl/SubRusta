@@ -82,6 +82,8 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
 
     let human = Human {
         player: player.map(|p| p.player_id),
+        account: player.map(|p| p.account_id),
+        stocks: 0,
         team,
         customization,
         face_shape,
@@ -137,6 +139,8 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         strength: 0.0,
         unk_2c: 0,
         unk_40: 0,
+        unk_3c: 105,
+        progress_bar: 0,
         unk_68: 0,
         unk_6c: 0,
         unk_e0: 0.0,

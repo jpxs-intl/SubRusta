@@ -7,6 +7,7 @@ use crate::PlayerId;
 pub mod arms;
 pub mod bones;
 pub mod create;
+pub mod damage;
 pub mod ik;
 pub mod inventory;
 pub mod locomotion;
@@ -81,6 +82,10 @@ pub struct Attachments {
 
 pub struct Human {
     pub player: Option<PlayerId>,
+    /// The account of the player this human belongs to (record 0x34), kept after the player leaves.
+    pub account: Option<u32>,
+    /// The player's share count, copied every tick (record 0x38) so a returning player can buy them back.
+    pub stocks: i32,
     pub team: Option<Team>,
     pub customization: CharacterCustomization,
     // left eye offset, left eye scale, right eye offset, right eye scale
@@ -140,6 +145,10 @@ pub struct Human {
     // TODO: name these once more of their readers and writers are ported
     pub unk_2c: i32,
     pub unk_40: i32,
+    // TODO: name once its readers are ported (record 0x3c, starts at 105, a burger adds 8 up to 105)
+    pub unk_3c: i32,
+    /// The progress bar shown to the player (record 0x6e04), e.g. while bandaging.
+    pub progress_bar: i32,
     pub unk_68: i32,
     pub unk_6c: i32,
     pub unk_e0: f32,

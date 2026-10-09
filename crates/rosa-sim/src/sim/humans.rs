@@ -4,15 +4,16 @@ use rosa_physics::{
     RigidBodies, RotMatrix,
     rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
 };
-use rosa_protocol::clientbound::game::{OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hole::EventBulletHole}};
+use rosa_protocol::clientbound::game::{ItemKind, OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hit::EventBulletHit, sound::EventSound, bullet_hole::EventBulletHole}};
 
-use super::{Sim, items::Touchables};
+use super::{Sim, economy, items::Touchables};
 use crate::{
     PlayerId,
     human::{
         Human,
         create::create_human,
-        physics::sync_bones,
+        inventory::detach_item,
+        physics::{HumanOutput, sync_bones},
         simulation::{HumanTick, simulate_human},
     },
 };
@@ -45,8 +46,12 @@ impl Sim {
     /// player_simulation: hands each player's latest controls to their human.
     pub(crate) fn player_simulation(&mut self) {
         for (_, player) in self.players.iter_mut() {
-            // TODO: spawn timer, stocks and account bookkeeping
+            if player.spawn_timer > 0 {
+                player.spawn_timer -= 1;
+            }
+            // TODO: the rest of the per-player bookkeeping (account and game mode timers)
             let Some(h) = player.human.and_then(|id| self.humans.get_mut(id)) else { continue };
+            h.stocks = player.stocks;
             if h.vehicle.is_some() {
                 // TODO: vehicle controls (control modes 2 and 3 copy the first 8 control floats)
             } else if player.control_mode == 1 {
@@ -81,27 +86,26 @@ impl Sim {
 
     pub(crate) fn simulate_humans(&mut self) {
         let map = &mut self.world.map;
-        let mut breaks = Vec::new();
+        let mut out = Vec::new();
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
         let mut deleted = Vec::new();
         for id in self.humans.ids() {
             let others = later_humans(&self.humans, id);
             let h = self.humans.get_mut(id).unwrap();
-            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut breaks, self.tick, &mut self.noise_seed) {
+            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed) {
                 deleted.push(id);
             }
         }
-        self.announce_glass_breaks(breaks);
+        self.apply_human_outputs(out);
         for id in deleted {
             self.delete_human(id);
         }
     }
 
-    fn announce_glass_breaks(&mut self, breaks: Vec<crate::human::physics::GlassBreak>) {
-        for b in breaks {
-            self.events.push(Event {
-                tick_created: self.tick,
-                kind: ServerEvent::BulletHole(EventBulletHole {
+    fn apply_human_outputs(&mut self, out: Vec<HumanOutput>) {
+        for o in out {
+            let kind = match o {
+                HumanOutput::Glass(b) => ServerEvent::BulletHole(EventBulletHole {
                     area: b.area,
                     block_x: b.block.x,
                     block_y: b.block.y,
@@ -111,17 +115,32 @@ impl Sim {
                     pos: Vector(b.pos),
                     vel: Vector(b.vel),
                 }),
-            });
+                HumanOutput::Blood(p) => ServerEvent::BulletHit(EventBulletHit { unk: 0, hit_type: 3, pos: Vector(p), normal: Vector(p) }),
+                HumanOutput::ReleasePlayer(pid) => {
+                    self.settle_death(pid);
+                    continue;
+                }
+                HumanOutput::Sound { sound, pos, volume, pitch } => ServerEvent::Sound(EventSound { sound_type: sound, pos: Vector(pos), volume, pitch }),
+                HumanOutput::TaxAccount(account) => {
+                    if let Some(a) = self.saved_accounts.get_player_data(account) {
+                        economy::account_wealth_tax(a);
+                    }
+                    continue;
+                }
+            };
+            self.events.push(Event { tick_created: self.tick, kind });
         }
     }
 
     pub fn simulate_human_at(&mut self, id: usize, ticks: u32, noise_seed: &mut i32) -> HumanTick {
         let map = &mut self.world.map;
-        let mut breaks = Vec::new();
+        let mut out = Vec::new();
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
         let others = later_humans(&self.humans, id);
         let Some(h) = self.humans.get_mut(id) else { return HumanTick::Keep };
-        simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut breaks, ticks, noise_seed)
+        let result = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, ticks, noise_seed);
+        self.apply_human_outputs(out);
+        result
     }
 
     pub fn calculate_arm_angles_at(&mut self, id: usize, noise_seed: &mut i32) {
@@ -132,15 +151,19 @@ impl Sim {
     }
 
     pub(crate) fn delete_human(&mut self, id: usize) {
-        // TODO: the binary's delete_human also tells the clients
-        let Some(h) = self.humans.remove(id) else { return };
-        for slot in &h.inventory {
-            for &item in &slot.items[..slot.count as usize] {
-                if let Some(item) = self.items.get_mut(item as usize) {
-                    item.parent_human = -1;
+        let Some(mut h) = self.humans.remove(id) else { return };
+        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types };
+        for slot in 0..h.inventory.len() {
+            while h.inventory[slot].count > 0 {
+                let item = h.inventory[slot].items[h.inventory[slot].count as usize - 1] as usize;
+                let before = h.inventory[slot].count;
+                detach_item(&mut h, &mut self.bodies, &mut touch, item, slot);
+                if h.inventory[slot].count == before {
+                    break;
                 }
             }
         }
+        // TODO: the binary bumps the player's update counter here rather than sending an event
         if let Some(player) = h.player.and_then(|p| self.players.get_mut(p.idx()))
             && player.human == Some(id)
         {
@@ -227,8 +250,7 @@ impl Sim {
                         unk_6e10: h.action_duration,
                         unk_6e14: h.action_hand,
                         unk_6e18: h.action_slot,
-                        // TODO: the progress bar (record 0x6e04)
-                        progress_bar: 0,
+                        progress_bar: h.progress_bar,
                         health: [h.health, h.chest_hp, h.head_hp, h.left_arm_hp, h.right_arm_hp, h.left_leg_hp, h.right_leg_hp],
                         stamina: h.stamina,
                         max_stamina: h.max_stamina,
@@ -240,11 +262,20 @@ impl Sim {
                                 .filter_map(|&i| self.items.get(i as usize))
                                 .map(|item| {
                                     let kind = item.item_type as i32;
+                                    if k > 1 {
+                                        return kind;
+                                    }
                                     let ty = &self.item_types[kind as usize];
-                                    // TODO: guns show a loaded (0x100) or empty (0x300) magazine and the briefcase
-                                    // (0x10) whether it holds anything; items do not track bullets yet, so magazines
-                                    // show the full count
-                                    if ty.magazine_ammo > 0 { kind | (ty.magazine_ammo << 8) } else { kind }
+                                    let mut shown = kind;
+                                    if let Some(&mag) = item.children.first() {
+                                        if ty.is_gun {
+                                            let empty = self.items.get(mag).is_some_and(|m| m.state.left() == 0);
+                                            shown |= if empty { 0x300 } else { 0x100 };
+                                        } else if item.item_type == ItemKind::BriefcaseOpen {
+                                            shown |= 0x100;
+                                        }
+                                    }
+                                    if ty.magazine_ammo > 0 { shown | (item.state.left() << 8) } else { shown }
                                 })
                                 .collect()
                         }),
