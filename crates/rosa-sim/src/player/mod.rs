@@ -72,6 +72,10 @@ pub struct Player {
     pub is_bot: bool,
     /// God mode (+0x60), toggled by /godmode: bullets pass through the player and team damage is not punished.
     pub god_mode: bool,
+    /// An admin (+0x34): from serveradmin.txt, or after /admin with the password.
+    pub is_admin: bool,
+    /// /admin attempts so far; the fifth on is refused.
+    pub admin_tries: i32,
     /// A mission bot's deadline on the world clock (+0x36e4) and the deal it belongs to (+0x36e8).
     pub bot_deadline: i32,
     pub bot_mission: i32,
@@ -181,6 +185,8 @@ impl Player {
             zoom_level: 0,
             is_bot: false,
             god_mode: false,
+            is_admin: false,
+            admin_tries: 0,
             bot_deadline: 0,
             bot_mission: 0,
             bot: BotBrain::default(),
@@ -232,6 +238,8 @@ impl Player {
             zoom_level: 0,
             is_bot: true,
             god_mode: false,
+            is_admin: false,
+            admin_tries: 0,
             bot_deadline: 0,
             bot_mission: 0,
             bot: BotBrain::default(),

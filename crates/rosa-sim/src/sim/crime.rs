@@ -1,5 +1,5 @@
 use glam::Vec3;
-use rosa_protocol::{GameMode, Team};
+use rosa_protocol::{GameMode, Team, clientbound::game::events::chat::ChatType};
 
 use super::Sim;
 use crate::{PlayerId, human::damage::damage_human};
@@ -98,21 +98,24 @@ impl Sim {
 
     /// The /godmode chat command: the player's god mode on or off, announced to admins.
     pub(crate) fn godmode_command(&mut self, pid: PlayerId) {
-        // TODO: the binary takes this command from admins only, and sends chat type 4 only to admin connections
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
+
         p.god_mode = !p.god_mode;
         let line = if p.god_mode { "godmode on" } else { "godmode off" };
-        self.send_chat(line, rosa_protocol::clientbound::game::events::chat::ChatType::AdminChat, -1, 0);
+        self.send_chat(line, ChatType::AdminChat, -1, 0);
     }
 
     /// handle_team_kill: the team damage is logged and dealt to the player's head, and the player's details resent.
     fn handle_team_kill(&mut self, player: PlayerId, damage: i32) {
         let Some(p) = self.players.get(player.idx()) else { return };
+
         println!("[Sim] {}({}) team damage: {damage}", p.username, p.phone_number);
+
         let share = self.team_damage;
         if let Some(h) = p.human.and_then(|h| self.humans.get_mut(h)) {
             damage_human(h, HEAD, damage * share / 100);
         }
+
         let (update, round) = (p.make_update_player_event(self.tick), p.make_update_round_event(self.tick));
         self.events.push(update);
         self.events.push(round);

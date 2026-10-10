@@ -16,12 +16,15 @@ pub struct BlockMeshes {
 
 impl BlockMeshes {
     pub fn new(tables: &BlockTable, customs: &[&BlockFile]) -> Self {
-        let mut s = Self { meshes: Vec::new(), b: MeshBuilder::default() };
+        let mut new_mesh = Self { meshes: Vec::new(), b: MeshBuilder::default() };
+
         for (k, f) in customs.iter().enumerate() {
-            s.custom_block(BlockTable::custom(k), f);
+            new_mesh.custom_block(BlockTable::custom(k), f);
         }
-        s.builtin(tables);
-        s
+
+        new_mesh.builtin(tables);
+
+        new_mesh
     }
 
     pub fn get(&self, id: u32) -> Option<&BlockMesh> {
@@ -30,10 +33,13 @@ impl BlockMeshes {
 
     fn store(&mut self, id: u32, dims: IVec3) {
         let m = self.b.finalize(dims);
+
         let id = id as usize;
+
         if self.meshes.len() <= id {
             self.meshes.resize(id + 1, BlockMesh::default());
         }
+
         self.meshes[id] = m;
     }
 
@@ -372,7 +378,7 @@ impl MeshBuilder {
                     (0.007_812_5, 0.015_625)
                 }
             };
-            
+
             self.box_geometry(turns, 63, &c, Vec3::new(bx, by, z), Vec3::new(bw, bh, d));
         }
     }

@@ -47,6 +47,10 @@ pub struct Client {
     /// client gets the initial sync each tick instead of game packets, and what it sends is ignored.
     round_number: u32,
     last_sdl_tick: u32,
+    /// Ticks since the client's last packet (the connection's timeoutTime): dropped at 1800, a kick sets 1200.
+    timeout: i32,
+    /// Whether the connection gets admin chat and the admin list (an admin's).
+    admin_visible: bool,
     earshots: [Option<sim::Earshot>; 8],
     /// The client's object slot ring (2048 entries): what was queued, how far, and how far the client has
     /// acknowledged (the 11 bits after the spectated human in its game packet).

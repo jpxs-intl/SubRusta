@@ -33,7 +33,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let out_tx = out_tx.clone();
         let map_name = config.map_name.clone();
 
-        std::thread::Builder::new().name("sim".into()).spawn(move || Sim::new(in_rx, out_tx, map_name, config.gamemode, config.max_players).run()).unwrap();
+        std::thread::Builder::new().name("sim".into()).spawn(move || {
+            let mut sim = Sim::new(in_rx, out_tx, map_name, config.gamemode, config.max_players);
+            sim.set_admin_password(config.admin_password.clone());
+            sim.run()
+        }).unwrap();
     }
 
     let server_listing = ServerListing {

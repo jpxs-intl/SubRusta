@@ -295,19 +295,7 @@ impl Ground {
         self.blocks.push(Block { nx0: x0 + 4096, nz0: z0 + 4096, w, d, h });
     }
 
-    pub fn block_rects(&self) -> Vec<(i32, i32, i32, i32)> {
-        self.blocks.iter().map(|b| (b.nx0 - 4096, b.nz0 - 4096, b.nx0 - 4096 + b.w, b.nz0 - 4096 + b.d)).collect()
-    }
-
-    pub fn roadmap_height(&self, x: i32, z: i32) -> f32 { self.roadmap_at(x, z) }
-
-    pub fn mask_present(&self, mx: i32, mz: i32) -> bool {
-        (0..MASK as i32).contains(&mx) && (0..MASK as i32).contains(&mz) && self.covered(mx, mz)
-    }
-
-    pub fn collision_vertex(&self, nx: i32, nz: i32) -> f32 { self.vertex(nx, nz) }
-
-    fn vertex(&self, nx: i32, nz: i32) -> f32 {
+    pub fn vertex(&self, nx: i32, nz: i32) -> f32 {
         for b in self.blocks.iter().rev() {
             let (lx, lz) = (nx - b.nx0, nz - b.nz0);
             if lx >= 0 && lz >= 0 && lx <= b.w && lz <= b.d {

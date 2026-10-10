@@ -153,7 +153,7 @@ impl TerrainMesh {
                 if !ground.cell_ok(ix, iz) {
                     continue;
                 }
-                let p = |dx: i32, dz: i32| Vec3::new((ix + dx) as f32 + ORIGIN, ground.collision_vertex(ix + dx, iz + dz), (iz + dz) as f32 + ORIGIN);
+                let p = |dx: i32, dz: i32| Vec3::new((ix + dx) as f32 + ORIGIN, ground.vertex(ix + dx, iz + dz), (iz + dz) as f32 + ORIGIN);
                 let (a, b, c, d) = (p(0, 0), p(1, 0), p(1, 1), p(0, 1));
                 if mesh.faces.len() > MAX_MESH_FACES - 2 {
                     continue;
@@ -212,7 +212,7 @@ fn cube_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) 
         let c = CUBE_CORNERS[i];
         Vec3::new(c.x * s + base.x, c.y * s + base.y, s * c.z + base.z)
     };
-    
+
     let mut best = Best::new();
     for (r, item) in CUBE_FACES.iter().enumerate() {
         if v & (1 << r) == 0 || v & (64 << r) == 0 {

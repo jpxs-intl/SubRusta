@@ -310,8 +310,10 @@ impl Sim {
     fn open_mission(&mut self, k: usize) -> Option<usize> {
         let slot = self.corp_state[k].missions.iter().position(|m| !m.active)?;
         let m = &mut self.corp_state[k].missions[slot];
+
         m.id = self.missions.counter;
         m.active = true;
+
         Some(slot)
     }
 
@@ -334,13 +336,16 @@ impl Sim {
                 if i == 0 {
                     return SELLER_VALUE;
                 }
+
                 let mut v = rand() % 5 * VALUE_STEP + BASE_VALUE;
                 if funded < i {
                     v += rand() % 5 * VALUE_STEP;
                 }
+
                 if colour == GOLD { v << 2 } else { v }
             })
             .collect();
+
         for (i, &c) in list.iter().enumerate() {
             let k = c as usize;
             let (rot, p) = self.table_start(k);
@@ -370,23 +375,28 @@ impl Sim {
         }
         let item = self.missions.last_disks[0];
         let disk_type = self.item_kind(item);
+
         for (i, &c) in list.iter().enumerate() {
             let k = c as usize;
             let Some(slot) = self.open_mission(k) else { continue };
             let spent = self.corp_state[k].spent;
             let m = &mut self.corp_state[k].missions[slot];
+            
             m.item = item;
             m.disk_type = disk_type;
             m.value = values[i];
             m.deadline = deadline;
             m.team1 = list[0];
+
             (m.kind, m.location, m.provided_cash) = match i {
                 0 => (2, location, 0),
                 _ if i <= funded => (3, NO_LOCATION, -spent),
                 _ => (4, NO_LOCATION, 0),
             };
+
             self.push_mission_event(k, slot);
         }
+
         self.missions.counter += 1;
     }
 

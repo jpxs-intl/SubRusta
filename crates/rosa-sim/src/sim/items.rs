@@ -16,7 +16,7 @@ use super::{
     item_grid::ItemGrid,
     item_types::ItemType,
 };
-use crate::{PlayerId, rng::random_unit, world::trace::line_intersect_level};
+use crate::{PlayerId, world::trace::line_intersect_level};
 
 pub const MAX_ITEMS: usize = 1024;
 
@@ -36,19 +36,7 @@ const KICK_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
 const KICK_DEPTH_SCALE: f32 = 1.0 / 32.0;
 const KICK_SOFTNESS: f32 = 1.0 / 16.0;
 const BALL_SPIN_DAMPING: f32 = 0.9375;
-const SPAWN_IMPULSE: f32 = 0.05;
-const SPAWN_SPIN_OFFSET: f32 = 0.1;
 const SPAWN_DISTANCE: f32 = 1.5;
-
-fn random_direction() -> Vec3 {
-    loop {
-        let v = Vec3::new(random_unit(), random_unit(), random_unit()) * 2.0 - 1.0;
-        let len = v.length();
-        if len > 0.001 && len <= 1.0 {
-            return v / len;
-        }
-    }
-}
 
 pub struct Item {
     pub item_type: ItemKind,

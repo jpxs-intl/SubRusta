@@ -359,28 +359,33 @@ fn wheel_collision(map: &Map, bodies: &mut RigidBodies, v: &Vehicle, k: usize) {
 fn step_wheels(map: &Map, bodies: &mut RigidBodies, v: &mut Vehicle) {
     let Some(c) = bodies.get(v.body) else { return };
     let ([r0, r1, r2], pos) = (c.rot, c.pos);
+
     for k in 0..v.wheels.len() {
         let w = &v.wheels[k];
         let (l, h) = (w.local_pos, w.vertical_offset);
+
         let anchor = Vec3::new(
             (((l.x * r0.x + pos.x) + l.y * r1.x) + l.z * r2.x) + h * r1.x,
             (((r0.y * l.x + pos.y) + l.y * r1.y) + r2.y * l.z) + h * r1.y,
             (((r0.z * l.x + pos.z) + l.y * r1.z) + r2.z * l.z) + h * r1.z,
         );
+
         let Some(wb) = bodies.get(w.body) else { continue };
         let d = sub(wb.pos, anchor);
         let proj = (d.y * r1.y + d.x * r1.x) + r1.z * d.z;
-        let slide = wb.slide;
         let w = &mut v.wheels[k];
+
         w.visual_height = proj.clamp(-1.0, 1.0);
-        w.skid = slide.clamp(0.0, 1.0);
+        w.skid = wb.slide.clamp(0.0, 1.0);
         w.angle += w.spin;
+
         wheel_collision(map, bodies, v, k);
+
         if let Some(wb) = bodies.get(v.wheels[k].body) {
-            let (p, vel) = (wb.pos, wb.vel);
             let w = &mut v.wheels[k];
-            w.world_pos = p;
-            w.vel = vel;
+
+            w.world_pos = wb.pos;
+            w.vel = wb.vel;
         }
     }
 }

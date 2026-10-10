@@ -26,6 +26,7 @@ use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, pla
 
 pub mod bullets;
 pub mod corporations;
+pub mod admin;
 pub mod bots;
 pub mod eliminator;
 pub mod missions;
@@ -147,6 +148,7 @@ pub struct Sim {
     round_max_time: i32,
     round_cfg: round::RoundConfig,
     versus_cfg: round::VersusConfig,
+    admin: admin::AdminState,
     /// The round mode weekday (rounds since the weekly reset).
     weekday: i32,
     missions: missions::MissionGlobals,
@@ -213,6 +215,7 @@ impl Sim {
             round_max_time: round::ROUND_MAX_TIME,
             round_cfg: round::RoundConfig::load(Path::new("config_round.txt")),
             versus_cfg: round::VersusConfig::load(Path::new("config_versus.txt")),
+            admin: admin::AdminState::load(Path::new("serveradmin.txt")),
             weekday: 0,
             missions: Default::default(),
             team_damage: 0,
@@ -225,10 +228,14 @@ impl Sim {
     }
 
     fn apply(&mut self, input: Inbound) {
+        if self.is_kicked(input.src.ip()) {
+            return;
+        }
         match input.msg {
             SimMsg::Join(msg) => self.on_join(input.conn, input.src, msg),
             SimMsg::Game(g) => {
-                let client = self.clients.get_mut(&input.conn).unwrap();
+                let Some(client) = self.clients.get_mut(&input.conn) else { return };
+                client.timeout = 0;
                 client.round_number = g.round_num;
                 if g.round_num != self.round_number {
                     return;
@@ -241,7 +248,8 @@ impl Sim {
 
                 player.process_game_packet(g);
             }
-            SimMsg::Leave => self.on_leave(input.conn),
+            SimMsg::Leave if self.clients.contains_key(&input.conn) => self.on_leave(input.conn),
+            SimMsg::Leave => {}
         }
     }
 
@@ -329,6 +337,7 @@ impl Sim {
 
     /// One server tick: the inbound packets, the players' actions, the game mode, the world and the broadcast.
     pub fn server_tick(&mut self) {
+        self.connection_timeouts();
         while let Ok(inp) = self.in_rx.try_recv() {
             self.apply(inp);
         }
@@ -338,6 +347,7 @@ impl Sim {
         }
 
         self.process_actions(pending);
+        self.admin_reset();
         if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator) {
             self.start_round_if_all_ready();
         }
@@ -361,6 +371,7 @@ impl Sim {
         }
         self.physics_tick();
         self.broadcast_tick();
+        self.send_admin_lists();
 
         for player in self.saved_accounts.players.iter_mut() {
             if player.ban_time > 0 {
@@ -391,7 +402,7 @@ impl Sim {
                             crate::human::inventory::queue_inventory_action(h, inventory_action.a as i32, inventory_action.b as i32);
                         }
                     }
-                    GameAction::Admin(admin_action) => println!("Admin {:?}", admin_action),
+                    GameAction::Admin(a) => self.admin_action(player, a.kind, a.a, a.b),
                     GameAction::Unknown => {},
                 }
             }
@@ -641,6 +652,7 @@ impl Sim {
             let foreign = match &ev.kind {
                 ServerEvent::UpdateCorporation(e) => e.corporation() != team,
                 ServerEvent::Mission(e) => e.player != player_id,
+                ServerEvent::Chat(c) => c.chat_type == ChatType::AdminChat && !client.admin_visible,
                 _ => false,
             };
             let kind = if (expired && ephemeral) || foreign {

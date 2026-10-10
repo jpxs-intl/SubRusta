@@ -45,6 +45,8 @@ pub struct InventoryAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminAction {
+    /// 4 sets account `a`'s ban time to `b`, 5 its criminal rating.
+    pub kind: u8,
     pub a: u32,
     pub b: u32,
 }
@@ -89,6 +91,7 @@ pub fn read_actions(r: &mut Reader, num_actions: u32) -> Result<Vec<GameAction>,
                 c: r.bits(16)? as u16
             }),
             4 | 5 => GameAction::Admin(AdminAction {
+                kind: action_type,
                 a: r.u32()?,
                 b: r.u32()?
             }),

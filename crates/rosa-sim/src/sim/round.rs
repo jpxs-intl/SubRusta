@@ -44,7 +44,7 @@ const TOWN_CAR: i32 = 0;
 const MINIVAN: i32 = 9;
 const MINIVAN_PLAYERS: i32 = 4;
 /// With weekly play on, the sixth round starts a new week.
-const WEEK_DAYS: i32 = 5;
+pub(crate) const WEEK_DAYS: i32 = 5;
 /// A new week's share market: the round corporations back to 100 shares at 100.
 const WEEK_SHARES: i32 = 100;
 const WEEK_PRICE: f32 = 100.0;
@@ -101,10 +101,13 @@ pub struct VersusConfig {
 impl VersusConfig {
     pub fn load(path: &std::path::Path) -> Self {
         let mut c = VersusConfig::default();
+
         if let Ok(text) = std::fs::read_to_string(path) {
             let num = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).and_then(|v| v.trim().parse::<i32>().ok());
+            
             c.movedelay = num("movedelay=").unwrap_or(c.movedelay);
         }
+
         c
     }
 }

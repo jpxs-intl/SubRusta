@@ -261,9 +261,11 @@ impl<'a> Buildings<'a> {
         }
 
         self.instantiate(area, ground, tables, dims, o, w, l, h, off_y, rot, corp, base);
+
         if let Some(kind) = record_kind(ty) {
             self.records.push(building_record(kind, &raw, o, rot));
         }
+
         if let Some(k) = base {
             self.place_base(k, &raw, o, rot, roundcity);
         }

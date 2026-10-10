@@ -49,6 +49,7 @@ impl Sim {
             Some((tps, mean, max)) => format!("TPS {tps:.1} / {:.1}, tick {mean:.2} ms avg, {max:.2} ms max", 1000.0 / super::TICK_MS as f64),
             None => "TPS: not enough ticks yet".to_string(),
         };
+        
         self.send_chat(&msg, ChatType::Announce, -1, 0);
     }
 }

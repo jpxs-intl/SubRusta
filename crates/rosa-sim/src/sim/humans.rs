@@ -2,7 +2,7 @@ use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_physics::{
     RigidBodies, RotMatrix,
-    rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
+    rotation::{IDENTITY, rot_matrix_to_quaternion},
 };
 use rosa_protocol::{GameMode, clientbound::game::{ItemKind, OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hit::EventBulletHit, sound::EventSound, bullet_hole::EventBulletHole}}};
 
@@ -18,7 +18,6 @@ use crate::{
     },
 };
 
-const SPAWN_DISTANCE: f32 = 2.0;
 /// The versus start delay is configured in seconds.
 const TICKS_PER_SECOND: i32 = 60;
 pub const HUMAN_SLOTS: usize = crate::human::MAX_HUMANS;

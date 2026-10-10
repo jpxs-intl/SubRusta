@@ -273,9 +273,11 @@ impl Sim {
 pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleType]) {
     for b in buildings.iter_mut().filter(|b| b.kind == CAR_DEALER) {
         let mut j = 0;
+
         while j < b.shop.len() {
             if crate::rng::rand() & 7 == 0 {
                 let last = b.shop.pop().unwrap();
+
                 if j < b.shop.len() {
                     b.shop[j] = last;
                 }
@@ -283,6 +285,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
                 j += 1;
             }
         }
+
         while b.shop.len() < DEALERSHIP_SLOTS {
             let kind = match crate::rng::rand() & 15 {
                 0..=1 => 7,
@@ -292,8 +295,10 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
                 13..=14 => 6,
                 _ => ((crate::rng::rand() & 15) == 0) as i32 + 4,
             };
+
             let price = types.get(kind as usize).map_or(0, |t| t.price);
             let extra = (crate::rng::rand() as i32) % VEHICLE_COLORS;
+
             b.shop.push(ShopEntry { kind, price, extra });
         }
     }
@@ -302,6 +307,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
 /// The gun stores' fixed stock.
 pub fn stock_gun_stores(buildings: &mut [BuildingRecord], item_types: &[ItemType]) {
     let stock: Vec<ShopEntry> = GUN_STORE_STOCK.iter().map(|&k| ShopEntry { kind: k as i32, price: item_types[k as usize].price, extra: 0 }).collect();
+    
     for b in buildings.iter_mut().filter(|b| b.kind == GUN_STORE) {
         b.shop = stock.clone();
     }

@@ -266,19 +266,23 @@ impl MeshBuilder {
 
     pub fn finalize(&mut self, dims: IVec3) -> BlockMesh {
         let mut k = 0usize;
+
         for i in 0..self.quads.len() {
-            let q = self.quads[i];
             let on_face = (0..6).any(|r| {
                 let axis = [0, 1, 2, 2, 1, 0][r];
                 let val = if r <= 2 { 0.0 } else { 1.0 };
-                q.iter().all(|&vi| self.pos[vi as usize][axis] == val)
+
+                self.quads[i].iter().all(|&vi| self.pos[vi as usize][axis] == val)
             });
+
             if on_face {
                 self.quads.swap(k, i);
                 self.flags.swap(k, i);
+
                 k += 1;
             }
         }
+
         BlockMesh {
             verts: self.pos.clone(),
             quads: self.quads.clone(),

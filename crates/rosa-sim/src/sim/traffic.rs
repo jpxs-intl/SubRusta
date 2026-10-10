@@ -54,6 +54,7 @@ impl Sim {
         let map = &self.world.map;
         self.traffic = Traffic::new(&map.streets, map.map_name == "round");
         self.missions.counter = 0;
+        self.admin.pending_ban = None;
         // TODO: versus reads its share from config_versus.txt (0x4538562c)
         self.team_damage = match self.gamemode {
             GameMode::Round => self.round_cfg.teamdamage,
@@ -100,8 +101,11 @@ impl Sim {
     fn announce_players(&mut self) {
         let e = crate::sim::economy::stock_event(&self.corporations, self.tick);
         self.events.push(e);
+
         let tick = self.tick;
+
         let es: Vec<_> = self.players.iter().flat_map(|(_, p)| [p.make_update_player_event(tick), p.make_update_round_event(tick)]).collect();
+
         for e in es {
             self.events.push(e);
         }
