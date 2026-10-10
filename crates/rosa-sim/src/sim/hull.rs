@@ -139,11 +139,7 @@ impl ConvexHull {
         self.verts
             .iter()
             .map(|v| {
-                Vec3::new(
-                    ((v.x * r0.x + v.y * r1.x) + v.z * r2.x) + pos.x,
-                    ((r0.y * v.x + r1.y * v.y) + r2.y * v.z) + pos.y,
-                    pos.z + ((r0.z * v.x + r1.z * v.y) + r2.z * v.z),
-                )
+                v.x * r0 + v.y * r1 + v.z * r2 + pos
             })
             .collect()
     }
@@ -172,13 +168,13 @@ fn segment_intersect_plane_two_sided(n: Vec3, p: Vec3, start: Vec3, end: Vec3) -
     if (d_start > 0.0 && d_end > 0.0) || (0.0 > d_start && 0.0 > d_end) {
         return None;
     }
-    let e = Vec3::new(end.x - start.x, end.y - start.y, end.z - start.z);
-    let denom = (n.x * e.x + n.y * e.y) + n.z * e.z;
+    let e = end - start;
+    let denom = n.dot(e);
     if denom == 0.0 {
         return None;
     }
     let t = d_start / denom;
-    Some(Vec3::new(e.x * t + start.x, e.y * t + start.y, t * e.z + start.z))
+    Some(e * t + start)
 }
 
 /// segment_intersects_triangle_two_sided: whether the segment passes through the triangle `a`, `b`, `c` from either side.
@@ -186,8 +182,8 @@ fn segment_intersects_triangle_two_sided(start: Vec3, end: Vec3, a: Vec3, b: Vec
     let n = calculate_face_normal(a, b, c);
     let Some(p) = segment_intersect_plane_two_sided(n, a, start, end) else { return false };
     let side = |v: Vec3, w: Vec3| {
-        let (pv, wv) = (Vec3::new(p.x - v.x, p.y - v.y, p.z - v.z), Vec3::new(w.x - v.x, w.y - v.y, w.z - v.z));
-        Vec3::new(pv.y * wv.z - pv.z * wv.y, pv.z * wv.x - wv.z * pv.x, pv.x * wv.y - pv.y * wv.x)
+        let (pv, wv) = (p - v, w - v);
+        pv.cross(wv)
     };
     let ab = side(a, b);
     if 0.0 > ((ab.x * n.x) + ab.y * n.y) + ab.z * n.z {
@@ -203,18 +199,18 @@ fn segment_intersects_triangle_two_sided(start: Vec3, end: Vec3, a: Vec3, b: Vec
 
 /// segment_closest_points_interior: the closest points of two segments' lines, when both lie within their segments.
 fn segment_closest_points_interior(a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3) -> Option<(Vec3, Vec3, f32)> {
-    let db = Vec3::new(b1.x - b0.x, b1.y - b0.y, b1.z - b0.z);
-    let da = Vec3::new(a1.x - a0.x, a1.y - a0.y, a1.z - a0.z);
-    let bb = (db.x * db.x + db.y * db.y) + db.z * db.z;
-    let ab = (db.x * da.x + db.y * da.y) + db.z * da.z;
-    let aa = (da.x * da.x + da.y * da.y) + da.z * da.z;
+    let db = b1 - b0;
+    let da = a1 - a0;
+    let bb = db.length_squared();
+    let ab = db.dot(da);
+    let aa = da.length_squared();
     let det = aa * bb - ab * ab;
     if det == 0.0 {
         return None;
     }
-    let w = Vec3::new(a0.x - b0.x, a0.y - b0.y, a0.z - b0.z);
-    let wb = (w.x * db.x + w.y * db.y) + w.z * db.z;
-    let wa = (w.x * da.x + w.y * da.y) + w.z * da.z;
+    let w = a0 - b0;
+    let wb = w.dot(db);
+    let wa = w.dot(da);
     let s = (ab * wb - wa * bb) / det;
     if 0.0 > s || s > 1.0 {
         return None;
@@ -223,10 +219,10 @@ fn segment_closest_points_interior(a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3) -> Op
     if 0.0 > t || t > 1.0 {
         return None;
     }
-    let ca = Vec3::new(a0.x + da.x * s, da.y * s + a0.y, s * da.z + a0.z);
-    let cb = Vec3::new(db.x * t + b0.x, db.y * t + b0.y, b0.z + t * db.z);
-    let d = Vec3::new(cb.x - ca.x, cb.y - ca.y, cb.z - ca.z);
-    Some((ca, cb, ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()))
+    let ca = a0 + da * s;
+    let cb = db * t + b0;
+    let d = cb - ca;
+    Some((ca, cb, d.length()))
 }
 
 /// A contact between two hulls: offsets from each body's position, the normal and the depth. `swapped` contacts come
@@ -243,7 +239,7 @@ impl ConvexHull {
     /// The centre `c` of a face group placed at `pos` with orientation `rot`.
     fn world_center(c: Vec3, pos: Vec3, rot: &RotMatrix) -> Vec3 {
         let [r0, r1, r2] = *rot;
-        Vec3::new(((r0.x * c.x + r1.x * c.y) + r2.x * c.z) + pos.x, ((r0.y * c.x + r1.y * c.y) + r2.y * c.z) + pos.y, ((c.x * r0.z + c.y * r1.z) + c.z * r2.z) + pos.z)
+        r0 * c.x + r1 * c.y + r2 * c.z + pos
     }
 
     /// trace_segment_item_mesh: the segment against each face of the hull placed as `world`, both triangles of a face
@@ -270,7 +266,7 @@ impl ConvexHull {
         let mut best = (1.0f32, Vec3::ZERO, Vec3::ZERO);
         for f in self.faces() {
             let m = f.normal;
-            let n = Vec3::new((r1.x * m.y + r0.x * m.x) + r2.x * m.z, (r1.y * m.y + r0.y * m.x) + r2.y * m.z, (m.x * r0.z + m.y * r1.z) + m.z * r2.z);
+            let n = r1 * m.y + r0 * m.x + r2 * m.z;
             let [a, b, c, d] = f.verts.map(|i| world[i]);
             for (p, q) in [(b, c), (c, d)] {
                 if let Some((t, hit)) = segment_intersect_face(n, start, end, a, p, q)
@@ -290,7 +286,6 @@ impl ConvexHull {
 pub fn collide_convex_hulls(a: &ConvexHull, pos_a: Vec3, rot_a: &RotMatrix, b: &ConvexHull, pos_b: Vec3, rot_b: &RotMatrix) -> Vec<HullContact> {
     let (wa, wb) = (a.world_verts(pos_a, rot_a), b.world_verts(pos_b, rot_b));
     let mut out = Vec::new();
-    let sub = |p: Vec3, q: Vec3| Vec3::new(p.x - q.x, p.y - q.y, p.z - q.z);
     let passes = [(false, a, &wa, rot_a, b, &wb, rot_b, pos_a, pos_b), (true, b, &wb, rot_b, a, &wa, rot_a, pos_b, pos_a)];
     for (swapped, from, from_w, from_rot, into, into_w, into_rot, from_pos, into_pos) in passes {
         for g in &from.groups {
@@ -298,9 +293,9 @@ pub fn collide_convex_hulls(a: &ConvexHull, pos_a: Vec3, rot_a: &RotMatrix, b: &
             for &i in &g.verts {
                 let v = from_w[i];
                 let Some((hp, n)) = into.segment_cast(into_w, into_rot, from_c, v) else { continue };
-                let d = sub(hp, v);
-                let depth = (d.z * n.z) + (n.x * d.x + d.y * n.y);
-                out.push(HullContact { swapped, offset_a: sub(hp, from_pos), offset_b: sub(hp, into_pos), normal: n, depth });
+                let d = hp - v;
+                let depth = n.dot(d);
+                out.push(HullContact { swapped, offset_a: (hp - from_pos), offset_b: (hp - into_pos), normal: n, depth });
             }
         }
     }
@@ -318,14 +313,13 @@ pub fn collide_convex_hulls(a: &ConvexHull, pos_a: Vec3, rot_a: &RotMatrix, b: &
 /// both sides are skipped; crossing edges whose closest points face the right way add a contact at their midpoint.
 #[allow(clippy::too_many_arguments)]
 fn collide_group_edges(ga: &HullGroup, wa: &[Vec3], ca: Vec3, gb: &HullGroup, wb: &[Vec3], cb: Vec3, pos_a: Vec3, pos_b: Vec3, out: &mut Vec<HullContact>) {
-    let sub = |p: Vec3, q: Vec3| Vec3::new(p.x - q.x, p.y - q.y, p.z - q.z);
-    let axis = sub(cb, ca);
+    let axis = cb - ca;
     let cull_a: Vec<bool> = ga
         .edges
         .iter()
         .map(|e| {
             e.iter().all(|&i| {
-                let d = sub(wa[i], ca);
+                let d = wa[i] - ca;
                 0.0 > (axis.y * d.y + axis.x * d.x) + axis.z * d.z
             })
         })
@@ -335,8 +329,8 @@ fn collide_group_edges(ga: &HullGroup, wa: &[Vec3], ca: Vec3, gb: &HullGroup, wb
         .iter()
         .map(|e| {
             e.iter().all(|&i| {
-                let d = sub(wb[i], cb);
-                ((axis.x * d.x + axis.y * d.y) + axis.z * d.z) > 0.0
+                let d = wb[i] - cb;
+                (axis.dot(d)) > 0.0
             })
         })
         .collect();
@@ -348,22 +342,16 @@ fn collide_group_edges(ga: &HullGroup, wa: &[Vec3], ca: Vec3, gb: &HullGroup, wb
             }
             let (b0, b1) = (wb[eb[0]], wb[eb[1]]);
             let Some((pa, pb, dist)) = segment_closest_points_interior(a0, a1, b0, b1) else { continue };
-            let d = sub(pb, pa);
+            let d = pb - pa;
             if (d.z * axis.z) + (d.y * axis.y + d.x * axis.x) > 0.0 {
                 continue;
             }
             if !segment_intersects_triangle_two_sided(b0, b1, ca, a0, a1) || !segment_intersects_triangle_two_sided(a0, a1, cb, b0, b1) {
                 continue;
             }
-            let len = (d.z * d.z + (d.y * d.y + d.x * d.x)).sqrt();
-            let n = if len == 0.0 {
-                Vec3::ZERO
-            } else {
-                let inv = 1.0 / len;
-                Vec3::new(d.x * inv, d.y * inv, inv * d.z)
-            };
-            let mid = Vec3::new(0.5 * (pb.x + pa.x), 0.5 * (pb.y + pa.y), 0.5 * (pb.z + pa.z));
-            out.push(HullContact { swapped: false, offset_a: sub(mid, pos_a), offset_b: sub(mid, pos_b), normal: n, depth: dist });
+            let n = d.normalize_or_zero();
+            let mid = 0.5 * (pb + pa);
+            out.push(HullContact { swapped: false, offset_a: (mid - pos_a), offset_b: (mid - pos_b), normal: n, depth: dist });
         }
     }
 }

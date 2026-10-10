@@ -44,10 +44,10 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         }
     }
     let v = h.unk_6adc;
-    let len = (v.z * v.z + (v.y * v.y + v.x * v.x)).sqrt();
+    let len = v.length();
     h.unk_6adc = if len > (1.0 / 1024.0) {
         let k = 63.0 / 64.0;
-        Vec3::new(v.x * k, v.y * k, k * v.z)
+        v * k
     } else {
         Vec3::ZERO
     };
@@ -203,7 +203,7 @@ fn drop_everything(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchabl
         let vel = h.bones[0].vel;
         let s = calculate_spread_vector(noise_seed, 1.0 / 60.0, 0.0);
         if let Some(b) = bodies.get_mut(body) {
-            b.vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
+            b.vel = vel + s;
         }
         if let Some(item) = touch.items.get_mut(item_id) {
             item.physics_settled = false;

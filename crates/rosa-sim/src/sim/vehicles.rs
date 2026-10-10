@@ -24,7 +24,7 @@ const WRECKED: i32 = 2;
 const DELETED: i32 = 3;
 /// A despawn time above this never runs out.
 const NEVER_DESPAWNS: i32 = 0xfffe;
-const ITEM_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const ITEM_FRICTION: f32 = 0.4;
 const ITEM_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const ITEM_SOFTNESS: f32 = 1.0 / 32.0;
 const NETWORKED_WHEELS: usize = 4;
@@ -37,7 +37,7 @@ const PRIORITY_SCALE: f32 = 256.0;
 const PRIORITY_FALLOFF: f32 = 1.0 / 256.0;
 const PRIORITY_MIN: i32 = 32;
 const STEER_WEIGHT: f64 = 4.0;
-const MOVING: f32 = f32::from_bits(0x3c88_8889);
+const MOVING: f32 = 1.0 / 60.0;
 const MOVING_WEIGHT: f32 = 5.0;
 const CLOSE: f32 = 4.0;
 const TRAIN_CLOSE: f32 = 12.0;
@@ -62,10 +62,10 @@ pub(crate) struct VehicleSight {
 pub(crate) fn vehicle_section(priority: &mut Vec<i32>, vehicles: &[(ServerVehicleObject, VehicleSight)], camera: Vec3, backlog: u16) -> Vec<ServerVehicleObject> {
     priority.resize(NETWORKED_VEHICLES, 0);
     for (o, s) in vehicles {
-        let d = Vec3::new(camera.x - s.pos.x, camera.y - s.pos.y, camera.z - s.pos.z);
-        let dist = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let d = camera - s.pos;
+        let dist = d.length();
         let near = (dist as f64 / ((s.steer_control.abs() as f64) * STEER_WEIGHT + 1.0)) as f32;
-        let speed = ((s.vel.x * s.vel.x + s.vel.y * s.vel.y) + s.vel.z * s.vel.z).sqrt();
+        let speed = s.vel.length();
         let k = if MOVING <= speed { MOVING_WEIGHT } else { speed * 60.0 * 4.0 + 1.0 };
         let mut p = (((1.0 - (near / k) * PRIORITY_FALLOFF) * PRIORITY_SCALE) as i32).max(PRIORITY_MIN);
         if dist < CLOSE || (s.train && dist < TRAIN_CLOSE) {

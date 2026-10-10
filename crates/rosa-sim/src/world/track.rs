@@ -12,14 +12,14 @@ const BOX_INIT: f32 = 16777216.0;
 const AXIS: Vec3 = Vec3::Y;
 const TUBE: i32 = 0;
 const QUAD: i32 = 1;
-const TUBE_RADIUS: f32 = f32::from_bits(0x3fb7_ae14);
+const TUBE_RADIUS: f32 = 1.435;
 const TUBE_RINGS: i32 = 16;
-const RING_STEP: f32 = f32::from_bits(0x3d88_8889);
+const RING_STEP: f32 = 1.0 / 15.0;
 const RAIL_LIFT: f32 = 0.5;
 const BED_DROP: f32 = 2.0;
 const BED_OUTER: f32 = -6.0;
 const BED_INNER: f32 = -5.0;
-const THIRD: f32 = f32::from_bits(0x3eaa_aaab);
+const THIRD: f32 = 1.0 / 3.0;
 const PATCH_STEPS: usize = 17;
 const PATCH_STEP: f32 = 0.0625;
 const PATCH_EDGE_HEIGHT: f32 = 23.0;
@@ -29,14 +29,14 @@ const TRACK_START: Vec3 = Vec3::new(2480.0, 36.0625, 1021.25);
 const TRACK_PIECES: i32 = 103;
 const FIRST_PIECE_HALF: f32 = 28.0;
 const STRAIGHT: f32 = 56.0;
-const LONG: f32 = f32::from_bits(0x4264_9249);
+const LONG: f32 = 400.0 / 7.0;
 const TURN: f32 = -22.5_f32.to_radians();
 const SLOPE: f32 = 7.0 / 128.0;
 const ARC: f32 = 114.75;
 const SPAWN_SOUTH: f32 = 270.0_f32.to_radians();
 const SPAWN_EAST: f32 = 90.0_f32.to_radians();
 /// The curved ramps: a 32 by 64 slab, then 21 pieces bending a quarter turn a piece around 64 radius.
-const RAMP_CORNERS: [[u32; 3]; 4] = [[0x453f_0000, 0x41c0_8000, 0x4494_0000], [0x4541_0000, 0x41c0_8000, 0x4494_0000], [0x4541_0000, 0x41c0_8000, 0x449c_0000], [0x453f_0000, 0x41c0_8000, 0x449c_0000]];
+const RAMP_CORNERS: [Vec3; 4] = [Vec3::new(3056.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1248.0), Vec3::new(3056.0, 24.0625, 1248.0)];
 const RAMP_PIECES: i32 = 21;
 const RAMP_TURN: f64 = 45.0_f64.to_radians();
 const RAMP_RADIUS: f32 = 64.0;
@@ -88,21 +88,15 @@ fn bern3(a: Vec3, b: Vec3, c: Vec3, d: Vec3, w: f32, v: f32) -> Vec3 {
 
 /// The unit side vector of a direction: direction × up, both normalised (zero when either is zero).
 fn side_of(d: Vec3) -> Option<Vec3> {
-    let l = ((d.y * d.y + d.x * d.x) + d.z * d.z).sqrt();
-    let n = if l == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / l;
-        Vec3::new(d.x * inv, d.y * inv, d.z * inv)
-    };
-    let (ax, ay, az) = (AXIS.x, AXIS.y, AXIS.z);
-    let s = Vec3::new(n.y * az - n.z * ay, n.z * ax - az * n.x, n.x * ay - n.y * ax);
-    let ls = ((s.y * s.y + s.x * s.x) + s.z * s.z).sqrt();
+    let n = d.normalize_or_zero();
+    let a = AXIS;
+    let s = n.cross(a);
+    let ls = s.length();
     if ls == 0.0 {
         return None;
     }
     let inv = 1.0 / ls;
-    Some(Vec3::new(s.x * inv, s.y * inv, inv * s.z))
+    Some(s * inv)
 }
 
 fn horizontal(dx: f32, dz: f32) -> f32 {
@@ -120,7 +114,7 @@ impl Track {
         let e = Vec3::new((s.x + a) + a, (s.y + b) + b, (s.z + c) + c);
         let (mut d0, mut d1) = (v, v);
         t.tube(TUBE, s, e, d0, d1, TUBE_RADIUS);
-        t.spawns.push((Vec3::new((s.x + e.x) * 0.5, (s.y + e.y) * 0.5, (s.z + e.z) * 0.5), SPAWN_SOUTH));
+        t.spawns.push(((s + e) * 0.5, SPAWN_SOUTH));
         let (mut angle, mut ydir) = (0.0f32, 0.0f32);
         let mut end = e;
         let mut prev = 0usize;
@@ -173,11 +167,11 @@ impl Track {
             let h = 0.5 * len;
             end = Vec3::new((h * d0.x + start.x) + h * d1.x, (h * d0.y + start.y) + ydir * h, h * d1.z + (h * d0.z + start.z));
             if angle != 0.0 {
-                let (ax, ay, az) = (AXIS.x, AXIS.y, AXIS.z);
-                let c0 = Vec3::new(d0.y * az - d0.z * ay, d0.z * ax - d0.x * az, d0.x * ay - d0.y * ax);
-                let c1 = Vec3::new(ydir * az - d1.z * ay, d1.z * ax - az * d1.x, d1.x * ay - ax * ydir);
+                let a = AXIS;
+                let c0 = d0.cross(a);
+                let c1 = Vec3::new(ydir * a.z - d1.z * a.y, d1.z * a.x - a.z * d1.x, d1.x * a.y - a.x * ydir);
                 let (k0, k1) = if angle > 0.0 { (ARC, -ARC) } else { (-ARC, ARC) };
-                end = Vec3::new(c1.x * k1 + (start.x + c0.x * k0), c1.y * k1 + (start.y + c0.y * k0), c1.z * k1 + (start.z + c0.z * k0));
+                end = c1 * k1 + (start + c0 * k0);
             }
             let id = t.tube(TUBE, start, end, d0, d1, TUBE_RADIUS);
             t.meshes[id].prev = prev as i32;
@@ -200,9 +194,9 @@ impl Track {
 
     /// build_roundcity_curved_meshes.
     fn ramps(&mut self) {
-        let mut c = RAMP_CORNERS.map(|p| Vec3::from_array(p.map(f32::from_bits)));
+        let mut c = RAMP_CORNERS;
         self.quad(QUAD, c, 0.0, 0.0);
-        let mut mid = Vec3::new((c[2].x + c[3].x) * 0.5, (c[2].y + c[3].y) * 0.5, (c[2].z + c[3].z) * 0.5);
+        let mut mid = (c[2] + c[3]) * 0.5;
         let mut a = 0.0f32;
         for k in 0..RAMP_PIECES {
             let old = a;
@@ -241,27 +235,27 @@ impl Track {
     /// along `d1`: two rails `radius` apart, then the bed below them, 16 rings each.
     fn tube(&mut self, kind: i32, s: Vec3, e: Vec3, d0: Vec3, d1: Vec3, radius: f32) -> usize {
         let mut m = TrackMesh { kind, ..Default::default() };
-        m.center = Vec3::new((e.x + s.x) * 0.5, (e.y + s.y) * 0.5, (e.z + s.z) * 0.5);
-        let dot = (d0.x * d1.x + d0.y * d1.y) + d0.z * d1.z;
+        m.center = (e + s) * 0.5;
+        let dot = d0.dot(d1);
         let sq = dot * dot;
         m.weight = sq * sq;
         let (dx, dy, dz) = (e.x - s.x, e.y - s.y, e.z - s.z);
         let l = ((dx * dx + dy * dy) + dz * dz).sqrt();
         let t3 = l / 3.0;
-        let p1 = Vec3::new(t3 * d0.x + s.x, t3 * d0.y + s.y, t3 * d0.z + s.z);
+        let p1 = t3 * d0 + s;
         let m3 = (-l) / 3.0;
-        let p2 = Vec3::new(m3 * d1.x + e.x, m3 * d1.y + e.y, m3 * d1.z + e.z);
+        let p2 = m3 * d1 + e;
         let dir = |t: f32| {
             let u = 1.0 - t;
-            Vec3::new(d0.x * u + d1.x * t, d1.y * t + d0.y * u, d1.z * t + u * d0.z)
+            d0 * u + d1 * t
         };
         let (mut t, mut p) = (0.0f32, s);
         for ring in 1..=TUBE_RINGS {
             let sd = side_of(dir(t)).unwrap_or(Vec3::ZERO);
             let a = (-radius) * 0.5;
-            let v0 = Vec3::new(a * sd.x + p.x, a * sd.y + p.y, a * sd.z + p.z);
+            let v0 = a * sd + p;
             let b = radius * 0.5;
-            let v2 = Vec3::new(sd.x * b + p.x, sd.y * b + p.y, sd.z * b + p.z);
+            let v2 = sd * b + p;
             m.verts.extend([Vec3::new(v0.x, v0.y + RAIL_LIFT, v0.z), v0, v2, Vec3::new(v2.x, v2.y + RAIL_LIFT, v2.z)]);
             t += RING_STEP;
             if ring == TUBE_RINGS {
@@ -272,13 +266,13 @@ impl Track {
         let (mut t, mut p) = (0.0f32, s);
         for ring in 1..=TUBE_RINGS {
             let d = dir(t);
-            let quad = match side_of(Vec3::new(d.x, d.y, d.z)) {
-                None => [p, Vec3::new(0.0 + p.x, 0.0 + p.y, 0.0 + p.z), Vec3::new(p.x + 0.0, 0.0 + p.y, 0.0 + p.z), p],
+            let quad = match side_of(d) {
+                None => [p, 0.0 + p, p + 0.0, p],
                 Some(sd) => [
-                    Vec3::new(BED_OUTER * sd.x + p.x, BED_OUTER * sd.y + p.y, BED_OUTER * sd.z + p.z),
-                    Vec3::new((sd.x + sd.x) + p.x, (sd.y + sd.y) + p.y, (sd.z + sd.z) + p.z),
-                    Vec3::new(p.x + sd.x, sd.y + p.y, sd.z + p.z),
-                    Vec3::new(BED_INNER * sd.x + p.x, BED_INNER * sd.y + p.y, BED_INNER * sd.z + p.z),
+                    BED_OUTER * sd + p,
+                    sd + sd + p,
+                    p + sd,
+                    BED_INNER * sd + p,
                 ],
             };
             m.verts.extend([quad[0], quad[1], Vec3::new(quad[2].x, quad[2].y - BED_DROP, quad[2].z), Vec3::new(quad[3].x, quad[3].y - BED_DROP, quad[3].z)]);
@@ -316,7 +310,7 @@ impl Track {
     /// side columns at height 23.
     fn quad(&mut self, kind: i32, c: [Vec3; 4], e0: f32, e1: f32) -> usize {
         let mut m = TrackMesh { kind, ..Default::default() };
-        m.center = Vec3::new((((c[0].x + c[1].x) + c[2].x) + c[3].x) * 0.25, (((c[0].y + c[1].y) + c[2].y) + c[3].y) * 0.25, (((c[0].z + c[1].z) + c[2].z) + c[3].z) * 0.25);
+        m.center = (c[0] + c[1] + c[2] + c[3]) * 0.25;
         let perp01 = {
             let (dx, dz) = (c[0].x - c[1].x, c[0].z - c[1].z);
             let l = ((dz * dz + 0.0) + dx * dx).sqrt();
@@ -351,8 +345,8 @@ impl Track {
         let g: Vec<[Vec3; 4]> = ends
             .iter()
             .map(|&(p0, p3)| {
-                let p1 = Vec3::new((p3.x - p0.x) * THIRD + p0.x, (p3.y - p0.y) * THIRD + p0.y, (p3.z - p0.z) * THIRD + p0.z);
-                let p2 = Vec3::new(p3.x + (p0.x - p3.x) * THIRD, p3.y + (p0.y - p3.y) * THIRD, p3.z + (p0.z - p3.z) * THIRD);
+                let p1 = (p3 - p0) * THIRD + p0;
+                let p2 = p3 + (p0 - p3) * THIRD;
                 [p0, p1, p2, p3]
             })
             .collect();

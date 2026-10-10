@@ -45,11 +45,6 @@ fn range(level: u8) -> f32 {
     }
 }
 
-fn distance(a: Vec3, b: Vec3) -> f32 {
-    let d = Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z);
-    ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()
-}
-
 /// calc_earshot: a new earshot in the first free slot, else in place of slot 0 when that one is worse heard
 /// (connection_find_earshot_slot only ever settles on slot 0).
 fn add_earshot(earshots: &mut [Option<Earshot>; 8], e: Earshot) {
@@ -116,7 +111,7 @@ impl Sim {
         let at = own.and_then(head).or_else(|| client.spectating.and_then(head)).or_else(|| head(0)).unwrap_or(Vec3::ZERO);
         let map = &ctx.world.map;
         let line_of_sight = |from: Vec3, to: Vec3| -> f32 {
-            if distance(to, from) <= SIGHT_RANGE && crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to).is_none() { 1.0 } else { BLOCKED_VOLUME }
+            if to.distance(from) <= SIGHT_RANGE && crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to).is_none() { 1.0 } else { BLOCKED_VOLUME }
         };
         let items = &ctx.voice_items;
         let silenced = |p: PlayerId| ctx.players.get(p.idx()).is_none_or(|p| p.voice.is_silenced);
@@ -143,7 +138,7 @@ impl Sim {
                     }
                     _ => {}
                 }
-                e.distance = distance(it.pos, at);
+                e.distance = it.pos.distance(at);
                 e.volume = (line_of_sight(it.pos, at) - e.volume) * SMOOTHING + e.volume;
                 if !keep || e.distance > e.volume {
                     *slot = None;
@@ -168,7 +163,7 @@ impl Sim {
                         *slot = None;
                         continue;
                     };
-                    e.distance = distance(pos, at);
+                    e.distance = pos.distance(at);
                     e.volume = (line_of_sight(pos, at) - e.volume) * SMOOTHING + e.volume;
                 }
             }
@@ -188,7 +183,7 @@ impl Sim {
                 if !alive {
                     continue;
                 }
-                (distance(pos, at), line_of_sight(pos, at))
+                (pos.distance(at), line_of_sight(pos, at))
             };
             if range(p.voice.volume_level) * volume > d {
                 add_earshot(&mut client.earshots, Earshot { player: id, human: p.human, item: None, source: None, distance: d, volume });
@@ -206,7 +201,7 @@ impl Sim {
                         continue;
                     }
                     let Some(other) = items.get(&b).filter(|o| o.connected == Some(a)) else { continue };
-                    let (d, volume) = (distance(other.pos, at), line_of_sight(other.pos, at));
+                    let (d, volume) = (other.pos.distance(at), line_of_sight(other.pos, at));
                     if volume > d {
                         add_earshot(&mut client.earshots, Earshot { player: speaker, human: None, item: Some(b), source: other.connected, distance: d, volume });
                     }
@@ -221,7 +216,7 @@ impl Sim {
                             continue;
                         }
                         let Some(other) = items.get(&r) else { continue };
-                        let (d, volume) = (distance(other.pos, at), line_of_sight(other.pos, at));
+                        let (d, volume) = (other.pos.distance(at), line_of_sight(other.pos, at));
                         if volume > d {
                             add_earshot(&mut client.earshots, Earshot { player: speaker, human: None, item: Some(r), source: Some(a), distance: d, volume });
                         }

@@ -1,4 +1,3 @@
-use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{Team, clientbound::game::ItemKind};
 
@@ -44,9 +43,9 @@ impl Sim {
     pub(crate) fn write_memo(&mut self, id: usize, text: &[u8]) {
         let Some(item) = self.items.get(id) else { return };
         let (mask, links) = (item.link_mask, item.links);
-        for k in 0..ITEM_SLOTS {
+        for (k, &link) in links.iter().enumerate() {
             if mask & (1 << k) != 0 {
-                self.links.free(links[k]);
+                self.links.free(link);
             }
         }
         let n = (text.iter().position(|&c| c == 0).unwrap_or(text.len()) + 1).min(MEMO_LEN - 1);
@@ -131,7 +130,7 @@ impl Sim {
         rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - 90.0_f64.to_radians()) as f32);
         let t = base.table;
         let r0 = rot[0];
-        let pos = Vec3::new(r0.x * MEMO_BACK + t.x, r0.y * MEMO_BACK + t.y, MEMO_BACK * r0.z + t.z);
+        let pos = r0 * MEMO_BACK + t;
         let Some(id) = self.create_item(ItemKind::Paper, pos, None, rot) else { return };
         self.write_memo(id, &memo);
         if let Some(i) = self.items.get_mut(id) {
@@ -148,7 +147,7 @@ impl Sim {
         }
         let Some(body) = self.items.get(id).and_then(|i| self.bodies.get(i.body)) else { return };
         let (p, rot) = (body.pos, body.rot);
-        let pos = Vec3::new(rot[0].x * 0.5 + p.x, rot[0].y * 0.5 + p.y, 0.5 * rot[0].z + p.z);
+        let pos = rot[0] * 0.5 + p;
         let Some(memo) = self.create_item(ItemKind::Paper, pos, None, rot) else { return };
         self.print_screen(memo, c);
         self.corp_state[k].prints += 1;

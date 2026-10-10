@@ -13,15 +13,15 @@ const GREEN: i32 = 2;
 const AMBER: i32 = 1;
 /// Away from players the car speeds up by at most 1/720 and slows by at most 1/180 a tick.
 const ACCEL_GAIN: f32 = 16.0;
-const ACCEL_MAX: f32 = f32::from_bits(0x3ab6_0b61);
+const ACCEL_MAX: f32 = 1.0 / 720.0;
 const ACCEL_SCALE: f32 = 5.0;
 const BRAKE_GAIN: f32 = 32.0;
-const BRAKE_MAX: f32 = f32::from_bits(0xbbb6_0b61);
+const BRAKE_MAX: f32 = -1.0 / 180.0;
 const BRAKE_SCALE: f32 = 10.0;
 const BRAKE_LIMIT: f32 = 2.0;
 const TICKS2: f32 = 3600.0;
-const PARK_TARGET: f32 = f32::from_bits(0x3d08_8889);
-const PARK_SPEED: f32 = f32::from_bits(0x3c88_8889);
+const PARK_TARGET: f32 = 1.0 / 30.0;
+const PARK_SPEED: f32 = 1.0 / 60.0;
 /// The ground under a virtual car is traced from 2 above to 32 below, and it rides 0.875 of a wheel up.
 const GROUND_DEPTH: f32 = -32.0;
 const WHEEL_RIDE: f32 = 0.875;
@@ -67,7 +67,7 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
         c.target_speed = 0.0;
     }
     let v = c.vel;
-    let speed = ((v.y * v.y + v.x * v.x) + v.z * v.z).sqrt();
+    let speed = v.length();
     let st = c.steer;
     let mut turn = 0.0;
     if st.abs() > 0.0 {
@@ -119,8 +119,8 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     let ride = WHEEL_RIDE * radius - wheel_y;
     let up = Vec3::Y;
     let p = c.pos;
-    let start = Vec3::new((up.x + up.x) + p.x, (up.y + up.y) + p.y, (up.z + up.z) + p.z);
-    let end = Vec3::new(p.x + up.x * GROUND_DEPTH, up.y * GROUND_DEPTH + p.y, up.z * GROUND_DEPTH + p.z);
+    let start = up + up + p;
+    let end = p + up * GROUND_DEPTH;
     if let Some(h) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, start, end) {
         c.pos.y = ride + h.hit.pos.y;
     }
@@ -132,8 +132,8 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     let back = -c.wheelbase;
     let r2 = rot[2];
     let p = c.pos;
-    let rear = Vec3::new(r2.x * back + p.x, r2.y * back + p.y, p.z + back * r2.z);
-    let end = Vec3::new(rear.x + up.x * GROUND_DEPTH, rear.y + up.y * GROUND_DEPTH, GROUND_DEPTH * up.z + rear.z);
+    let rear = r2 * back + p;
+    let end = rear + up * GROUND_DEPTH;
     if let Some(h) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, rear, end) {
         let hy = ride + h.hit.pos.y;
         let pitch = -((((hy - p.y) as f64).atan2(c.wheelbase as f64)) as f32);

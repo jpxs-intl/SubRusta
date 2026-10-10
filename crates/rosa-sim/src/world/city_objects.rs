@@ -34,7 +34,7 @@ impl CityObjectType {
     fn add_box(&mut self, centre: Vec3, size: Vec3) {
         let base = self.verts.len();
         self.verts.extend(CUBE_CORNERS.iter().map(|c| {
-            Vec3::new((c.x - 0.5) * size.x + centre.x, (c.y - 0.5) * size.y + centre.y, (c.z - 0.5) * size.z + centre.z)
+            (c - 0.5) * size + centre
         }));
         self.quads.extend(CUBE_FACES.iter().map(|f| f.map(|i| i + base)));
     }
@@ -74,7 +74,7 @@ pub fn object_pose(word: u32, cell: IVec3, size: f32) -> (usize, Vec3, RotMatrix
 
 fn turn(m: &RotMatrix, v: Vec3) -> Vec3 {
     let [a, b, c] = *m;
-    Vec3::new((v.y * b.x + v.x * a.x) + v.z * c.x, (v.y * b.y + v.x * a.y) + v.z * c.y, (v.y * b.z + v.x * a.z) + v.z * c.z)
+    v.y * b + v.x * a + v.z * c
 }
 
 /// Whether the swept range `start..end` (grown by `r`) stays clear of the object's culling box on some axis.
@@ -95,7 +95,7 @@ pub fn segment_intersect_object(kind: usize, pos: Vec3, rot: &RotMatrix, start: 
     for q in &t.quads {
         let [a, b, c, d] = q.map(|i| turn(rot, t.verts[i]));
         let n = calculate_face_normal(a, b, c);
-        let [a, b, c, d] = [a, b, c, d].map(|v| Vec3::new(v.x + pos.x, v.y + pos.y, v.z + pos.z));
+        let [a, b, c, d] = [a, b, c, d].map(|v| v + pos);
         for (p, q) in [(b, c), (c, d)] {
             if let Some((f, hit)) = segment_intersect_face(n, start, end, a, p, q)
                 && !(best <= f)
@@ -120,7 +120,7 @@ pub fn capsule_intersect_object(kind: usize, pos: Vec3, rot: &RotMatrix, start: 
     for q in &t.quads {
         let [a, b, c, d] = q.map(|i| {
             let v = turn(rot, t.verts[i]);
-            Vec3::new(v.x + pos.x, v.y + pos.y, v.z + pos.z)
+            v + pos
         });
         for (p, q) in [(b, c), (c, d)] {
             if let Some((hit, n, dist)) = capsule_intersect_triangle(start, end, a, p, q, radius)
@@ -146,7 +146,7 @@ pub fn sphere_intersect_object(kind: usize, pos: Vec3, rot: &RotMatrix, center: 
     for q in &t.quads {
         let [a, b, c, d] = q.map(|i| turn(rot, t.verts[i]));
         let n = calculate_face_normal(a, b, c);
-        let [a, b, c, d] = [a, b, c, d].map(|v| Vec3::new(v.x + pos.x, v.y + pos.y, v.z + pos.z));
+        let [a, b, c, d] = [a, b, c, d].map(|v| v + pos);
         for (p, q) in [(b, c), (c, d)] {
             if let Some((hit, dist)) = sphere_project_onto_triangle(center, n, a, p, q, radius)
                 && !(best <= dist)

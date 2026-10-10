@@ -99,9 +99,9 @@ impl Sim {
     pub(crate) fn free_item_links(&mut self, id: usize) {
         let Some(item) = self.items.get(id) else { return };
         let (mask, links) = (item.link_mask, item.links);
-        for k in 0..ITEM_SLOTS {
+        for (k, &link) in links.iter().enumerate() {
             if mask & (1 << k) != 0 {
-                self.links.free(links[k]);
+                self.links.free(link);
             }
         }
         for client in self.clients.values_mut() {

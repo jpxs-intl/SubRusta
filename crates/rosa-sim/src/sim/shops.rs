@@ -261,7 +261,7 @@ impl Sim {
         let d = (-n) as f32 * 4.0;
         let r2 = b.rot[2];
         let s = b.car_spawn;
-        let pos = Vec3::new(r2.x * d + s.x, r2.y * d + s.y, d * r2.z + s.z);
+        let pos = r2 * d + s;
         b.car_counter = (n + 1) & 7;
         let mut rot = b.rot;
         rotate_orientation(&mut rot, Vec3::Y, 90.0_f32.to_radians());

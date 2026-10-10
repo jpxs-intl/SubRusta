@@ -38,19 +38,15 @@ impl Best {
     }
 }
 
-fn dot(d: Vec3, n: Vec3) -> f32 {
-    (d.x * n.x + d.y * n.y) + d.z * n.z
-}
-
 /// sphere_project_onto_triangle_face: a centre in front of the face within `radius` touches it where it drops onto the
 /// face along the normal. Returns the point and its distance.
 pub fn sphere_project_onto_triangle(center: Vec3, n: Vec3, a: Vec3, b: Vec3, c: Vec3, radius: f32) -> Option<(Vec3, f32)> {
-    let d = dot(Vec3::new(center.x - a.x, center.y - a.y, center.z - a.z), n);
+    let d = (center - a).dot(n);
     if d > radius || 0.0 > d {
         return None;
     }
     let r = -radius;
-    let end = Vec3::new(n.x * r + center.x, n.y * r + center.y, r * n.z + center.z);
+    let end = n * r + center;
     let (_, p) = segment_intersect_face(n, center, end, a, b, c)?;
     let (x, y, z) = (p.x - center.x, p.y - center.y, p.z - center.z);
     Some((p, (z * z + (x * x + y * y)).sqrt()))
@@ -59,28 +55,28 @@ pub fn sphere_project_onto_triangle(center: Vec3, n: Vec3, a: Vec3, b: Vec3, c: 
 /// sphere_intersect_segment_interior: the point of an edge nearest the centre, if it lies within the edge and within
 /// `radius`. Returns the point, the normal from it to the centre and the distance.
 pub fn sphere_intersect_segment(center: Vec3, p0: Vec3, p1: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32)> {
-    let e = Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
-    let len = ((e.x * e.x + e.y * e.y) + e.z * e.z).sqrt();
-    let v = Vec3::new(center.x - p0.x, center.y - p0.y, center.z - p0.z);
+    let e = p1 - p0;
+    let len = e.length();
+    let v = center - p0;
     let u = if len != 0.0 {
         let inv = 1.0 / len;
-        Vec3::new(e.x * inv, e.y * inv, e.z * inv)
+        e * inv
     } else {
         Vec3::ZERO
     };
-    let t = (v.x * u.x + v.y * u.y) + v.z * u.z;
+    let t = v.dot(u);
     if !(t > 0.0) || !(len > t) {
         return None;
     }
-    let q = Vec3::new(u.x * t + p0.x, u.y * t + p0.y, t * u.z + p0.z);
-    let d = Vec3::new(center.x - q.x, center.y - q.y, center.z - q.z);
-    let dist = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+    let q = u * t + p0;
+    let d = center - q;
+    let dist = d.length();
     if !(radius > dist) {
         return None;
     }
     let n = if dist != 0.0 {
         let inv = 1.0 / dist;
-        Vec3::new(d.x * inv, d.y * inv, d.z * inv)
+        d * inv
     } else {
         Vec3::ZERO
     };
@@ -89,7 +85,7 @@ pub fn sphere_intersect_segment(center: Vec3, p0: Vec3, p1: Vec3, radius: f32) -
 
 /// A face the centre is in front of: its two triangles, then its four edges.
 fn quad(best: &mut Best, center: Vec3, n: Vec3, [a, b, c, d]: [Vec3; 4], radius: f32) {
-    if !(dot(Vec3::new(center.x - a.x, center.y - a.y, center.z - a.z), n) > 0.0) {
+    if !((center - a).dot(n) > 0.0) {
         return;
     }
     best.take(sphere_project_onto_triangle(center, n, a, b, c, radius).map(|(p, d)| (p, n, d)));
@@ -104,7 +100,7 @@ fn cube_faces(center: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) -> Option<
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let corner = |i: usize| {
         let c = CUBE_CORNERS[i];
-        Vec3::new(c.x * s + base.x, c.y * s + base.y, c.z * s + base.z)
+        c * s + base
     };
     let mut best = Best::new();
     for r in 0..6 {
@@ -120,7 +116,7 @@ fn cube_faces(center: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) -> Option<
 fn custom_shape(meshes: &BlockMeshes, center: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) -> Option<(Vec3, Vec3, f32)> {
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
-    let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, p.z * s + base.z);
+    let sc = |p: Vec3| p * s + base;
     let mut best = Best::new();
     for q in &mesh.quads {
         let [a, b, c, d] = q.map(|i| sc(mesh.verts[i as usize]));
@@ -133,7 +129,7 @@ fn custom_shape(meshes: &BlockMeshes, center: Vec3, cell: IVec3, s: f32, v: u32,
         }
         let [a, b, c, d] = w.map(sc);
         let n = calculate_face_normal(a, b, c);
-        if dot(Vec3::new(center.x - a.x, center.y - a.y, center.z - a.z), n) > 0.0 {
+        if (center - a).dot(n) > 0.0 {
             quad(&mut best, center, n, [a, b, c, d], radius);
         } else {
             quad(&mut best, center, calculate_face_normal(d, c, b), [d, c, b, a], radius);
@@ -208,7 +204,7 @@ pub fn collision_cast_area(area: &AreaGrid, meshes: &BlockMeshes, center: Vec3, 
                     };
                     best.take(hit.map(|(p, n, d)| {
                         let p = f.rotate_back(p);
-                        (Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z), f.rotate_back(n), d)
+                        (p + f.origin, f.rotate_back(n), d)
                     }));
                 }
             }

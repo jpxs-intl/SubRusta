@@ -212,7 +212,7 @@ impl Sim {
         let vol = self.items.get(id).map_or(-1, |i| i.volume);
         let Some(team) = usize::try_from(c.team).ok().filter(|_| vol != -1) else { return self.mission_exit(id, c) };
         if key & 0x100 != 0 {
-            if (key as u8).to_ascii_uppercase() == b'X' {
+            if (key as u8).eq_ignore_ascii_case(&b'X') {
                 self.mission_exit(id, c);
             }
             return;

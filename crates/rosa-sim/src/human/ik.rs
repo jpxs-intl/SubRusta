@@ -19,17 +19,12 @@ pub struct IkParams {
 /// human_clamp_bone_relative_correction: limits how far `v` may differ from the bones' current relative spin.
 pub fn clamp_bone_relative_correction(h: &Human, a: usize, b: usize, v: &mut Vec3, max: f32, k: f32) {
     let (wa, wb) = (h.bones[a].ang_vel, h.bones[b].ang_vel);
-    let d = Vec3::new((wa.x - wb.x) * k, (wa.y - wb.y) * k, k * (wa.z - wb.z));
-    let c = Vec3::new(v.x - d.x, v.y - d.y, v.z - d.z);
-    let len = ((c.x * c.x + c.y * c.y) + c.z * c.z).sqrt();
+    let d = (wa - wb) * k;
+    let c = *v - d;
+    let len = c.length();
     if len > max {
-        let n = if len == 0.0 {
-            Vec3::ZERO
-        } else {
-            let inv = 1.0 / len;
-            Vec3::new(c.x * inv, c.y * inv, c.z * inv)
-        };
-        *v = Vec3::new(d.x + n.x * max, n.y * max + d.y, n.z * max + d.z);
+        let n = c.normalize_or_zero();
+        *v = d + n * max;
     }
 }
 
@@ -45,7 +40,7 @@ fn clamp_turn(axis: Vec3, angle: f32, max: f32) -> Vec3 {
     let neg = -max;
     let a = if neg > angle { neg } else { angle };
     let lim = if max < a { max } else { a };
-    Vec3::new(axis.x * lim, axis.y * lim, lim * axis.z)
+    axis * lim
 }
 
 fn set_joint(h: &Human, bodies: &mut RigidBodies, bone: usize, target: Vec3, spin_limit: f32) {
@@ -61,7 +56,7 @@ fn set_joint(h: &Human, bodies: &mut RigidBodies, bone: usize, target: Vec3, spi
 /// upper arm-forearm-hand, starting at `first` under `root`) towards reaching `target`, given in `frame` space.
 #[allow(clippy::too_many_arguments)]
 pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first: usize, target: Vec3, frame: &RotMatrix, correction: Vec3, p: &IkParams, end_rot: &mut [f32; 4]) {
-    let t_len = ((target.x * target.x + target.y * target.y) + target.z * target.z).sqrt();
+    let t_len = target.length();
     let l_abs = p.length.abs();
     let c = (if l_abs < t_len { l_abs } else { t_len }) / p.length;
     let a = -(c as f64).acos();
@@ -73,9 +68,9 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let m = multiply_matrixes(&h.bones[first].rot, &h.bones[root].rot);
     let qm = rot_matrix_to_quaternion(&m);
     let [f0, f1, f2] = *frame;
-    let tl_x = (f0.x * target.x + f0.y * target.y) + f0.z * target.z;
-    let mut tl_y = (f1.x * target.x + f1.y * target.y) + f1.z * target.z;
-    let tl_z = (target.y * f2.y + target.x * f2.x) + target.z * f2.z;
+    let tl_x = f0.dot(target);
+    let mut tl_y = f1.dot(target);
+    let tl_z = target.dot(f2);
     let yy = if p.flags & 4 == 0 && tl_y > -0.0625 {
         tl_y = -0.0625;
         1.0 / 256.0
@@ -90,22 +85,8 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
         Vec3::new(-tl_x * inv, -tl_y * inv, inv * -tl_z)
     };
     let g = Vec3::X;
-    let e = Vec3::new(g.y * dir.z - g.z * dir.y, g.z * dir.x - dir.z * g.x, g.x * dir.y - g.y * dir.x);
-    let el = ((e.x * e.x + e.y * e.y) + e.z * e.z).sqrt();
-    let e = if el == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / el;
-        Vec3::new(e.x * inv, e.y * inv, inv * e.z)
-    };
-    let f = Vec3::new(dir.y * e.z - dir.z * e.y, dir.z * e.x - e.z * dir.x, e.y * dir.x - dir.y * e.x);
-    let fl = ((f.x * f.x + f.y * f.y) + f.z * f.z).sqrt();
-    let f = if fl == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / fl;
-        Vec3::new(f.x * inv, f.y * inv, inv * f.z)
-    };
+    let e = g.cross(dir).normalize_or_zero();
+    let f = dir.cross(e).normalize_or_zero();
     let mut r = [Vec3::new(f.x, dir.x, e.x), Vec3::new(f.y, dir.y, e.y), Vec3::new(f.z, dir.z, e.z)];
     rotate_orientation(&mut r, Vec3::Y, p.twist);
     let half = -bend * 0.5;
@@ -125,10 +106,8 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let (axis, angle) = quaternion_to_axis_angle(quaternion_multiply(qm2, q));
     let av = clamp_turn(axis, angle, p.max_turn);
     let [b0, b1, b2] = h.bones[first].rot;
-    let tx = (b2.x * av.z) + (b0.x * av.x + b1.x * av.y);
-    let ty = (b0.y * av.x + b1.y * av.y) + b2.y * av.z;
-    let tz = (av.x * b0.z + av.y * b1.z) + av.z * b2.z;
-    let (mut x, mut y, mut z) = half_corr(correction, Vec3::new(tx, ty, tz));
+    let t = b2 * av.z + (b0 * av.x + b1 * av.y);
+    let (mut x, mut y, mut z) = half_corr(correction, t);
     if first == 10 || first == 13 {
         let ft = h.locomotion.foot_torque[if first == 10 { 0 } else { 1 }];
         x += ft.x;
@@ -152,10 +131,8 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let (axis, angle) = quaternion_to_axis_angle(quaternion_multiply(qm2, q2));
     let av = clamp_turn(axis, angle, p.max_turn);
     let [b0, b1, b2] = h.bones[mid].rot;
-    let tx = (b2.x * av.z) + (av.x * b0.x + b1.x * av.y);
-    let ty = (b0.y * av.x + b1.y * av.y) + b2.y * av.z;
-    let tz = (av.x * b0.z + av.y * b1.z) + av.z * b2.z;
-    let (x, y, z) = half_corr(correction, Vec3::new(tx, ty, tz));
+    let t = b2 * av.z + (av.x * b0 + b1 * av.y);
+    let (x, y, z) = half_corr(correction, t);
     set_joint(h, bodies, mid, Vec3::new(x, y, z), p.spin_limit[1]);
 
     let end = first + 2;
@@ -180,9 +157,7 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let (axis, angle) = quaternion_to_axis_angle(quaternion_multiply(qm2, qf));
     let av = clamp_turn(axis, angle, p.max_turn);
     let [b0, b1, b2] = h.bones[end].rot;
-    let tx = (b0.x * av.x + b1.x * av.y) + b2.x * av.z;
-    let ty = (b0.y * av.x + b1.y * av.y) + b2.y * av.z;
-    let tz = (av.z * b2.z) + (av.x * b0.z + av.y * b1.z);
-    let t3 = Vec3::new(tx + 0.5 * correction.x, ty + 0.5 * correction.y, 0.5 * correction.z + tz);
+    let t = b0 * av.x + b1 * av.y + b2 * av.z;
+    let t3 = t + 0.5 * correction;
     set_joint(h, bodies, end, t3, p.spin_limit[2]);
 }

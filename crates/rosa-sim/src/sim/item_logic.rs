@@ -155,27 +155,27 @@ impl Sim {
         let Some(body) = self.bodies.get(body_id) else { return };
         let ([_, r1, r2], p, bv) = (body.rot, body.pos, body.vel);
         let k = -velocity;
-        let mut vel = Vec3::new(r2.x * k + bv.x, r2.y * k + bv.y, k * r2.z + bv.z);
+        let mut vel = r2 * k + bv;
         let s = calculate_spread_vector(&mut self.noise_seed, spread, 0.0);
-        vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
-        let muzzle = Vec3::new(r2.x * 0.0 + p.x, r2.y * 0.0 + p.y, 0.0 * r2.z + p.z);
+        vel += s;
+        let muzzle = r2 * 0.0 + p;
         let shooter = self.humans.get(holder as usize).and_then(|h| h.player);
         if create_bullet(&mut self.bullets, bullet_type, muzzle, vel, shooter, self.bodies.gravity_scale) {
             self.stats.bullets += 1;
         }
-        let shown = Vec3::new(p.x - bv.x, p.y - bv.y, p.z - bv.z);
+        let shown = p - bv;
         let e = EventBullet { bullet_type, item_id: id as i32, pos: Vector(shown), vel: Vector(vel) };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Bullet(e) });
         let s = calculate_spread_vector(&mut self.noise_seed, spread + spread, 0.0);
-        let r = Vec3::new(vel.x + s.x, s.y + vel.y, vel.z + s.z);
+        let r = vel + s;
         let bm = BULLET_DATA.get(bullet_type as usize).map_or(0.0, |d| d.0);
         let push = -((bm + bm) / gun_mass);
-        let lever = Vec3::new(r2.x * LEVER_BACK + r1.x * LEVER_UP, r2.y * LEVER_BACK + r1.y * LEVER_UP, LEVER_UP * r1.z + LEVER_BACK * r2.z);
-        let turn = Vec3::new(lever.y * r.z - lever.z * r.y, lever.z * r.x - r.z * lever.x, lever.x * r.y - lever.y * r.x);
+        let lever = r2 * LEVER_BACK + r1 * LEVER_UP;
+        let turn = lever.cross(r);
         if let Some(body) = self.bodies.get_mut(body_id) {
-            body.vel = Vec3::new(push * r.x + body.vel.x, push * r.y + body.vel.y, push * r.z + body.vel.z);
+            body.vel = push * r + body.vel;
             let l = body.ang_momentum;
-            body.ang_momentum = Vec3::new(turn.x * push + l.x, turn.y * push + l.y, push * turn.z + l.z);
+            body.ang_momentum = turn * push + l;
         }
         *rounds -= 1;
         *cooldown = fire_rate;
@@ -304,8 +304,8 @@ impl Sim {
                 continue;
             }
 
-            let d = Vec3::new(h.pos.x - pos.x, h.pos.y - pos.y, h.pos.z - pos.z);
-            let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+            let d = h.pos - pos;
+            let dist = d.length();
 
             if nearest.0 > dist {
                 nearest = (dist, Some(k));
@@ -411,18 +411,18 @@ impl Sim {
             }
             for bone in &h.bones {
                 let Some(b) = self.bodies.get_mut(bone.body) else { continue };
-                let d = Vec3::new(b.pos.x - at.x, b.pos.y - at.y, b.pos.z - at.z);
-                let len = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+                let d = b.pos - at;
+                let len = d.length();
                 let dir = if len != 0.0 {
                     let inv = 1.0 / len;
-                    Vec3::new(d.x * inv, d.y * inv, d.z * inv)
+                    d * inv
                 } else {
                     Vec3::ZERO
                 };
                 let weight = (GRENADE_PUSH_RANGE / (bone.mass + GRENADE_PUSH_RANGE)).max(0.125);
                 let v = (GRENADE_PUSH_RANGE - len) * 0.09375;
                 let v = ((v * v) * 1.5) * weight;
-                b.vel = Vec3::new(dir.x * v + b.vel.x, dir.y * v + b.vel.y, v * dir.z + b.vel.z);
+                b.vel = dir * v + b.vel;
             }
         }
         let Some(primer) = primer else { return };

@@ -130,7 +130,7 @@ impl Sim {
     /// computer_snake_handle_key: the arrows turn (not back on itself), Ctrl-X quits.
     pub(crate) fn snake_key(&mut self, id: usize, c: &mut Computer, key: i32) {
         if key & 0x100 != 0 {
-            if (key as u8).to_ascii_uppercase() == b'X' {
+            if (key as u8).eq_ignore_ascii_case(&b'X') {
                 c.mode = Mode::Shell;
                 for l in 0..SCREEN_LINES {
                     c.lines[l][0] = 0;

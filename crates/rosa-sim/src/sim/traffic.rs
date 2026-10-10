@@ -23,7 +23,7 @@ const BODY_OFFSET: f32 = 1.5;
 /// A driven vehicle's gas: the speed error times 8 (doubled braking), less with more steering, and full reverse below
 /// 0.05.
 const GAS_GAIN: f32 = 8.0;
-const CREEP: f32 = f32::from_bits(0x3d4c_cccd);
+const CREEP: f32 = 0.05;
 const DRIVE_GEAR: f32 = 2.0;
 const REVERSE_PULL: f32 = 1.0;
 const STUCK_TICKS: i32 = 179;
@@ -33,14 +33,10 @@ const STUCK_REVERSE: i32 = 279;
 pub(crate) fn vehicle_pos(c: &crate::traffic::TrafficCar, types: &[crate::vehicle::types::VehicleType]) -> Vec3 {
     let [r0, r1, r2] = c.rot;
     let k = types.get(c.kind as usize).map_or(Vec3::ZERO, |t| t.centroid);
-    let (nx, ny, nz) = (-k.x, -k.y, -k.z);
+    let n = -k;
     let back = -BODY_OFFSET;
     let p = c.pos;
-    Vec3::new(
-        (((back * r2.x + p.x) + nx * r0.x) + ny * r1.x) + r2.x * nz,
-        r2.y * nz + (((r2.y * back + p.y) + r0.y * nx) + r1.y * ny),
-        nz * r2.z + (((r2.z * back + p.z) + r0.z * nx) + r1.z * ny),
-    )
+    back * r2 + p + n.x * r0 + n.y * r1 + r2 * n.z
 }
 
 impl Sim {
@@ -185,8 +181,8 @@ impl Sim {
                 }
                 let range = if self.players.get(pid.idx()).is_some_and(|p| p.is_bot) { BOT_RANGE } else { PLAYER_RANGE };
                 let b = h.bones[0].pos;
-                let (dx, dy, dz) = (c.pos.x - b.x, c.pos.y - b.y, c.pos.z - b.z);
-                let dist = (dz * dz + (dx * dx + dy * dy)).sqrt();
+                let d = c.pos - b;
+                let dist = d.length();
                 if range > dist {
                     c.state = NEAR;
                 } else if range + KEEP_RANGE > dist {
@@ -262,11 +258,7 @@ impl Sim {
         let vp = v.pos;
         c.vel = v.vel;
         c.rot = v.rot;
-        c.pos = Vec3::new(
-            (((r2.x * BODY_OFFSET + vp.x) + r0.x * k.x) + r1.x * k.y) + k.z * r2.x,
-            k.z * r2.y + (r1.y * k.y + (r0.y * k.x + (vp.y + r2.y * BODY_OFFSET))),
-            k.z * r2.z + (k.y * r1.z + (k.x * r0.z + (BODY_OFFSET * r2.z + vp.z))),
-        );
+        c.pos = r2 * BODY_OFFSET + vp + r0 * k.x + r1 * k.y + k.z * r2;
         c.yaw = ((-r2.z) as f64).atan2((-r2.x) as f64) as f32;
         if c.is_bot != DRIVEN {
             return;
@@ -274,7 +266,7 @@ impl Sim {
         v.gear_x = DRIVE_GEAR;
         v.gear_y = -1.0;
         v.steer_control = c.steer;
-        let mut g = (((v.vel.x * r2.x + v.vel.y * r2.y) + v.vel.z * r2.z) + c.target_speed) * GAS_GAIN;
+        let mut g = (v.vel.dot(r2) + c.target_speed) * GAS_GAIN;
         if 0.0 > g {
             g = g + g;
         }
@@ -306,7 +298,7 @@ const PRIORITY_FALLOFF: f32 = 1.0 / 512.0;
 const PRIORITY_MIN: i32 = 16;
 const STEER_WEIGHT: f64 = 4.0;
 const MOVING_WEIGHT: f32 = 5.0;
-const MOVING: f32 = f32::from_bits(0x3c88_8889);
+const MOVING: f32 = 1.0 / 60.0;
 const SENT_PER_PACKET: usize = 16;
 
 /// The traffic part of a client's game packet: the most overdue cars and one intersection's lights.
@@ -314,8 +306,8 @@ pub(crate) fn traffic_section(client: &mut crate::Client, traffic: &Traffic, map
     let n = traffic.cars.len();
     client.traffic_priority.resize(n, 0);
     for (c, p) in traffic.cars.iter().zip(client.traffic_priority.iter_mut()) {
-        let d = Vec3::new(camera.x - c.pos.x, camera.y - c.pos.y, camera.z - c.pos.z);
-        let dist = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let d = camera - c.pos;
+        let dist = d.length();
         let near = (dist as f64 / ((c.steer.abs() as f64) * STEER_WEIGHT + 1.0)) as f32;
         let speed = c.speed();
         let k = if MOVING <= speed { MOVING_WEIGHT } else { speed * 60.0 * 4.0 + 1.0 };

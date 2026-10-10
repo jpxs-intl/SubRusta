@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 
-use glam::Vec3;
 use rosa_physics::rotation::IDENTITY;
 use rosa_protocol::{
     GameMode, Team,
@@ -61,7 +60,7 @@ impl AdminState {
             .map(|text| text.split("adminphone=").skip(1).filter_map(|rest| leading_int(rest).map(|n| n as u32)).collect())
             .unwrap_or_default();
         let steam_bans = std::fs::read_to_string(path.with_file_name(STEAM_BAN_FILE))
-            .map(|text| text.split("steamban=").skip(1).filter_map(|rest| leading_u64(rest)).collect())
+            .map(|text| text.split("steamban=").skip(1).filter_map(leading_u64).collect())
             .unwrap_or_default();
         AdminState { phones, steam_bans, ..Default::default() }
     }
@@ -310,7 +309,7 @@ impl Sim {
     fn admin_spawn_vehicle(&mut self, pid: PlayerId, kind: VehicleKind) {
         let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|h| self.humans.get(h)) else { return };
         let (p, r) = (h.bones[0].pos, h.bones[0].rot[2]);
-        let pos = Vec3::new(r.x * SPAWN_AHEAD + p.x, r.y * SPAWN_AHEAD + p.y, SPAWN_AHEAD * r.z + p.z);
+        let pos = r * SPAWN_AHEAD + p;
         self.spawn_vehicle(kind, SPAWN_COLOR, pos, IDENTITY);
     }
 

@@ -10,7 +10,7 @@ use super::Sim;
 use crate::{PlayerId, player::BotTarget, world::trace::line_intersect_level};
 
 /// How far the view may turn from the body, either way.
-const MAX_LOOK: f64 = f64::from_bits(0x4005fdbbe9bba90d);
+const MAX_LOOK: f64 = 2.74889357189125;
 const LOOK_LIMIT: f32 = 157.5_f32.to_radians();
 /// A bot remembers up to 16 enemies within 128 of its chest, sure of them up to 16; every other tick it looks again
 /// and its memory fades (x 31/32) until it forgets below 0.875.
@@ -69,10 +69,6 @@ fn wrap(a: f32, b: f32) -> f32 {
     let t = if ((a - b) as f64) >= 180.0_f64.to_radians() { ((b as f64) + 360.0_f64.to_radians()) as f32 } else { b };
     let d = t - a;
     if (d as f64) >= 180.0_f64.to_radians() { t - ((a as f64 + 360.0_f64.to_radians()) as f32) } else { d }
-}
-
-fn dist(v: Vec3) -> f32 {
-    ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt()
 }
 
 impl Sim {
@@ -197,7 +193,7 @@ impl Sim {
                 continue;
             }
             let d = chest - h.bones[3].pos;
-            if !(SIGHT_RANGE > dist(d)) {
+            if !(SIGHT_RANGE > d.length()) {
                 continue;
             }
             let bot = &self.players.get(pid.idx()).unwrap().bot;
@@ -205,8 +201,8 @@ impl Sim {
             let bone = if h.vehicle.is_some() { 3 } else { (self.tick & 15) as usize };
             let seen = h.bones[bone].pos;
             let dir = seen - chest;
-            let range = ((dir.y * dir.y + dir.x * dir.x) + dir.z * dir.z).sqrt();
-            let facing = dir.z * front.z + (dir.y * front.y + dir.x * front.x);
+            let range = dir.length();
+            let facing = dir.dot(front);
             if !(0.0 > facing) {
                 continue;
             }
@@ -231,13 +227,13 @@ impl Sim {
                 aw = MAX_AWARENESS;
             }
             t.awareness = aw;
-            t.pos = Vec3::new(t.pos.x * SIGHTING_KEEP, t.pos.y * SIGHTING_KEEP, SIGHTING_KEEP * t.pos.z);
+            t.pos *= SIGHTING_KEEP;
             let unsure = (MAX_AWARENESS - aw) * SIGHTING_STEP;
             let spread = unsure * SPREAD_SCALE + (SPREAD_SCALE * range) * SIGHTING_STEP;
             let out = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, spread, 0.0);
-            let ahead = Vec3::new((out.x + seen.x) + vel.x * LEAD_TICKS, (out.y + seen.y) + vel.y * LEAD_TICKS, LEAD_TICKS * vel.z + (seen.z + out.z));
+            let ahead = out + seen + vel * LEAD_TICKS;
             let t = &mut self.players.get_mut(pid.idx()).unwrap().bot.targets[k];
-            t.pos = Vec3::new(ahead.x * SIGHTING_STEP + t.pos.x, ahead.y * SIGHTING_STEP + t.pos.y, ahead.z * SIGHTING_STEP + t.pos.z);
+            t.pos = ahead * SIGHTING_STEP + t.pos;
         }
         let my_pos = self.humans.get(hid).unwrap().pos;
         let humans = &self.humans;
@@ -258,13 +254,13 @@ impl Sim {
         let pos_of = |t: &BotTarget| humans.get(t.human as usize).map_or(Vec3::ZERO, |h| h.pos);
         let first = targets.first().map_or(Vec3::ZERO, pos_of);
         let d = my_pos - first;
-        let mut best = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+        let mut best = d.length();
         for (k, t) in targets.iter().enumerate().skip(1) {
             if !(t.awareness > AIM) {
                 continue;
             }
             let d = my_pos - pos_of(t);
-            let r = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+            let r = d.length();
             if best > r {
                 p.bot.target = k as i32;
                 best = r;
@@ -379,7 +375,7 @@ impl Sim {
         }
         let head = &h.bones[9];
         let (start, up) = (head.pos, head.rot[1]);
-        let end = Vec3::new(up.x * SHOT_LENGTH + start.x, up.y * SHOT_LENGTH + start.y, SHOT_LENGTH * up.z + start.z);
+        let end = up * SHOT_LENGTH + start;
         let chest = h.bones[3].pos;
         if self.teammate_in_line(hid, team, chest, start, end, TEAMMATE_RANGE_FOOT) {
             return (yaw, pitch);
@@ -399,7 +395,7 @@ impl Sim {
                 return false;
             }
             let d = chest - h.bones[3].pos;
-            range > dist(d) && crate::human::damage::trace_ray_human(h, start, end, SHOT_RADIUS).is_some()
+            range > d.length() && crate::human::damage::trace_ray_human(h, start, end, SHOT_RADIUS).is_some()
         })
     }
 
@@ -435,9 +431,9 @@ impl Sim {
                 Vec3::new(dx * inv, dy * inv, inv * dz)
             };
             let [r0, r1, r2] = self.vehicles.get(veh).map_or(rosa_physics::rotation::IDENTITY, |v| v.rot);
-            let lx = (r0.x * n.x + r0.y * n.y) + r0.z * n.z;
-            let ly = (r1.x * n.x + r1.y * n.y) + r1.z * n.z;
-            let lz = (n.x * r2.x + n.y * r2.y) + n.z * r2.z;
+            let lx = r0.dot(n);
+            let ly = r1.dot(n);
+            let lz = n.dot(r2);
             yaw = (lx as f64).atan2((-lz) as f64) as f32;
             let horiz = ((lx * lx + lz * lz) as f64).sqrt();
             pitch = ((-ly) as f64).atan2(horiz) as f32;
@@ -457,12 +453,12 @@ impl Sim {
         let Some(mag) = self.items.get(h.inventory[0].items[0] as usize).and_then(|g| self.items.get(g.first_child)) else { return };
         let Some(body) = self.bodies.get(mag.body) else { return };
         let r2 = body.rot[2];
-        let along = (n.x * r2.x + n.y * r2.y) + n.z * r2.z;
+        let along = n.dot(r2);
         if !(GUN_ALIGNMENT > along) {
             return;
         }
         let start = mag.pos2;
-        let end = Vec3::new(r2.x * SHOT_LENGTH + start.x, r2.y * SHOT_LENGTH + start.y, start.z + r2.z * SHOT_LENGTH);
+        let end = r2 * SHOT_LENGTH + start;
         if self.teammate_in_line(hid, team, h.bones[3].pos, start, end, TEAMMATE_RANGE_SEATED) {
             return;
         }
@@ -491,7 +487,7 @@ impl Sim {
         p.controls.gear_x = DRIVE_GEAR_X;
         p.controls.gear_y = DRIVE_GEAR_Y;
         p.controls.strafe = steer;
-        let gas = (((vel.x * r2.x + vel.y * r2.y) + vel.z * r2.z) + target) * THROTTLE_SCALE;
+        let gas = (vel.dot(r2) + target) * THROTTLE_SCALE;
         let gas = if gas > 1.0 { 1.0 } else { gas };
         p.controls.walk = if MIN_TARGET_SPEED > target { -1.0 } else { (gas as f64 / ((steer.abs() as f64) + 1.0)) as f32 };
         p.input_bits = 0;

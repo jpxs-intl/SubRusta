@@ -15,7 +15,7 @@ const ANTI_TUNNEL_BONES: usize = 4;
 const BONE_FRICTION: f32 = 0.8;
 const BONE_FRICTION_STATE_2: f32 = 0.1;
 const BONE_SOFTNESS: f32 = 0.0625;
-const HEAD_IMPACT: f32 = f32::from_bits(0x3e88_8889);
+const HEAD_IMPACT: f32 = 4.0 / 15.0;
 const TORSO_IMPACT: f32 = 0.2;
 const SPIN_LIMIT: f32 = 1.0 / 4096.0;
 const LIMIT_STIFFNESS: f32 = 0.25;
@@ -29,7 +29,7 @@ const VEHICLE_DEPTH_SCALE: f32 = 0.03125;
 const VEHICLE_SOFTNESS: f32 = 0.0625;
 /// How fast a vehicle's point of contact must move into a bone to hurt (legs take a third of a unit a tick).
 const RUN_OVER: f32 = 0.2;
-const LEG_RUN_OVER: f32 = f32::from_bits(0x3eaa_aaab);
+const LEG_RUN_OVER: f32 = 1.0 / 3.0;
 const NO_ITEM_CONTACT:[BoneId; 4] = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight];
 
 /// human_update_bones_bbox_wake_items: pull every bone's state from its body and rebuild the bone capsules and bounds.
@@ -48,7 +48,7 @@ pub fn sync_bones(h: &mut Human, bodies: &mut RigidBodies, map: &Map) {
         {
             let t = 0.975 * hit.hit.fraction;
             let (p, q) = (bone.pos, bone.pos2);
-            let clamped = Vec3::new((p.x - q.x) * t + q.x, (p.y - q.y) * t + q.y, (p.z - q.z) * t + q.z);
+            let clamped = (p - q) * t + q;
             body.pos = clamped;
             bone.pos = clamped;
         }
@@ -57,8 +57,8 @@ pub fn sync_bones(h: &mut Human, bodies: &mut RigidBodies, map: &Map) {
         let row = bone.rot[t.shape as usize];
         let (half, neg_half) = (t.shape_size[0] * 0.5, -t.shape_size[0] * 0.5);
         let p = bone.pos;
-        let a = Vec3::new(p.x + row.x * neg_half, row.y * neg_half + p.y, neg_half * row.z + p.z);
-        let b = Vec3::new(row.x * half + p.x, p.y + row.y * half, p.z + half * row.z);
+        let a = p + row * neg_half;
+        let b = row * half + p;
         bone.capsule = [a, b];
         let r = t.shape_size[1];
         let (mut mn, mut mx) = (h.aabb_min.to_array(), h.aabb_max.to_array());
@@ -90,11 +90,10 @@ pub(super) fn update_networked_bones(h: &mut Human) {
     for child in 1..BONE_COUNT {
         let [p0, p1, p2] = h.bones[BONES[child].parent.index()].rot;
         let [c0, c1, c2] = h.bones[child].rot;
-        let dot = |c: Vec3, p: Vec3| (c.x * p.x + c.y * p.y) + c.z * p.z;
         let m = [
-            Vec3::new(dot(c0, p0), dot(c0, p1), dot(c0, p2)),
-            Vec3::new(dot(c1, p0), dot(c1, p1), dot(c1, p2)),
-            Vec3::new(dot(c2, p0), dot(c2, p1), dot(c2, p2)),
+            Vec3::new(c0.dot(p0), c0.dot(p1), c0.dot(p2)),
+            Vec3::new(c1.dot(p0), c1.dot(p1), c1.dot(p2)),
+            Vec3::new(c2.dot(p0), c2.dot(p1), c2.dot(p2)),
         ];
         let a0 = (m[2].y as f64).atan2(m[2].z as f64) as f32;
         let r = (m[1].x * m[1].x + m[0].x * m[0].x).sqrt();
@@ -133,18 +132,18 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let neg = -size;
         let p = bone.pos;
         let nh = neg * 0.5;
-        let mut a = Vec3::new(nh * row.x + p.x, nh * row.y + p.y, nh * row.z + p.z);
+        let mut a = nh * row + p;
         if movement_state == 0 && h.old_health > 0 && h.health > 49 && (j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize) {
             let q = neg * 0.125;
-            a = Vec3::new(q * row.x + p.x, q * row.y + p.y, q * row.z + p.z);
+            a = q * row + p;
         }
         let half = size * 0.5;
-        let b = Vec3::new(row.x * half + p.x, row.y * half + p.y, half * row.z + p.z);
+        let b = row * half + p;
         let radius = t.shape_size[1];
 
         let Some(hit) = capsule_intersect_level(&map.ground, &map.level.area, &map.level.meshes, a, b, radius) else { continue };
         let n = hit.normal;
-        let impact = ((bone.vel.x * n.x + bone.vel.y * n.y) + bone.vel.z * n.z).abs();
+        let impact = bone.vel.dot(n).abs();
         if !(impact <= 1.0 / 15.0) && hit.area != -1 && hit.block.x != -1 {
             add_bullet_hole(map, hit, bone.pos, bone.vel, out);
         }
@@ -168,7 +167,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let friction = if movement_state == 2 { BONE_FRICTION_STATE_2 } else { BONE_FRICTION };
         let body = h.bones[j].body;
         let Some(bp) = bodies.get(body).map(|b| b.pos) else { continue };
-        let offset = Vec3::new(hit.pos.x - bp.x, hit.pos.y - bp.y, hit.pos.z - bp.z);
+        let offset = hit.pos - bp;
         if hit.set.is_none() {
             bodies.add_world_contact(body, offset, n, radius - hit.dist, friction, depth_scale, BONE_SOFTNESS);
         }
@@ -176,7 +175,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
     }
 }
 
-const TRACK_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const TRACK_FRICTION: f32 = 0.4;
 const TRACK_DEPTH_SCALE: f32 = 0.03125;
 const TRACK_SOFTNESS: f32 = 0.0625;
 
@@ -209,7 +208,7 @@ pub(super) fn bone_track_contacts(h: &Human, bodies: &mut RigidBodies, track: &c
         }
         let Some((p, n, d)) = best else { continue };
         let Some(bp) = bodies.get(bone.body).map(|b| b.pos) else { continue };
-        let offset = Vec3::new(p.x - bp.x, p.y - bp.y, p.z - bp.z);
+        let offset = p - bp;
         bodies.add_world_contact(bone.body, offset, n, radius - d, TRACK_FRICTION, TRACK_DEPTH_SCALE, TRACK_SOFTNESS);
     }
 }
@@ -234,8 +233,8 @@ pub(super) fn bone_item_contacts(h: &Human, bodies: &mut RigidBodies, touch: &mu
             let [start, end] = bone.capsule;
             let Some((p, n, d)) = hull.intersect_capsule(&world, start, end, radius) else { continue };
             let Some(bp) = bodies.get(bone.body).map(|b| b.pos) else { continue };
-            let off_a = Vec3::new(p.x - bp.x, p.y - bp.y, p.z - bp.z);
-            let off_b = Vec3::new(p.x - item_pos.x, p.y - item_pos.y, p.z - item_pos.z);
+            let off_a = p - bp;
+            let off_b = p - item_pos;
             bodies.add_body_contact(bone.body, item_body, off_a, off_b, n, radius - d, ITEM_FRICTION, ITEM_DEPTH_SCALE, ITEM_SOFTNESS);
             woke = true;
         }
@@ -279,24 +278,24 @@ pub(super) fn vehicle_contacts(h: &mut Human, bodies: &mut RigidBodies, touch: &
             let row = bone.rot[shape.shape as usize];
             let (len, p) = (shape.shape_size[0], bone.pos);
             let back = if shin { -len * 0.125 } else { 0.5 * -len };
-            let start = Vec3::new(back * row.x + p.x, back * row.y + p.y, back * row.z + p.z);
+            let start = back * row + p;
             let half = len * 0.5;
-            let end = Vec3::new(p.x + row.x * half, p.y + row.y * half, p.z + half * row.z);
+            let end = p + row * half;
             let radius = shape.shape_size[1];
             let Some((hit, n, dist)) = crate::vehicle::physics::capsule_intersect_vehicle(v, t, start, end, radius) else { continue };
             let (Some(bp), Some((vp, vvel, w))) = (bodies.get(bone.body).map(|b| b.pos), bodies.get(v.body).map(|b| (b.pos, b.vel, b.ang_vel))) else { continue };
-            let off_a = Vec3::new(hit.x - bp.x, hit.y - bp.y, hit.z - bp.z);
-            let r = Vec3::new(hit.x - vp.x, hit.y - vp.y, hit.z - vp.z);
+            let off_a = hit - bp;
+            let r = hit - vp;
             bodies.add_body_contact(bone.body, v.body, off_a, r, n, radius - dist, VEHICLE_FRICTION, VEHICLE_DEPTH_SCALE, VEHICLE_SOFTNESS);
             let arm = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight].iter().any(|&b| b as usize == j);
             if h.last_vehicle == vid as i32 || arm {
                 continue;
             }
-            let point = Vec3::new((w.z * r.y - w.y * r.z) + vvel.x, (r.z * w.x - w.z * r.x) + vvel.y, (r.x * w.y - r.y * w.x) + vvel.z);
-            let rel = Vec3::new(point.x - bone.vel.x, point.y - bone.vel.y, point.z - bone.vel.z);
+            let point = r.cross(w) + vvel;
+            let rel = point - bone.vel;
             let leg = shin || j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize;
             let threshold = if leg { LEG_RUN_OVER } else { RUN_OVER };
-            if h.is_immortal || ((rel.y * n.y + rel.x * n.x) + rel.z * n.z) <= threshold {
+            if h.is_immortal || (rel.dot(n)) <= threshold {
                 continue;
             }
             h.old_health -= 120;
@@ -319,7 +318,7 @@ pub(super) fn joint_limits(h: &mut Human, bodies: &mut RigidBodies) {
         if let Some(Bond::Joint(j)) = bodies.bond_mut(bond) {
             j.target_ang_vel = Vec3::ZERO;
             j.limit_correction = correction;
-            let len = ((correction.x * correction.x + correction.y * correction.y) + correction.z * correction.z).sqrt();
+            let len = correction.length();
             j.limit_active = len > 0.0;
             j.spin_limit = SPIN_LIMIT;
         }
@@ -334,10 +333,9 @@ fn maxss(a: f32, b: f32) -> f32 {
 pub(super) fn joint_limit_correction(h: &Human, parent: BoneId, child: BoneId) -> (Vec3, [f32; 3]) {
     let [p0, p1, p2] = h.bones[parent as usize].rot;
     let [c0, c1, c2] = h.bones[child as usize].rot;
-    let dot = |c: Vec3, p: Vec3| (c.x * p.x + c.y * p.y) + c.z * p.z;
-    let (m00, m01, m02) = (dot(c0, p0), dot(c0, p1), dot(c0, p2));
-    let (m10, m11, m12) = (dot(c1, p0), dot(c1, p1), dot(c1, p2));
-    let (m20, m21, m22) = (dot(c2, p0), dot(c2, p1), dot(c2, p2));
+    let (m00, m01, m02) = (c0.dot(p0), c0.dot(p1), c0.dot(p2));
+    let (m10, m11, m12) = (c1.dot(p0), c1.dot(p1), c1.dot(p2));
+    let (m20, m21, m22) = (c2.dot(p0), c2.dot(p1), c2.dot(p2));
 
     let a0 = (m12 as f64).atan2(m22 as f64) as f32;
     let r = (m01 * m01 + m00 * m00).sqrt();
@@ -347,8 +345,8 @@ pub(super) fn joint_limit_correction(h: &Human, parent: BoneId, child: BoneId) -
     let a2 = ((s * m20 - c * m10) as f64).atan2((m11 * c - m21 * s) as f64) as f32;
 
     let (wp, wc) = (h.bones[parent.index()].ang_vel, h.bones[child.index()].ang_vel);
-    let dw = Vec3::new(wp.x - wc.x, wp.y - wc.y, wp.z - wc.z);
-    let local = [dot(dw, p0), dot(dw, p1), dot(dw, p2)];
+    let dw = wp - wc;
+    let local = [dw.dot(p0), dw.dot(p1), dw.dot(p2)];
 
     let t = &BONES[child.index()];
     let (lmin, lmax) = (t.limit_min.to_array(), t.limit_max.to_array());
@@ -379,11 +377,7 @@ pub(super) fn joint_limit_correction(h: &Human, parent: BoneId, child: BoneId) -
         angles[k] = clamped;
     }
 
-    let world = Vec3::new(
-        ((p1.x * corr[1] + p0.x * corr[0]) + p2.x * corr[2]) + 0.0,
-        ((p1.y * corr[1] + p0.y * corr[0]) + p2.y * corr[2]) + 0.0,
-        ((p1.z * corr[1] + p0.z * corr[0]) + p2.z * corr[2]) + 0.0,
-    );
+    let world = p1 * corr[1] + p0 * corr[0] + p2 * corr[2] + 0.0;
     (world, angles)
 }
 
@@ -401,7 +395,7 @@ impl OtherHuman {
 }
 
 const NO_HUMAN_CONTACT: [usize; 4] = [11, 12, 14, 15];
-const HUMAN_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const HUMAN_FRICTION: f32 = 0.4;
 const HUMAN_DEPTH_SCALE: f32 = 1.0 / 32.0;
 const HUMAN_SOFTNESS: f32 = 0.0625;
 
@@ -427,19 +421,13 @@ pub fn human_contacts(h: &Human, bodies: &mut RigidBodies, others: &[OtherHuman]
                 if !hit {
                     continue;
                 }
-                let d = Vec3::new(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z);
-                let len = (d.z * d.z + (d.y * d.y + d.x * d.x)).sqrt();
-                let n = if len == 0.0 {
-                    Vec3::ZERO
-                } else {
-                    let inv = 1.0 / len;
-                    Vec3::new(d.x * inv, d.y * inv, inv * d.z)
-                };
-                let mid = Vec3::new((pa.x + pb.x) * 0.5, (pa.y + pb.y) * 0.5, (pa.z + pb.z) * 0.5);
+                let d = pb - pa;
+                let n = d.normalize_or_zero();
+                let mid = (pa + pb) * 0.5;
                 let (Some(ob), Some(sb)) = (bodies.get(other_body), bodies.get(bone.body)) else { continue };
                 let (op, sp) = (ob.pos, sb.pos);
-                let off_other = Vec3::new(mid.x - op.x, mid.y - op.y, mid.z - op.z);
-                let off_self = Vec3::new(mid.x - sp.x, mid.y - sp.y, mid.z - sp.z);
+                let off_other = mid - op;
+                let off_self = mid - sp;
                 bodies.add_body_contact(other_body, bone.body, off_other, off_self, n, radius - dist, HUMAN_FRICTION, HUMAN_DEPTH_SCALE, HUMAN_SOFTNESS);
             }
         }

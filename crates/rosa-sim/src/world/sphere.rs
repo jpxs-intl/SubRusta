@@ -22,47 +22,37 @@ pub struct DiscHit {
     pub dist: f32,
 }
 
-fn sub(a: Vec3, b: Vec3) -> Vec3 {
-    Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
-}
-
 /// segment_intersect_plane_two_sided: where `start..end` crosses the plane through `point` with normal `n`; the
 /// fraction along the segment and the point.
 pub fn segment_intersect_plane_two_sided(n: Vec3, start: Vec3, end: Vec3, point: Vec3) -> Option<(f32, Vec3)> {
-    let pe = sub(point, end);
-    let to_end = (pe.x * n.x + pe.y * n.y) + pe.z * n.z;
-    let ps = sub(point, start);
-    let to_start = (ps.x * n.x + ps.y * n.y) + ps.z * n.z;
+    let pe = point - end;
+    let to_end = pe.dot(n);
+    let ps = point - start;
+    let to_start = ps.dot(n);
     if to_start > 0.0 && to_end > 0.0 {
         return None;
     }
     if 0.0 > to_start && 0.0 > to_end {
         return None;
     }
-    let d = sub(end, start);
-    let den = (n.x * d.x + n.y * d.y) + n.z * d.z;
+    let d = end - start;
+    let den = n.dot(d);
     if den == 0.0 {
         return None;
     }
     let t = to_start / den;
-    Some((t, Vec3::new(d.x * t + start.x, d.y * t + start.y, t * d.z + start.z)))
+    Some((t, d * t + start))
 }
 
 /// The edge's crossing of the disc's plane, kept when it is nearer the centre than the best so far.
 fn disc_edge(best: &mut DiscHit, centre: Vec3, axis: Vec3, a: Vec3, b: Vec3) {
     let Some((_, p)) = segment_intersect_plane_two_sided(axis, a, b, centre) else { return };
-    let d = sub(centre, p);
-    let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+    let d = centre - p;
+    let dist = d.length();
     if !(best.dist > dist) {
         return;
     }
-    let len = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
-    let normal = if len == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / len;
-        Vec3::new(d.x * inv, d.y * inv, inv * d.z)
-    };
+    let normal = d.normalize_or_zero();
     *best = DiscHit { pos: p, normal, dist };
 }
 
@@ -74,37 +64,37 @@ fn disc_edge(best: &mut DiscHit, centre: Vec3, axis: Vec3, a: Vec3, b: Vec3) {
 pub fn sphere_intersect_face(hit: &mut DiscHit, centre: Vec3, axis: Vec3, radius: f32, a: Vec3, b: Vec3, c: Vec3) -> bool {
     hit.dist = radius;
     let n = hit.normal;
-    let t = Vec3::new(n.y * axis.z - n.z * axis.y, n.z * axis.x - axis.z * n.x, axis.y * n.x - n.y * axis.x);
-    let len2 = (t.y * t.y + t.x * t.x) + t.z * t.z;
+    let t = n.cross(axis);
+    let len2 = t.length_squared();
     if len2 >= PARALLEL {
-        let along = (axis.x * centre.x + axis.y * centre.y) + axis.z * centre.z;
-        let plane = (a.x * n.x + a.y * n.y) + a.z * n.z;
-        let u = Vec3::new(n.x * along - axis.x * plane, n.y * along - axis.y * plane, n.z * along - axis.z * plane);
-        let p = Vec3::new((t.y * u.z - t.z * u.y) / len2, (t.z * u.x - u.z * t.x) / len2, (u.y * t.x - u.x * t.y) / len2);
-        let d = sub(centre, p);
+        let along = axis.dot(centre);
+        let plane = a.dot(n);
+        let u = n * along - axis * plane;
+        let p = t.cross(u) / len2;
+        let d = centre - p;
         let len = len2.sqrt();
         let dir = if len == 0.0 {
             Vec3::ZERO
         } else {
             let inv = 1.0 / len;
-            Vec3::new(t.x * inv, t.y * inv, t.z * inv)
+            t * inv
         };
-        let proj = (d.x * dir.x + d.y * dir.y) + d.z * dir.z;
-        let q = Vec3::new(p.x + dir.x * proj, p.y + dir.y * proj, p.z + proj * dir.z);
+        let proj = d.dot(dir);
+        let q = p + dir * proj;
         hit.pos = q;
-        let e = sub(centre, q);
-        let dist = (e.z * e.z + (e.x * e.x + e.y * e.y)).sqrt();
+        let e = centre - q;
+        let dist = e.length();
         if radius > dist {
             let side = |w: Vec3, e: Vec3| {
-                let c = Vec3::new(w.y * e.z - w.z * e.y, w.z * e.x - e.z * w.x, w.x * e.y - w.y * e.x);
-                (c.x * n.x + c.y * n.y) + c.z * n.z
+                let c = w.cross(e);
+                c.dot(n)
             };
             let last = {
-                let (w, e) = (sub(q, c), sub(a, c));
-                let k = Vec3::new(w.y * e.z - w.z * e.y, w.z * e.x - e.z * w.x, e.y * w.x - e.x * w.y);
-                (k.y * n.y + k.x * n.x) + k.z * n.z
+                let (w, e) = ((q - c), (a - c));
+                let k = w.cross(e);
+                k.dot(n)
             };
-            let inside = side(sub(q, a), sub(b, a)) >= 0.0 && side(sub(q, b), sub(c, b)) >= 0.0 && last >= 0.0;
+            let inside = side(q - a, b - a) >= 0.0 && side(q - b, c - b) >= 0.0 && last >= 0.0;
             if inside {
                 hit.dist = dist;
             }
@@ -162,7 +152,7 @@ fn cube_faces(centre: Vec3, axis: Vec3, radius: f32, cell: IVec3, s: f32, v: u32
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let corner = |i: usize| {
         let c = CUBE_CORNERS[i];
-        Vec3::new(c.x * s + base.x, c.y * s + base.y, s * c.z + base.z)
+        c * s + base
     };
     let (mut best, mut best_dist) = (None, NO_HIT);
     for r in (0..6).filter(|&r| v & (1 << r) != 0 && v & (64 << r) != 0) {
@@ -178,7 +168,7 @@ fn cube_faces(centre: Vec3, axis: Vec3, radius: f32, cell: IVec3, s: f32, v: u32
 fn custom_shape(meshes: &BlockMeshes, centre: Vec3, axis: Vec3, radius: f32, cell: IVec3, s: f32, v: u32) -> Option<DiscHit> {
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
-    let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, p.z * s + base.z);
+    let sc = |p: Vec3| p * s + base;
     let (mut best, mut best_dist) = (None, NO_HIT);
     for q in &mesh.quads {
         let [a, b, c, d] = q.map(|i| sc(mesh.verts[i as usize]));
@@ -241,8 +231,8 @@ fn sphere_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, centre: Vec3, ax
 /// sphere_cast_objects_and_level: the wheel disc against the landscape around it and against each level area, nearer
 /// hits replacing the landscape's.
 pub fn sphere_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMeshes, centre: Vec3, axis: Vec3, radius: f32) -> Option<DiscHit> {
-    let min = Vec3::new(centre.x - radius, centre.y - radius, centre.z - radius);
-    let max = Vec3::new(centre.x + radius, centre.y + radius, centre.z + radius);
+    let min = centre - radius;
+    let max = centre + radius;
     let mesh = TerrainMesh::build(ground, min, max);
     let mut best_dist = NO_HIT;
     let mut best = None;
@@ -254,20 +244,20 @@ pub fn sphere_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMe
 /// segment_intersect_sphere: where the segment from `start` to `end` enters the sphere, as (fraction, point, unit
 /// normal); a segment starting inside the sphere does not hit it.
 pub fn segment_intersect_sphere(start: Vec3, end: Vec3, center: Vec3, radius: f32) -> Option<(f32, Vec3, Vec3)> {
-    let d = sub(end, start);
-    let len = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
-    let c = sub(center, start);
+    let d = end - start;
+    let len = d.length();
+    let c = center - start;
     let dir = if len == 0.0 {
         Vec3::ZERO
     } else {
         let k = 1.0 / len;
-        Vec3::new(d.x * k, d.y * k, k * d.z)
+        d * k
     };
-    let t = (dir.x * c.x + dir.y * c.y) + dir.z * c.z;
+    let t = dir.dot(c);
     if 0.0 > t {
         return None;
     }
-    let c2 = c.z * c.z + (c.y * c.y + c.x * c.x);
+    let c2 = c.length_squared();
     let d2 = c2 - t * t;
     let r2 = radius * radius;
     if d2 > r2 || r2 > c2 {
@@ -278,14 +268,14 @@ pub fn segment_intersect_sphere(start: Vec3, end: Vec3, center: Vec3, radius: f3
     if frac > 1.0 {
         return None;
     }
-    let p = Vec3::new((end.x - start.x) * frac + start.x, (end.y - start.y) * frac + start.y, frac * (end.z - start.z) + start.z);
-    let n = sub(p, center);
-    let nl = ((n.x * n.x + n.y * n.y) + n.z * n.z).sqrt();
+    let p = (end - start) * frac + start;
+    let n = p - center;
+    let nl = n.length();
     let n = if nl == 0.0 {
         Vec3::ZERO
     } else {
         let k = 1.0 / nl;
-        Vec3::new(n.x * k, n.y * k, k * n.z)
+        n * k
     };
     Some((frac, p, n))
 }

@@ -8,21 +8,19 @@ pub struct TraceHit {
 }
 
 pub fn calculate_face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
-    let (e1x, e1y, e1z) = (b.x - a.x, b.y - a.y, b.z - a.z);
-    let (e2x, e2y, e2z) = (c.x - a.x, c.y - a.y, c.z - a.z);
+    let e1 = b - a;
+    let e2 = c - a;
 
-    let nx = e2y * e1z - e2z * e1y;
-    let ny = e2z * e1x - e1z * e2x;
-    let nz = e2x * e1y - e2y * e1x;
+    let n = e2.cross(e1);
 
-    let len = (nz * nz + (nx * nx + ny * ny)).sqrt();
+    let len = n.length();
     if len == 0.0 {
         return Vec3::ZERO;
     }
 
     let inv = 1.0 / len;
 
-    Vec3::new(nx * inv, ny * inv, nz * inv)
+    n * inv
 }
 
 #[inline]
@@ -40,8 +38,8 @@ pub fn segment_intersect_plane_one_sided(n: Vec3, p: Vec3, start: Vec3, end: Vec
         return None;
     }
 
-    let (dx, dy, dz) = (end.x - start.x, end.y - start.y, end.z - start.z);
-    let denom = n.x * dx + n.y * dy + n.z * dz;
+    let d = end - start;
+    let denom = n.dot(d);
 
     if denom == 0.0 {
         return None;
@@ -49,17 +47,17 @@ pub fn segment_intersect_plane_one_sided(n: Vec3, p: Vec3, start: Vec3, end: Vec
 
     let t = d_start / denom;
 
-    Some((t, Vec3::new(dx * t + start.x, dy * t + start.y, t * dz + start.z)))
+    Some((t, d * t + start))
 }
 
 #[inline]
 fn edge(p: Vec3, v0: Vec3, v1: Vec3, n: Vec3) -> f32 {
-    let (ex, ey, ez) = (v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+    let e = v1 - v0;
     let (px, py, pz) = (p.x - v0.x, p.y - v0.y, p.z - v0.z);
 
-    let cx = ez * py - ey * pz;
-    let cy = pz * ex - ez * px;
-    let cz = ey * px - ex * py;
+    let cx = e.z * py - e.y * pz;
+    let cy = pz * e.x - e.z * px;
+    let cz = e.y * px - e.x * py;
     
     cx * n.x + cy * n.y + cz * n.z
 }

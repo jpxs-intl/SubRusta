@@ -28,21 +28,16 @@ pub struct CapsuleHit {
     pub set: Option<SetHit>,
 }
 
-fn dist(a: Vec3, b: Vec3) -> f32 {
-    let (x, y, z) = (a.x - b.x, a.y - b.y, a.z - b.z);
-    (z * z + (x * x + y * y)).sqrt()
-}
-
 /// Closest points between segments `p0..p1` and `q0..q1`; returns (within radius, point on p, point on q, distance).
 pub fn segment_closest_points(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3, radius: f32) -> (bool, Vec3, Vec3, f32) {
-    let d1 = Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
-    let r = Vec3::new(p0.x - q0.x, p0.y - q0.y, p0.z - q0.z);
-    let d2 = Vec3::new(q1.x - q0.x, q1.y - q0.y, q1.z - q0.z);
-    let a = (d1.x * d1.x + d1.y * d1.y) + d1.z * d1.z;
-    let e = (d2.x * d2.x + d2.y * d2.y) + d2.z * d2.z;
-    let c = (r.x * d1.x + r.y * d1.y) + r.z * d1.z;
-    let f = (r.x * d2.x + r.y * d2.y) + r.z * d2.z;
-    let b = (d2.x * d1.x + d2.y * d1.y) + d2.z * d1.z;
+    let d1 = p1 - p0;
+    let r = p0 - q0;
+    let d2 = q1 - q0;
+    let a = d1.length_squared();
+    let e = d2.length_squared();
+    let c = r.dot(d1);
+    let f = r.dot(d2);
+    let b = d2.dot(d1);
     let denom = e * a - b * b;
 
     let (s, bs) = if denom != 0.0 {
@@ -72,8 +67,8 @@ pub fn segment_closest_points(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3, radius: f3
         (pd, d2)
     };
 
-    let on_p = Vec3::new(pd.x + p0.x, pd.y + p0.y, pd.z + p0.z);
-    let on_q = Vec3::new(qd.x + q0.x, qd.y + q0.y, qd.z + q0.z);
+    let on_p = pd + p0;
+    let on_q = qd + q0;
     let (dx, dy, dz) = (on_q.x - on_p.x, on_q.y - on_p.y, on_q.z - on_p.z);
     let d = ((dx * dx + dy * dy) + dz * dz).sqrt();
     (radius > d, on_p, on_q, d)
@@ -105,11 +100,11 @@ pub fn capsule_intersect_triangle_facing(start: Vec3, end: Vec3, a: Vec3, b: Vec
         }
     } else {
         let k = -radius * 1.125;
-        let push = Vec3::new(n.x * k, n.y * k, n.z * k);
+        let push = n * k;
         let from = if d1 > d0 { start } else { end };
-        let to = Vec3::new(push.x + from.x, push.y + from.y, push.z + from.z);
+        let to = push + from;
         if let Some((_, p)) = segment_intersect_face(n, from, to, a, b, c) {
-            return Some((p, n, dist(p, from)));
+            return Some((p, n, p.distance(from)));
         }
     }
 
@@ -118,14 +113,8 @@ pub fn capsule_intersect_triangle_facing(start: Vec3, end: Vec3, a: Vec3, b: Vec
     for (p, q) in [(a, b), (b, c), (c, a)] {
         let (hit, on_edge, on_axis, d) = segment_closest_points(p, q, start, end, radius);
         if hit && best > d {
-            let v = Vec3::new(on_axis.x - on_edge.x, on_axis.y - on_edge.y, on_axis.z - on_edge.z);
-            let len = ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt();
-            let nrm = if len == 0.0 {
-                Vec3::ZERO
-            } else {
-                let inv = 1.0 / len;
-                Vec3::new(v.x * inv, v.y * inv, inv * v.z)
-            };
+            let v = on_axis - on_edge;
+            let nrm = v.normalize_or_zero();
             out = (on_edge, nrm);
             best = d;
         }
@@ -218,7 +207,7 @@ fn cube_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) 
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let corner = |i: usize| {
         let c = CUBE_CORNERS[i];
-        Vec3::new(c.x * s + base.x, c.y * s + base.y, s * c.z + base.z)
+        c * s + base
     };
 
     let mut best = Best::new();
@@ -238,7 +227,7 @@ fn cube_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) 
 fn custom_shape(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) -> Option<(Vec3, Vec3, f32, u32)> {
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
-    let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, s * p.z + base.z);
+    let sc = |p: Vec3| p * s + base;
     let mut best = Best::new();
     let mut attr = 0;
     for (i, q) in mesh.quads.iter().enumerate() {
@@ -364,13 +353,13 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
         return Some((best.pos, best.normal, best.dist, block, word, set));
     }
     let p = f.rotate_back(best.pos);
-    let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
+    let pos = p + f.origin;
     Some((pos, f.rotate_back(best.normal), best.dist, block, word, set))
 }
 
 pub fn capsule_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleHit> {
-    let (smin, smax) = (Vec3::new(start.x - radius, start.y - radius, start.z - radius), Vec3::new(start.x + radius, start.y + radius, start.z + radius));
-    let (emin, emax) = (Vec3::new(end.x - radius, end.y - radius, end.z - radius), Vec3::new(end.x + radius, end.y + radius, end.z + radius));
+    let (smin, smax) = (start - radius, start + radius);
+    let (emin, emax) = (end - radius, end + radius);
     let (mut min, mut max) = (smin.to_array(), smax.to_array());
     let (emin, emax) = (emin.to_array(), emax.to_array());
     for k in 0..3 {

@@ -95,7 +95,7 @@ impl BoneTemplate {
         let mut p = BONES[id].parent as usize;
 
         while p != 0 {
-            o = Vec3::new(o.x + BONES[p].offset.x, o.y + BONES[p].offset.y, o.z + BONES[p].offset.z);
+            o += BONES[p].offset;
             p = BONES[p].parent as usize;
         }
 

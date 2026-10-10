@@ -26,8 +26,8 @@ fn search_step(map: &StreetMap, nodes: &mut [SearchNode], from: usize, to: usize
         if nodes[i].state != OPEN {
             continue;
         }
-        let (dx, dy, dz) = (goal.x - n.pos.x, goal.y - n.pos.y, goal.z - n.pos.z);
-        let f = (dz * dz + (dx * dx + dy * dy)).sqrt() * HEURISTIC + nodes[i].cost;
+        let d = goal - n.pos;
+        let f = d.length() * HEURISTIC + nodes[i].cost;
         if best > f {
             sel = i;
             best = f;

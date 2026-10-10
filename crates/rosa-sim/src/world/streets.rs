@@ -86,12 +86,12 @@ pub struct StreetMap {
 }
 
 fn normalized(v: Vec3) -> Vec3 {
-    let len = (v.z * v.z + (v.x * v.x + v.y * v.y)).sqrt();
+    let len = v.length();
     if len == 0.0 {
         return Vec3::ZERO;
     }
     let inv = 1.0 / len;
-    Vec3::new(v.x * inv, v.y * inv, inv * v.z)
+    v * inv
 }
 
 fn street_name(north_south: bool, i0: IVec3) -> (&'static str, i32) {
@@ -139,12 +139,12 @@ impl StreetMap {
         if north_south {
             lo = Vec3::new(a.pos.x as f32 * UNIT, 0.0, (a.lanes[1] + a.pos.z) as f32 * UNIT);
             let k = right as f32 * UNIT;
-            lo = Vec3::new(side.x * k + lo.x, side.y * k + lo.y, k * side.z + lo.z);
+            lo = side * k + lo;
             hi = Vec3::new(b.pos.x as f32 * UNIT, 0.0, (b.pos.z - b.lanes[3]) as f32 * UNIT);
         } else {
             lo = Vec3::new((a.lanes[0] + a.pos.x) as f32 * UNIT, 0.0, a.pos.z as f32 * UNIT);
             let k = -(left as f32 * UNIT);
-            lo = Vec3::new(side.x * k + lo.x, side.y * k + lo.y, k * side.z + lo.z);
+            lo = side * k + lo;
             hi = Vec3::new((b.pos.x - b.lanes[2]) as f32 * UNIT, 0.0, b.pos.z as f32 * UNIT);
         }
         let (ya, yb) = (a.pos.y as f32 * UNIT, b.pos.y as f32 * UNIT);
@@ -159,12 +159,12 @@ impl StreetMap {
         let (lane_x, lane_z);
         if north_south {
             let k = -(left as f32 * UNIT);
-            hi = Vec3::new(side.x * k + hi.x, side.y * k + hi.y, k * side.z + hi.z);
+            hi = side * k + hi;
             lane_x = a.pos.x as f32 * UNIT;
             lane_z = (a.pos.z + a.lanes[1]) as f32 * UNIT;
         } else {
             let k = right as f32 * UNIT;
-            hi = Vec3::new(side.x * k + hi.x, hi.y + side.y * k, k * side.z + hi.z);
+            hi = side * k + hi;
             lane_x = (a.pos.x + a.lanes[0]) as f32 * UNIT;
             lane_z = a.pos.z as f32 * UNIT;
         }
@@ -177,7 +177,7 @@ impl StreetMap {
     }
 
     fn build_route_graph(&mut self) {
-        let mid = |l: &Lane| Vec3::new((l.start.x + l.end.x) * 0.5, (l.start.y + l.end.y) * 0.5, (l.start.z + l.end.z) * 0.5);
+        let mid = |l: &Lane| (l.start + l.end) * 0.5;
         self.route_nodes = self
             .streets
             .iter()

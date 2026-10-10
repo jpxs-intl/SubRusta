@@ -664,7 +664,7 @@ impl Sim {
                             return false;
                         }
                         let d = Vec3::new(i.pos.0.x - camera.x, i.pos.0.y - camera.y, i.pos.0.z - camera.z);
-                        let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+                        let dist = d.length();
                         let packed = client.packed.get(&i.slot).is_some_and(|p| p.kind == 1 && p.index == i.item_id);
                         if packed { dist <= UNPACK_RANGE } else { !(PACK_RANGE <= dist) }
                     })
@@ -709,20 +709,20 @@ impl Sim {
         let items: Vec<u16> = packed.iter().map(|p| p.index).collect();
         for item in items {
             let Some(&(pos, mask, ids)) = ctx.item_links.get(&item) else { continue };
-            let d = Vec3::new(camera.x - pos.x, camera.y - pos.y, camera.z - pos.z);
-            if !(NEAR > ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()) {
+            let d = camera - pos;
+            if !(NEAR > d.length()) {
                 continue;
             }
             let sent = client.link_sent.entry(item as usize).or_insert(0);
-            for k in 0..crate::computer::links::ITEM_SLOTS {
+            for (k, &link) in ids.iter().enumerate() {
                 if mask & (1 << k) != 0 && *sent & (1 << k) == 0 {
                     *sent |= 1 << k;
-                    client.link_ring[client.link_count as usize] = ids[k];
+                    client.link_ring[client.link_count as usize] = link;
                     client.link_count = client.link_count.wrapping_add(1);
                 }
             }
         }
-        let n = client.link_count.wrapping_sub(client.link_ack).min(255);
+        let n = client.link_count.wrapping_sub(client.link_ack);
         let entries = (0..n)
             .filter_map(|k| {
                 let index = client.link_ring[client.link_ack.wrapping_add(k) as usize];

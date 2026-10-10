@@ -72,7 +72,7 @@ pub struct EliminatorState {
 }
 
 fn step(p: Vec3, r: Vec3) -> Vec3 {
-    Vec3::new(r.x * TABLE_STEP + p.x, r.y * TABLE_STEP + p.y, r.z * TABLE_STEP + p.z)
+    r * TABLE_STEP + p
 }
 
 /// A random gun and its magazine.
@@ -422,7 +422,7 @@ impl Sim {
         let r = rand::random_range(0..8);
         let v = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, DROP_SPREAD, 0.0);
         let spot = MISSION_SPOTS[r as usize].pos;
-        let p = Vec3::new(v.x + spot.x, v.y + spot.y, v.z + spot.z);
+        let p = v + spot;
         self.create_item(ItemKind::Grenade, p, None, IDENTITY);
         let spot = MISSION_SPOTS[rand::random_range(0..8) as usize].pos;
         let (gun, mag) = random_gun();

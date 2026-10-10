@@ -20,13 +20,9 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
     for (i, t) in BONES.iter().enumerate() {
         let o = BoneTemplate::rest_offset(i);
         let [r0, r1, r2] = *rot;
-        let world = Vec3::new(
-            ((r0.x * o.x + r1.x * o.y) + r2.x * o.z) + pos.x,
-            ((r0.y * o.x + r1.y * o.y) + r2.y * o.z) + pos.y,
-            ((r0.z * o.x + r1.z * o.y) + r2.z * o.z) + pos.z,
-        );
+        let world = r0 * o.x + r1 * o.y + r2 * o.z + pos;
         let inv_inertia = t.inv_inertia();
-        let inertia = Vec3::new(1.0 / inv_inertia.x, 1.0 / inv_inertia.y, 1.0 / inv_inertia.z);
+        let inertia = 1.0 / inv_inertia;
         let body = bodies.create(RigidBodyType::HumanBone, world, *rot, None, inertia, t.mass)?;
         if let Some(b) = bodies.get_mut(body) {
             b.owner = id as i32;
@@ -65,7 +61,7 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
     let mut joints = Vec::with_capacity(JOINT_ORDER.len());
     for child in JOINT_ORDER {
         let t = &BONES[child];
-        let anchor_b = Vec3::new(t.joint.x - t.offset.x, t.joint.y - t.offset.y, t.joint.z - t.offset.z);
+        let anchor_b = t.joint - t.offset;
         let Some(bond) = bodies.create_bond(Bond::Joint(BondJoint::new(bones[t.parent as usize].body, bones[child].body, t.joint, anchor_b, id as i32))) else { continue };
         joints.push(Joint { bond, parent: t.parent as usize, child });
         bones[child].joint = Some(bond);
@@ -181,7 +177,7 @@ fn build_attachments(bones: &[Bone]) -> Attachments {
     let body = |b: BoneId| bones[b as usize].body;
     let anchor = |child: BoneId| {
         let t = &BONES[child as usize];
-        let local = Vec3::new(t.joint.x - t.offset.x, t.joint.y - t.offset.y, t.joint.z - t.offset.z);
+        let local = t.joint - t.offset;
         vec![(body(t.parent), t.joint), (body(child), local)]
     };
     let knee = |b: BoneId| vec![(body(b), Vec3::new(0.0, 0.25, 0.0))];
@@ -237,6 +233,6 @@ pub fn update_attachment_centroids(attachments: &mut Attachments, bodies: &Rigid
             sum.z += ((r0.z * l.x + p.z) + r1.z * l.y) + r2.z * l.z;
         }
         let inv = 1.0 / g.points.len() as f32;
-        g.centroid = Vec3::new(sum.x * inv, sum.y * inv, sum.z * inv);
+        g.centroid = sum * inv;
     }
 }

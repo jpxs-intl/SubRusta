@@ -220,7 +220,7 @@ impl MeshBuilder {
             }
             let c = |i: usize| {
                 let u = CUBE_CORNERS[f[i]];
-                Vec3::new(u.x * s.x + o.x, u.y * s.y + o.y, u.z * s.z + o.z)
+                u * s + o
             };
             self.ctrl[0] = c(0);
             self.ctrl[3] = c(1);

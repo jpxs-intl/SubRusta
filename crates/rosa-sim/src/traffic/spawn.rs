@@ -80,7 +80,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
         let l = st.lanes[(n - k - 1) as usize];
         (l.start, l.end.x - l.start.x, l.end.z - l.start.z)
     } else {
-        dir = Vec3::new(-dir.x, -dir.y, -dir.z);
+        dir = -dir;
         let l = st.lanes[k as usize];
         (l.end, l.start.x - l.end.x, l.start.z - l.end.z)
     };
@@ -90,7 +90,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
     if slot == 0 {
         yaw = (yaw as f64 + SPAWN_PI) as f32;
     }
-    let pos = Vec3::new(dir.x * p + from.x, dir.y * p + from.y, dir.z * p + from.z);
+    let pos = dir * p + from;
     let ends = st.intersections.map(|i| streets.intersections[i].world_pos.y);
     let top = maxss(ends[1], maxss(ends[0], pos.y)) + TRACE_LIFT;
     let up = Vec3::Y;

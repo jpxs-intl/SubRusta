@@ -175,12 +175,8 @@ impl RigidBodies {
     pub fn add_impulse(&mut self, id: usize, offset: Vec3, impulse: Vec3) {
         let Some(b) = self.bodies.get_mut(id) else { return };
         let (r, j) = (offset, impulse);
-        b.vel = Vec3::new(b.vel.x + j.x, b.vel.y + j.y, b.vel.z + j.z);
-        b.ang_momentum = Vec3::new(
-            (j.y * r.z - j.z * r.y) + b.ang_momentum.x,
-            (j.z * r.x - r.z * j.x) + b.ang_momentum.y,
-            (r.y * j.x - j.y * r.x) + b.ang_momentum.z,
-        );
+        b.vel += j;
+        b.ang_momentum = j.cross(r) + b.ang_momentum;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -264,21 +260,19 @@ fn solve_world_contact(b: &mut RigidBody, c: &Contact) {
     let (r, n, w, v) = (c.offset, c.normal, b.ang_vel, b.vel);
     let k = -c.softness;
     let bias = c.bias;
-    let ux = ((r.y * w.z - r.z * w.y) + v.x) * k + bias * n.x;
-    let uy = ((r.z * w.x - w.z * r.x) + v.y) * k + bias * n.y;
-    let uz = ((w.y * r.x - r.y * w.x) + v.z) * k + bias * n.z;
-    let d = (ux * n.x + uy * n.y) + uz * n.z;
+    let u = (r.cross(w) + v) * k + bias * n;
+    let d = u.dot(n);
     if !(d > 0.0) {
         return;
     }
-    let (mut jx, mut jy, mut jz) = (n.x * d, n.y * d, d * n.z);
-    let (tx, ty, tz) = (ux - jx, uy - jy, uz - jz);
-    let tlen = ((tx * tx + ty * ty) + tz * tz).sqrt();
+    let mut j = n * d;
+    let t = u - j;
+    let tlen = t.length();
     let mut slide = 0.0f32;
     if tlen > 0.0 {
         let inv = 1.0 / tlen;
-        let (dx, dy, dz) = (tx * inv, ty * inv, tz * inv);
-        let jlen = ((jx * jx + jy * jy) + jz * jz).sqrt();
+        let d = t * inv;
+        let jlen = j.length();
         let limit = c.friction * jlen;
         let k = 24.5 / 3600.0;
         let m = if tlen > limit {
@@ -295,17 +289,13 @@ fn solve_world_contact(b: &mut RigidBody, c: &Contact) {
         } else {
             tlen
         };
-        jx += dx * m;
-        jy += dy * m;
-        jz += m * dz;
+        j.x += d.x * m;
+        j.y += d.y * m;
+        j.z += m * d.z;
     }
     b.slide += slide;
-    b.impulse = Vec3::new(b.impulse.x + jx, b.impulse.y + jy, b.impulse.z + jz);
-    b.ang_impulse = Vec3::new(
-        (r.z * jy - r.y * jz) + b.ang_impulse.x,
-        (jz * r.x - r.z * jx) + b.ang_impulse.y,
-        (r.y * jx - r.x * jy) + b.ang_impulse.z,
-    );
+    b.impulse += j;
+    b.ang_impulse = j.cross(r) + b.ang_impulse;
 }
 
 fn solve_body_contact(bodies: &mut Table<RigidBody>, c: &BodyContact) {
@@ -313,45 +303,35 @@ fn solve_body_contact(bodies: &mut Table<RigidBody>, c: &BodyContact) {
     let (va, wa, vb, wb) = (a.vel, a.ang_vel, b.vel, b.ang_vel);
     let (ra, rb, n, s, bias) = (c.offset_a, c.offset_b, c.normal, c.softness, c.bias);
     let ns = -s;
-    let ux = ((va.x + (ra.y * wa.z - wa.y * ra.z)) * ns + bias * n.x) + ((rb.y * wb.z - rb.z * wb.y) + vb.x) * s;
-    let uy = ((va.y + (wa.x * ra.z - wa.z * ra.x)) * ns + bias * n.y) + ((rb.z * wb.x - wb.z * rb.x) + vb.y) * s;
-    let uz = (((wa.y * ra.x - wa.x * ra.y) + va.z) * ns + bias * n.z) + ((wb.y * rb.x - wb.x * rb.y) + vb.z) * s;
-    let d = (ux * n.x + uy * n.y) + uz * n.z;
+    let u = (va + ra.cross(wa)) * ns + bias * n + (rb.cross(wb) + vb) * s;
+    let d = u.dot(n);
     if !(d > 0.0) {
         return;
     }
-    let (mut jx, mut jy, mut jz) = (n.x * d, n.y * d, n.z * d);
-    let (tx, ty, tz) = (ux - jx, uy - jy, uz - jz);
-    let tlen = ((tx * tx + ty * ty) + tz * tz).sqrt();
+    let mut j = n * d;
+    let t = u - j;
+    let tlen = t.length();
     if tlen > 0.0 {
         let inv = 1.0 / tlen;
-        let (dx, dy, dz) = (tx * inv, ty * inv, tz * inv);
-        let jlen = ((jx * jx + jy * jy) + jz * jz).sqrt();
+        let d = t * inv;
+        let jlen = j.length();
         let limit = c.friction * jlen;
         let m = if limit < tlen { limit } else { tlen };
-        jx += dx * m;
-        jy += dy * m;
-        jz += m * dz;
+        j.x += d.x * m;
+        j.y += d.y * m;
+        j.z += m * d.z;
     }
 
     let (wa_, nwb) = (c.weight_a, -c.weight_b);
     if let Some(a) = bodies.get_mut(c.body_a) {
-        a.impulse = Vec3::new(wa_ * jx + a.impulse.x, wa_ * jy + a.impulse.y, wa_ * jz + a.impulse.z);
+        a.impulse = wa_ * j + a.impulse;
         let l = a.ang_impulse;
-        a.ang_impulse = Vec3::new(
-            (ra.z * jy - ra.y * jz) * wa_ + l.x,
-            (ra.x * jz - ra.z * jx) * wa_ + l.y,
-            (ra.y * jx - ra.x * jy) * wa_ + l.z,
-        );
+        a.ang_impulse = j.cross(ra) * wa_ + l;
     }
     if let Some(b) = bodies.get_mut(c.body_b) {
-        b.impulse = Vec3::new(nwb * jx + b.impulse.x, nwb * jy + b.impulse.y, nwb * jz + b.impulse.z);
+        b.impulse = nwb * j + b.impulse;
         let l = b.ang_impulse;
-        b.ang_impulse = Vec3::new(
-            (rb.z * jy - rb.y * jz) * nwb + l.x,
-            (jz * rb.x - rb.z * jx) * nwb + l.y,
-            (rb.y * jx - jy * rb.x) * nwb + l.z,
-        );
+        b.ang_impulse = j.cross(rb) * nwb + l;
     }
 }
 
@@ -360,48 +340,42 @@ fn solve_ground_contact(b: &mut RigidBody, c: &GroundContact) {
     let push = c.depth * c.stiffness;
     let k = c.stiffness * 0.125;
     let nd = -c.damping;
-    let ux = ((v.x + 0.0) - g.x) * nd + (c.drift.x * k + push * n.x);
-    let uy = ((v.y + 0.0) - g.y) * nd + (c.drift.y * k + push * n.y);
-    let uz = (k * c.drift.z + push * n.z) + ((v.z + 0.0) - g.z) * nd;
-    let d = (ux * n.x + uy * n.y) + uz * n.z;
+    let u = (v + 0.0 - g) * nd + (c.drift * k + push * n);
+    let d = u.dot(n);
     if !(d > 0.0) {
         return;
     }
-    let (mut jx, mut jy, mut jz) = (n.x * d, n.y * d, n.z * d);
-    let (tx, ty, tz) = (ux - jx, uy - jy, uz - jz);
-    let tl = ((tx * tx + ty * ty) + tz * tz).sqrt();
+    let mut j = n * d;
+    let t = u - j;
+    let tl = t.length();
     if tl > 0.0 {
         let inv = 1.0 / tl;
-        let (dx, dy, dz) = (tx * inv, ty * inv, tz * inv);
-        let jl = ((jx * jx + jy * jy) + jz * jz).sqrt();
+        let d = t * inv;
+        let jl = j.length();
         let limit = c.friction * jl;
         let m = if limit < tl { limit } else { tl };
-        jx += dx * m;
-        jy += dy * m;
-        jz += dz * m;
+        j.x += d.x * m;
+        j.y += d.y * m;
+        j.z += d.z * m;
     }
     let w = d * 1024.0;
     let w = if 1.0 < w { 1.0 } else { w };
-    b.impulse = Vec3::new(b.impulse.x + jx, c.lift * jy + b.impulse.y, jz + b.impulse.z);
+    b.impulse = Vec3::new(b.impulse.x + j.x, c.lift * j.y + b.impulse.y, j.z + b.impulse.z);
     let a = (c.stiffness * c.spin_gain) * w;
     let s = (-c.damping * c.spin_gain) * w;
     let av = b.ang_vel;
     let l = b.ang_impulse;
-    b.ang_impulse = Vec3::new(
-        (s * av.x + a * c.spin.x) + l.x,
-        (av.y * s + c.spin.y * a) + l.y,
-        (av.z * s + c.spin.z * a) + l.z,
-    );
+    b.ang_impulse = s * av + a * c.spin + l;
 }
 
 fn apply_impulses(b: &mut RigidBody) {
-    b.vel = Vec3::new(b.vel.x + b.impulse.x, b.vel.y + b.impulse.y, b.vel.z + b.impulse.z);
-    let mut l = Vec3::new(b.ang_momentum.x + b.ang_impulse.x, b.ang_momentum.y + b.ang_impulse.y, b.ang_momentum.z + b.ang_impulse.z);
-    let len = ((l.x * l.x + l.y * l.y) + l.z * l.z).sqrt();
+    b.vel += b.impulse;
+    let mut l = b.ang_momentum + b.ang_impulse;
+    let len = l.length();
     let cap = b.min_inertia * 8.0;
     if len > cap {
         let s = cap / len;
-        l = Vec3::new(l.x * s, l.y * s, l.z * s);
+        l *= s;
     }
     b.ang_momentum = l;
     b.ang_vel = angular_velocity(&b.rot, l, b.inv_inertia);

@@ -57,19 +57,19 @@ fn half_turn(angle: f32) -> (f32, f32) {
 
 fn local(r: &RotMatrix, v: Vec3) -> Vec3 {
     let [r0, r1, r2] = *r;
-    Vec3::new((r0.x * v.x + r0.y * v.y) + r0.z * v.z, (r1.x * v.x + r1.y * v.y) + r1.z * v.z, (r2.x * v.x + r2.y * v.y) + r2.z * v.z)
+    Vec3::new(r0.dot(v), r1.dot(v), r2.dot(v))
 }
 
 fn world(r: &RotMatrix, v: Vec3) -> Vec3 {
     let [r0, r1, r2] = *r;
-    Vec3::new((r0.x * v.x + r1.x * v.y) + r2.x * v.z, (r0.y * v.x + r1.y * v.y) + r2.y * v.z, (r0.z * v.x + r1.z * v.y) + r2.z * v.z)
+    r0 * v.x + r1 * v.y + r2 * v.z
 }
 
 /// The parent's spin relative to the child, in the parent's space, as a damping term.
 fn relative_spin_damping(h: &Human, parent: usize, child: usize) -> Vec3 {
     let (a, b) = (h.bones[parent].ang_vel, h.bones[child].ang_vel);
-    let l = local(&h.bones[parent].rot, Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z));
-    Vec3::new(l.x * -0.25, l.y * -0.25, l.z * -0.25)
+    let l = local(&h.bones[parent].rot, a - b);
+    l * -0.25
 }
 
 /// The turn (axis and angle, at most `SPINE_TURN`) taking `child`, relative to `parent`, to the pose `pose`.
@@ -89,16 +89,11 @@ fn joint_turn(h: &Human, parent: usize, child: usize, pose: [f32; 4]) -> (Vec3, 
 /// predicted orientation `frame`.
 fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: usize, pose: [f32; 4], damping: Vec3, frame: &mut RotMatrix) {
     let (axis, angle) = joint_turn(h, parent, child, pose);
-    let t = Vec3::new(axis.x * angle * 0.75 + damping.x, axis.y * angle * 0.75 + damping.y, angle * axis.z * 0.75 + damping.z);
+    let t = axis * angle * 0.75 + damping;
     let mut target = world(&h.bones[child].rot, t);
     super::ik::clamp_bone_relative_correction(h, parent, child, &mut target, 1.125, 1.0);
-    let len = ((target.x * target.x + target.y * target.y) + target.z * target.z).sqrt();
-    let u = if len == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / len;
-        Vec3::new(target.x * inv, target.y * inv, inv * target.z)
-    };
+    let len = target.length();
+    let u = target.normalize_or_zero();
     let axis = local(&h.bones[parent].rot, u);
     *frame = multiply_matrixes(&h.bones[parent].rot, &h.bones[child].rot);
     rotate_orientation(frame, axis, len);
@@ -113,7 +108,7 @@ fn drive_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: 
 /// Aiming a gun: `child` turns (relative to `parent`) straight to the aim pose `pose`, undamped.
 fn aim_spine_joint(h: &Human, bodies: &mut RigidBodies, parent: usize, child: usize, pose: [f32; 4]) {
     let (axis, angle) = joint_turn(h, parent, child, pose);
-    let target = world(&h.bones[child].rot, Vec3::new(axis.x * angle, axis.y * angle, angle * axis.z));
+    let target = world(&h.bones[child].rot, axis * angle);
     if let Some(id) = h.bones[child].joint
         && let Some(Bond::Joint(j)) = bodies.bond_mut(id)
     {
@@ -221,7 +216,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     let mut frame = IDENTITY;
     let mut pose = add_turn(identity, &mut frame, 1, 0.5 * h.free_look_yaw - aim);
     if h.movement_mode == 2 && has_gun {
-        pose = quaternion_multiply(pose, [0.0, 0.0, f32::from_bits(0xbdc8bd36), f32::from_bits(0x3f7ec46d)]);
+        pose = quaternion_multiply(pose, [0.0, 0.0, -0.09801714, 0.9951847]);
 
         let axis = frame[2];
         rotate_orientation(&mut frame, axis, 11.25_f32.to_radians());
@@ -235,19 +230,15 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     h.locomotion.spine_frames = frames;
 
     let state = h.movement_state;
-    for k in 0..2 {
+    for (k, &hp) in arm_hp.iter().enumerate() {
         let first = 4 + 3 * k;
         let held = held_item(h, touch, k);
         let hold = held.map(|(item, hand)| hold_frame(h, bodies, touch, k, item, hand, -aim, aim_poses.map(|p| p[2])));
         if k == 0 {
-            let s = calculate_spread_vector(seed, 1.0 / 128.0, 0.0);
-            let v = h.hand_sway_vel;
-            let v = Vec3::new(s.x + v.x, s.y + v.y, s.z + v.z);
-            let b = h.hand_sway;
-            let v = Vec3::new(b.x * (-1.0 / 256.0) + v.x, b.y * (-1.0 / 256.0) + v.y, b.z * (-1.0 / 256.0) + v.z);
-            let v = Vec3::new(v.x * 0.9375, v.y * 0.9375, v.z * 0.9375);
-            h.hand_sway_vel = v;
-            h.hand_sway = Vec3::new(v.x + b.x, b.y + v.y, b.z + v.z);
+            let jitter = calculate_spread_vector(seed, 1.0 / 128.0, 0.0);
+            let sway = h.hand_sway;
+            h.hand_sway_vel = (sway * (-1.0 / 256.0) + (jitter + h.hand_sway_vel)) * 0.9375;
+            h.hand_sway = h.hand_sway_vel + sway;
         }
         let mut swing = (h.locomotion.stride_balance as f64 * 22.5_f64.to_radians()) as f32;
         if h.movement_mode > 0 {
@@ -273,11 +264,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
             (((-0.65625 * a.cos()) * scale as f64) as f32, (scale as f64 * (-a.sin() * 0.65625)) as f32)
         };
         let mut target = match hold {
-            Some((m, v)) => {
-                let j = BONES[first].joint;
-                let m1 = m[1];
-                Vec3::new((0.0625 * m1.x + v.x) - j.x, (0.0625 * m1.y + v.y) - j.y, (0.0625 * m1.z + v.z) - j.z)
-            }
+            Some((m, v)) => 0.0625 * m[1] + v - BONES[first].joint,
             None => Vec3::new(if k == 0 { -0.0625 } else { 0.0625 }, y, z),
         };
         if k == 1 && h.inventory[0].count <= 0 && h.inventory[1].count <= 0 && h.input_flags & 3 == 3 {
@@ -294,7 +281,6 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         if h.locomotion.jump_charge > 0 || state == 3 {
             max_turn = 45.0_f32.to_radians();
         }
-        let hp = arm_hp[k];
         if let Some((item, hand)) = held {
             let kind = touch.items.get(item).unwrap().item_type as u32;
             let mut twist = match kind {
@@ -493,32 +479,28 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         }
         v = Vec3::new(v.x + k * r2.x, v.y + k * r2.y, 0.0 + k * r2.z);
     }
-    v = Vec3::new(
-        ((-0.1875 * r2.x + v.x) + -0.375 * r2.x) + 0.0625 * m1.x,
-        ((-0.1875 * r2.y + v.y) + -0.375 * r2.y) + 0.0625 * m1.y,
-        ((-0.1875 * r2.z + v.z) + -0.375 * r2.z) + 0.0625 * m1.z,
-    );
+    v = -0.1875 * r2 + v + -0.375 * r2 + 0.0625 * m1;
     let kind = item.item_type as u32;
     let other_hand_check = if kind == COMPUTER {
-        v = Vec3::new(m1.x * -0.125 + (v.x + r2.x * 0.275), (v.y + r2.y * 0.275) + m1.y * -0.125, (v.z + r2.z * 0.275) + m1.z * -0.125);
+        v = m1 * -0.125 + (v + r2 * 0.275);
         k == 0
     } else if k == 1 && kind == PHONE {
         if item.state.phone().is_some_and(|p| p.status == crate::sim::item_state::PhoneStatus::Connected) {
-            v = Vec3::new(0.0625 * m1.x + (v.x + r2.x * 0.4375), 0.0625 * m1.y + (v.y + r2.y * 0.4375), 0.0625 * m1.z + (v.z + r2.z * 0.4375));
+            v = 0.0625 * m1 + (v + r2 * 0.4375);
         }
         false
     } else {
         if kind == 0xb && h.vehicle.is_none() {
             v = if h.movement_mode == 2 {
-                Vec3::new(-0.25 * r2.x + v.x, -0.25 * r2.y + v.y, -0.25 * r2.z + v.z)
+                -0.25 * r2 + v
             } else {
-                Vec3::new(m1.x * -0.125 + v.x, m1.y * -0.125 + v.y, -0.125 * m1.z + v.z)
+                m1 * -0.125 + v
             };
         }
         k == 0 && !paper
     };
     if other_hand_check && h.inventory[1].count > 0 {
-        v = Vec3::new(r2.x * 0.125 + v.x, r2.y * 0.125 + v.y, 0.125 * r2.z + v.z);
+        v = r2 * 0.125 + v;
     }
     let thrown = h.input_flags & 0x20 != 0;
     let quarter = 90.0_f32.to_radians();
@@ -532,13 +514,9 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
     }
     let [m0, m1, r2] = m;
     let p = ty.hold_pos[hand];
-    v = Vec3::new(
-        ((p.x * m0.x + v.x) + p.y * m1.x) + r2.x * p.z,
-        r2.y * p.z + ((m0.y * p.x + v.y) + m1.y * p.y),
-        p.z * r2.z + ((m0.z * p.x + v.z) + m1.z * p.y),
-    );
+    v = p.x * m0 + v + p.y * m1 + r2 * p.z;
     if kind == RADIO && matches!(item.state, crate::sim::item_state::ItemState::Radio { transmitting: true, .. }) {
-        v = Vec3::new(v.x + r2.x * 0.1875, v.y + r2.y * 0.1875, v.z + r2.z * 0.1875);
+        v += r2 * 0.1875;
     } else if kind == BRIEFCASE && (thrown || h.action_type == 0) {
         let axis = m[0];
         rotate_orientation(&mut m, axis, quarter);
@@ -550,16 +528,16 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
     }
     if h.action_type == 1 {
         let a = m[0];
-        let t = -(((v.x * a.x + v.y * a.y) + v.z * a.z) * h.action_progress);
-        v = Vec3::new(a.x * t + v.x, a.y * t + v.y, t * a.z + v.z);
+        let t = -(v.dot(a) * h.action_progress);
+        v = a * t + v;
     }
     let vel = bodies.get(item.body).map_or(Vec3::ZERO, |b| b.vel);
     let tv = h.locomotion.torso_vel;
-    let d = Vec3::new(vel.x - tv.x, vel.y - tv.y, vel.z - tv.z);
+    let d = vel - tv;
     let [c0, c1, c2] = h.bones[2].rot;
-    let l = Vec3::new((c0.x * d.x + c0.y * d.y) + c0.z * d.z, (c1.x * d.x + c1.y * d.y) + c1.z * d.z, (d.x * c2.x + d.y * c2.y) + d.z * c2.z);
+    let l = Vec3::new(c0.dot(d), c1.dot(d), d.dot(c2));
     if h.input_flags & 0x20 == 0 && h.action_type != 0 {
-        v = Vec3::new(l.x * -0.75 + v.x, l.y * -0.75 + v.y, l.z * -0.75 + v.z);
+        v = l * -0.75 + v;
     }
     let tilt = match kind {
         0x22 | 0x1d => Some((-78.75_f32).to_radians()),
@@ -574,7 +552,7 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
     let r = ty.hold_rot[hand];
     if r[3].abs() > 0.0 {
         let [m0, m1, m2] = m;
-        let axis = Vec3::new((m0.x * r[0] + m1.x * r[1]) + m2.x * r[2], (m0.y * r[0] + m1.y * r[1]) + m2.y * r[2], (m0.z * r[0] + m1.z * r[1]) + m2.z * r[2]);
+        let axis = m0 * r[0] + m1 * r[1] + m2 * r[2];
         rotate_orientation(&mut m, axis, -r[3]);
     }
     (m, v)
@@ -592,7 +570,7 @@ fn gun_hold_pos(h: &Human, ty: &ItemType, hand: usize, m: &RotMatrix) -> Vec3 {
         y += 0.25;
     }
     let (g, p) = (ty.gun_hold_pos, ty.hold_pos[hand]);
-    let along = |v: Vec3, k: [f32; 3]| m.iter().zip(k).fold(v, |v, (r, k)| Vec3::new(v.x + r.x * k, v.y + r.y * k, v.z + k * r.z));
+    let along = |v: Vec3, k: [f32; 3]| m.iter().zip(k).fold(v, |v, (r, k)| v + r * k);
     along(along(Vec3::new(j.x - 0.0625, y, j.z - 0.09375), [-g.x, -g.y, -g.z]), [p.x, p.y, p.z])
 }
 
@@ -605,7 +583,7 @@ fn arm_item_collision(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, i
     let (pos, [_, r1, r2]) = item.pocket_pose.unwrap_or((body.pos, body.rot));
     let item_body = item.body;
     let g = ty.gun_hold_pos;
-    let base = Vec3::new(r2.x * g.z + pos.x, r2.y * g.z + pos.y, g.z * r2.z + pos.z);
+    let base = r2 * g.z + pos;
     for i in 0..4 {
         let bone = if i <= 1 { 7 } else { 2 };
         let (b, t) = (&h.bones[bone], &BONES[bone]);
@@ -621,27 +599,27 @@ fn arm_item_collision(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, i
             )
         } else {
             (
-                Vec3::new((37.0 / 128.0) * a.x + p.x, (37.0 / 128.0) * a.y + p.y, (37.0 / 128.0) * a.z + p.z),
-                Vec3::new((21.0 / 128.0) * a.x + p.x, (21.0 / 128.0) * a.y + p.y, (21.0 / 128.0) * a.z + p.z),
+                37.0 / 128.0 * a + p,
+                21.0 / 128.0 * a + p,
             )
         };
         let gy = if i & 1 != 0 { g.y + 0.0625 } else { g.y - 0.0625 };
-        let grip = Vec3::new(base.x + r1.x * gy, base.y + r1.y * gy, base.z + r1.z * gy);
+        let grip = base + r1 * gy;
         let (hit, on_arm, on_gun, dist) = segment_closest_points(start, end, grip, pos, 1.0 / 8.0);
         if !hit {
             continue;
         }
-        let d = Vec3::new(on_arm.x - on_gun.x, on_arm.y - on_gun.y, on_arm.z - on_gun.z);
-        let len = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let d = on_arm - on_gun;
+        let len = d.length();
         let n = if len != 0.0 {
             let inv = 1.0 / len;
-            Vec3::new(d.x * inv, d.y * inv, inv * d.z)
+            d * inv
         } else {
             Vec3::ZERO
         };
-        let mid = Vec3::new((on_arm.x + on_gun.x) * 0.5, (on_arm.y + on_gun.y) * 0.5, 0.5 * (on_arm.z + on_gun.z));
-        let off_arm = Vec3::new(mid.x - p.x, mid.y - p.y, mid.z - p.z);
-        let off_gun = Vec3::new(mid.x - pos.x, mid.y - pos.y, mid.z - pos.z);
+        let mid = (on_arm + on_gun) * 0.5;
+        let off_arm = mid - p;
+        let off_gun = mid - pos;
         bodies.add_body_contact(b.body, item_body, off_arm, off_gun, n, 1.0 / 8.0 - dist, 2.0 / 5.0, 1.0 / 32.0, 1.0 / 16.0);
     }
 }
@@ -664,7 +642,7 @@ fn attach_item_to_bone(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, 
     let [b0, b1, b2] = h.bones[bone].rot;
     // the item record's orientation: the body's, or for an item just taken out of a pocket its last snap
     let [i0, i1, i2] = item.pocket_pose.map_or(item_body.rot, |(_, rot)| rot);
-    let d = |a: Vec3, b: Vec3| (a.x * b.x + a.y * b.y) + a.z * b.z;
+    let d = |a: Vec3, b: Vec3| a.dot(b);
     let mut m = [Vec3::new(d(i0, b0), d(i1, b0), d(b0, i2)), Vec3::new(d(b1, i0), d(b1, i1), d(b1, i2)), Vec3::new(d(i0, b2), d(i1, b2), d(b2, i2))];
     let r = ty.hold_rot[hand];
     if r[3].abs() > 0.0 {
@@ -672,9 +650,9 @@ fn attach_item_to_bone(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, 
     }
     let q = rot_matrix_to_quaternion(&m);
     let (axis, angle) = quaternion_to_axis_angle([-q[0], -q[1], -q[2], q[3]]);
-    let v = Vec3::new(axis.x * angle, axis.y * angle, axis.z * angle);
-    let w = Vec3::new((v.y * b1.x + v.x * b0.x) + v.z * b2.x, (b0.y * v.x + b1.y * v.y) + b2.y * v.z, (b0.z * v.x + b1.z * v.y) + b2.z * v.z);
-    bodies.create_bond(Bond::ItemAngular(ItemAngular::new(body_a, item.body, Vec3::new(w.x * 0.25, w.y * 0.25, w.z * 0.25))));
+    let v = axis * angle;
+    let w = v.y * b1 + v.x * b0 + v.z * b2;
+    bodies.create_bond(Bond::ItemAngular(ItemAngular::new(body_a, item.body, w * 0.25)));
 }
 
 /// Crouching while lying on the ground: the arm reaches along the chest's up direction towards the ground below its
@@ -683,18 +661,11 @@ fn crouch_reach(h: &Human, map: &Map, first: usize) -> Vec3 {
     let chest = &h.bones[2];
     let [r0, r1, r2] = chest.rot;
     let up = Vec3::Y;
-    let d = Vec3::new((r0.x * up.x + r0.y * up.y) + r0.z * up.z, (r1.x * up.x + r1.y * up.y) + r1.z * up.z, (up.y * r2.y + up.x * r2.x) + up.z * r2.z);
-    let len = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
-    let d = if len == 0.0 {
-        Vec3::ZERO
-    } else {
-        let inv = 1.0 / len;
-        Vec3::new(d.x * inv, d.y * inv, inv * d.z)
-    };
+    let d = Vec3::new(r0.dot(up), r1.dot(up), up.dot(r2)).normalize_or_zero();
     let j = BONES[first].joint;
     let p = chest.pos;
-    let shoulder = Vec3::new(((j.x * r0.x + p.x) + j.y * r1.x) + r2.x * j.z, ((r1.y * j.y) + (r0.y * j.x + p.y)) + r2.y * j.z, ((r1.z * j.y) + (r0.z * j.x + p.z)) + j.z * r2.z);
-    let end = Vec3::new(shoulder.x - up.x, shoulder.y - up.y, shoulder.z - up.z);
+    let shoulder = j.x * r0 + p + j.y * r1 + r2 * j.z;
+    let end = shoulder - up;
     let mut k = -0.65625;
     if let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, shoulder, end).map(|h| h.hit.pos) {
         let v = (shoulder.y - hit.y) + (1.0 / 256.0);
@@ -702,7 +673,7 @@ fn crouch_reach(h: &Human, map: &Map, first: usize) -> Vec3 {
             k = -v;
         }
     }
-    Vec3::new(d.x * k, d.y * k, k * d.z)
+    d * k
 }
 
 /// Clamps `child` to its joint limits relative to `parent` (human_accumulate_joint_limit_correction into the joint's
@@ -714,7 +685,7 @@ fn limit_joint(h: &mut Human, bodies: &mut RigidBodies, parent: usize, child: us
         && let Some(Bond::Joint(j)) = bodies.bond_mut(id)
     {
         j.limit_correction = correction;
-        let len = ((correction.x * correction.x + correction.y * correction.y) + correction.z * correction.z).sqrt();
+        let len = correction.length();
         j.limit_active = len > 0.0;
         j.spin_limit = spin_limit;
     }

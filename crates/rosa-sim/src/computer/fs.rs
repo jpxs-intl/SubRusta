@@ -37,6 +37,7 @@ pub struct Volume {
 /// A file's content (0x488): whether it is taken (+0), its text (+0x4), whether it is enciphered (+0x404) and the
 /// cipher, a permutation of the 26 letters (+0x408). Some code writes a content without taking it.
 #[derive(Clone, Debug, PartialEq)]
+#[derive(Default)]
 pub struct Content {
     pub active: bool,
     pub text: Vec<u8>,
@@ -44,11 +45,6 @@ pub struct Content {
     pub cipher: [i32; 26],
 }
 
-impl Default for Content {
-    fn default() -> Self {
-        Self { active: false, text: Vec::new(), encrypted: false, cipher: [0; 26] }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct FileSystem {

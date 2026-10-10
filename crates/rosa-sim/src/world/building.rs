@@ -224,7 +224,7 @@ impl CorporationBase {
 
     fn middle(&self) -> Vec3 {
         let (a, b) = (self.interior_min, self.interior_max);
-        Vec3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+        (a + b) * 0.5
     }
 }
 
@@ -320,38 +320,26 @@ impl<'a> Buildings<'a> {
         let c = b.middle();
         let mut m = b.frame();
         let [r0, _, r2] = m;
-        let mut p = Vec3::new(
-            (r0.x * -CAR_ROW_START + c.x) + r2.x * CAR_ROW_START,
-            (r0.y * -CAR_ROW_START + c.y) + r2.y * CAR_ROW_START,
-            (-CAR_ROW_START * r0.z + c.z) + CAR_ROW_START * r2.z,
-        );
+        let mut p = r0 * -CAR_ROW_START + c + r2 * CAR_ROW_START;
         for n in 1..=CAR_SPACES {
             b.car_spaces.push((p, m));
             if n == 4 {
                 let axis = m[1];
                 rotate_orientation(&mut m, axis, 180.0_f32.to_radians());
                 let r2 = m[2];
-                p = Vec3::new(p.x + r2.x * CAR_ROW_GAP, p.y + r2.y * CAR_ROW_GAP, p.z + r2.z * CAR_ROW_GAP);
+                p += r2 * CAR_ROW_GAP;
             } else if n != CAR_SPACES {
                 let r0 = m[0];
-                p = Vec3::new(p.x + r0.x * CAR_STEP, p.y + r0.y * CAR_STEP, p.z + r0.z * CAR_STEP);
+                p += r0 * CAR_STEP;
             }
         }
         let c = b.middle();
         let [r0, _, r2] = b.frame();
-        let t = Vec3::new(
-            (r0.x * TABLE_ALONG + c.x) + r2.x * TABLE_ACROSS,
-            (r0.y * TABLE_ALONG + c.y) + r2.y * TABLE_ACROSS,
-            (TABLE_ALONG * r0.z + c.z) + TABLE_ACROSS * r2.z,
-        );
+        let t = r0 * TABLE_ALONG + c + r2 * TABLE_ACROSS;
         if roundcity {
             b.table = t;
         }
-        b.spawn = Vec3::new(
-            (r0.x * SPAWN_ALONG + t.x) + r2.x * SPAWN_ACROSS,
-            (r0.y * SPAWN_ALONG + t.y) + r2.y * SPAWN_ACROSS,
-            (r0.z * SPAWN_ALONG + t.z) + r2.z * SPAWN_ACROSS,
-        );
+        b.spawn = r0 * SPAWN_ALONG + t + r2 * SPAWN_ACROSS;
         if versus {
             let (a, bb) = (b.interior_min, b.interior_max);
             b.spawn = Vec3::new((a.x + bb.x) * 0.5, (a.y + VERSUS_SPAWN_LIFT) + VERSUS_SPAWN_LIFT2, (a.z + bb.z) * 0.5);
@@ -667,7 +655,7 @@ pub fn assign_streets(records: &mut [BuildingRecord], streets: &crate::world::st
     const REACH: f32 = 32.0;
     for b in records {
         let [_, _, r2] = b.rot;
-        let p = Vec3::new(r2.x * REACH + b.pos.x, r2.y * REACH + b.pos.y, r2.z * REACH + b.pos.z);
+        let p = r2 * REACH + b.pos;
         let mut best = 65536.0f32;
         let mut near = 0;
         for (k, i) in streets.intersections.iter().enumerate() {
@@ -709,20 +697,20 @@ fn placement(raw: &BuildingFile, city: IVec3, rot: u32) -> (Vec3, RotMatrix) {
     for _ in 0..rot {
         let (a4, c4) = (cell(ox), cell(oz));
         let [r0, _, r2] = m;
-        pos = Vec3::new((pos.x + r0.x * a4) + r2.x * c4, (r0.y * a4 + pos.y) + r2.y * c4, (r0.z * a4 + pos.z) + r2.z * c4);
+        pos = pos + r0 * a4 + r2 * c4;
         let axis = m[1];
         rotate_orientation(&mut m, axis, 90.0_f32.to_radians());
         (ox, oz) = (oz, ox);
         let (mx, mz) = (cell(-ox), cell(!oz));
         let [r0, _, r2] = m;
-        pos = Vec3::new((r0.x * mx + pos.x) + r2.x * mz, (pos.y + r0.y * mx) + r2.y * mz, (mx * r0.z + pos.z) + mz * r2.z);
+        pos = r0 * mx + pos + r2 * mz;
     }
     (pos, m)
 }
 
 fn place_point(pos: Vec3, m: &RotMatrix, w: Vec3) -> Vec3 {
     let [a, b, c] = *m;
-    Vec3::new(((pos.x + a.x * w.x) + b.x * w.y) + c.x * w.z, ((a.y * w.x + pos.y) + b.y * w.y) + c.y * w.z, ((a.z * w.x + pos.z) + b.z * w.y) + c.z * w.z)
+    pos + a * w.x + b * w.y + c * w.z
 }
 
 fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32, city: IVec3) -> BuildingRecord {
@@ -745,9 +733,9 @@ fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32, city: IVec
         rot: m,
         car_spawn: if kind == CAR_DEALER {
             let [a, b, c] = m;
-            let p = Vec3::new(pos.x + a.x * 24.0, pos.y + a.y * 24.0, pos.z + 24.0 * a.z);
-            let q = Vec3::new(c.x * 80.0 + p.x, c.y * 80.0 + p.y, 80.0 * c.z + p.z);
-            Vec3::new((b.x + b.x) + q.x, (b.y + b.y) + q.y, q.z + (b.z + b.z))
+            let p = pos + a * 24.0;
+            let q = c * 80.0 + p;
+            b + b + q
         } else {
             Vec3::ZERO
         },
@@ -755,11 +743,7 @@ fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32, city: IVec
         lobby: {
             let [a, b, c] = m;
             let (along, across) = if kind == LAB { (50.0, 26.0) } else { (32.0, 18.0) };
-            Vec3::new(
-                (a.x * along + pos.x) + c.x * across + (b.x + b.x),
-                (a.y * along + pos.y) + c.y * across + (b.y + b.y),
-                (a.z * along + pos.z) + c.z * across + (b.z + b.z),
-            )
+            a * along + pos + c * across + (b + b)
         },
         computers: Vec::new(),
         team: 0,

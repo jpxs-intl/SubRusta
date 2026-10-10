@@ -128,11 +128,7 @@ pub fn entry_pose(e: &SetEntry, cell: IVec3, s: f32, turn: u32) -> (Vec3, RotMat
     rotate_orientation(&mut m, Vec3::Y, angle);
     let [r0, r1, r2] = m;
     let p = e.pos;
-    let pos = Vec3::new(
-        ((r0.x * p.x + base.x) + r1.x * p.y) + r2.x * p.z,
-        ((r0.y * p.x + base.y) + r1.y * p.y) + r2.y * p.z,
-        ((r0.z * p.x + base.z) + r1.z * p.y) + r2.z * p.z,
-    );
+    let pos = r0 * p.x + base + r1 * p.y + r2 * p.z;
     let mut rot = e.rot;
     rotate_orientation(&mut rot, Vec3::Y, angle);
     (pos, rot)

@@ -158,20 +158,8 @@ const TST_SHIFT: f32 = 0.625;
 
 const VAN_SEATS:[[f32; 3]; 6] = [[-0.375, -0.5, -0.875], [0.375, -0.5, -0.875], [-0.375, -0.5, 0.5], [0.375, -0.5, 0.5], [-0.375, -0.5, 1.875], [0.375, -0.5, 1.875]];
 
-fn sub(a: Vec3, b: Vec3) -> Vec3 {
-    Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
-}
-
-fn length(d: Vec3) -> f32 {
-    ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()
-}
-
-fn lerp(a: Vec3, b: Vec3, t: f32) -> Vec3 {
-    Vec3::new((b.x - a.x) * t + a.x, (b.y - a.y) * t + a.y, t * (b.z - a.z) + a.z)
-}
-
 fn mean<'a>(points: impl Iterator<Item = &'a Vec3>) -> (Vec3, f32) {
-    let (sum, n) = points.fold((Vec3::ZERO, 0usize), |(s, n), p| (Vec3::new(s.x + p.x, s.y + p.y, s.z + p.z), n + 1));
+    let (sum, n) = points.fold((Vec3::ZERO, 0usize), |(s, n), p| (s + p, n + 1));
     (sum, 1.0 / n as f32)
 }
 
@@ -179,24 +167,15 @@ fn mean<'a>(points: impl Iterator<Item = &'a Vec3>) -> (Vec3, f32) {
 /// barycentric coordinate for it, averaged over every tetrahedron the cage's vertices span.
 pub fn mean_value_coordinates(verts: &[Vec3], q: Vec3) -> Vec<f32> {
     let n = verts.len();
-    let cross = |e1: Vec3, e2: Vec3| Vec3::new(e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e2.z * e1.x, e1.x * e2.y - e2.x * e1.y);
-    let unit = |c: Vec3| {
-        let len = ((c.y * c.y + c.x * c.x) + c.z * c.z).sqrt();
-        if len == 0.0 {
-            return Vec3::ZERO;
-        }
-        let inv = 1.0 / len;
-        Vec3::new(c.x * inv, c.y * inv, c.z * inv)
-    };
     let mut count = 0;
     for i in 0..n.saturating_sub(1) {
         for j in i + 1..n {
             let a = verts[j];
             for k in j + 1..n {
                 for l in k + 1..n {
-                    let nrm = unit(cross(sub(verts[l], a), sub(verts[k], a)));
-                    let d = sub(verts[i], a);
-                    let dot = (nrm.y * d.y + nrm.x * d.x) + nrm.z * d.z;
+                    let nrm = ((verts[l] - a).cross(verts[k] - a)).normalize_or_zero();
+                    let d = verts[i] - a;
+                    let dot = nrm.dot(d);
                     let dist = if 0.0 > dot { ((-nrm.y) * d.y - d.x * nrm.x) - nrm.z * d.z } else { dot };
                     if dist.abs() >= COPLANAR {
                         count += 1;
@@ -218,21 +197,15 @@ pub fn mean_value_coordinates(verts: &[Vec3], q: Vec3) -> Vec<f32> {
                         if c == p {
                             continue;
                         }
-                        let e1 = sub(verts[b], o);
-                        let e2 = sub(verts[c], o);
-                        let c3 = Vec3::new(e2.y * e1.z - e2.z * e1.y, e2.z * e1.x - e1.z * e2.x, e2.x * e1.y - e1.x * e2.y);
-                        let len = ((c3.y * c3.y + c3.x * c3.x) + c3.z * c3.z).sqrt();
-                        let mut nrm = if len == 0.0 {
-                            Vec3::ZERO
-                        } else {
-                            let inv = 1.0 / len;
-                            Vec3::new(c3.x * inv, c3.y * inv, inv * c3.z)
-                        };
-                        let d = sub(verts[p], o);
-                        let mut dot = (nrm.y * d.y + nrm.x * d.x) + nrm.z * d.z;
+                        let e1 = verts[b] - o;
+                        let e2 = verts[c] - o;
+                        let c3 = e2.cross(e1);
+                        let mut nrm = c3.normalize_or_zero();
+                        let d = verts[p] - o;
+                        let mut dot = nrm.dot(d);
                         if 0.0 > dot {
-                            nrm = Vec3::new(-nrm.x, -nrm.y, -nrm.z);
-                            dot = d.z * nrm.z + (d.x * nrm.x + d.y * nrm.y);
+                            nrm = -nrm;
+                            dot = d.dot(nrm);
                         }
                         if dot.abs() < COPLANAR {
                             continue;
@@ -261,7 +234,7 @@ impl VehicleType {
     #[allow(clippy::too_many_arguments)]
     fn add_wheel(&mut self, state: i32, a: i32, b: i32, weights: [f32; 2], radius: f32, mass: f32, spin_response: f32, vertical_offset: f32, tuning: [f32; 3]) {
         let (pa, pb) = (self.nodes[a as usize].pos, self.nodes[b as usize].pos);
-        let mut local_pos = lerp(pa, pb, weights[1]);
+        let mut local_pos = pa.lerp(pb, weights[1]);
         local_pos.y += vertical_offset;
         self.wheels.push(WheelDef {
             state,
@@ -309,13 +282,13 @@ impl VehicleType {
                 }
                 let (dx, dy, dz) = ((p.x - n.x) * WHEEL_SEARCH_SCALE, (p.y - n.y) * WHEEL_SEARCH_SCALE, p.z - n.z);
                 let d = (dz * dz + (dx * dx + dy * dy)).sqrt();
-                let (wa, an) = (sub(p, na), sub(n, na));
+                let (wa, an) = ((p - na), (n - na));
                 let dot = (p.z - na.z) * an.z + ((p.y - na.y) * an.y + wa.x * an.x);
                 (dot >= 0.0).then_some(d)
             });
             let nb = body.file.nodes[b].pos.0;
-            let to_b = length(sub(nb, p));
-            let to_a = length(sub(na, p));
+            let to_b = (nb - p).length();
+            let to_a = (na - p).length();
             let sum = to_a + to_b;
             self.add_wheel(0, a as i32, b as i32, [to_b / sum, to_a / sum], radius, mass, spin_response, vertical_offset, [0.25, 0.5, travel_damping]);
             if let Some(last) = self.wheels.last_mut() {
@@ -345,11 +318,11 @@ impl VehicleType {
                 n.mass = LOWER_NODE_MASS;
             }
             let m = n.mass;
-            com = Vec3::new(n.pos.x * m + com.x, n.pos.y * m + com.y, m * n.pos.z + com.z);
+            com = n.pos * m + com;
             total += m;
         }
         let inv = 1.0 / total;
-        com = Vec3::new(com.x * inv, com.y * inv, com.z * inv);
+        com *= inv;
         self.center_of_mass = com;
         let (inertia, total) = self.nodes.iter().fold((Vec3::ZERO, 0.0f32), |(acc, total), n| {
             let (dy, dx, dz) = ((n.pos.y - com.y) * (n.pos.y - com.y), (n.pos.x - com.x) * (n.pos.x - com.x), (n.pos.z - com.z) * (n.pos.z - com.z));
@@ -357,13 +330,13 @@ impl VehicleType {
             (Vec3::new((dy + dz) * m + acc.x, (dz + dx) * m + acc.y, (dy + dx) * m + acc.z), total + m)
         });
         let inv = 1.0 / total;
-        self.inertia = Vec3::new(inertia.x * inv, inertia.y * inv, inv * inertia.z);
+        self.inertia = inertia * inv;
         let positions: Vec<Vec3> = self.nodes.iter().map(|n| n.pos).collect();
         let (sum, inv) = mean(positions.iter());
-        self.centroid_offset = Vec3::new(sum.x * inv - com.x, sum.y * inv - com.y, sum.z * inv - com.z);
+        self.centroid_offset = sum * inv - com;
         for w in self.wheels.iter_mut() {
-            let p = lerp(positions[w.node_a as usize], positions[w.node_b as usize], w.weight_b);
-            w.mass_offset = sub(p, com);
+            let p = positions[w.node_a as usize].lerp(positions[w.node_b as usize], w.weight_b);
+            w.mass_offset = p - com;
         }
     }
 
@@ -376,17 +349,16 @@ impl VehicleType {
         }
         let positions: Vec<Vec3> = self.nodes.iter().map(|n| n.pos).collect();
         let (sum, inv) = mean(positions.iter());
-        let centroid = Vec3::new(sum.x * inv, sum.y * inv, sum.z * inv);
+        let centroid = sum * inv;
         self.centroid = centroid;
         for w in self.wheels.iter_mut() {
-            w.local_pos = sub(w.local_pos, centroid);
+            w.local_pos -= centroid;
         }
         let c = self.cage.len();
         let (sum, inv) = mean(positions[..c].iter());
-        let centre = Vec3::new(sum.x * inv, sum.y * inv, inv * sum.z);
+        let centre = sum * inv;
         let reach = positions.iter().fold(0.0f32, |r, &p| {
-            let d = sub(centre, p);
-            let d = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+            let d = (centre - p).length();
             if d > r { d } else { r }
         });
         self.radius = reach * RADIUS_MARGIN;
@@ -394,7 +366,7 @@ impl VehicleType {
         let (cage, centre) = if self.body_file != 0 {
             let cage: Vec<Vec3> = self.cage.iter().map(|&i| positions[i as usize]).collect();
             let (sum, inv) = mean(cage.iter());
-            (cage, Vec3::new(sum.x * inv, sum.y * inv, sum.z * inv))
+            (cage, sum * inv)
         } else {
             (positions[..c].to_vec(), centre)
         };
@@ -768,7 +740,7 @@ impl VehicleType {
             (Vec3::new((dy + dz) * m + acc.x, (dz + dx) * m + acc.y, (dy + dx) * m + acc.z), total + m)
         });
         let inv = 1.0 / total;
-        self.inertia = Vec3::new(inertia.x * inv, inertia.y * inv, inv * inertia.z);
+        self.inertia = inertia * inv;
         for (w, mount) in self.wheels.iter_mut().zip(&body.file.wheels) {
             let p = mount.pos.0;
             w.local_pos = Vec3::new(p.x, p.y - 0.125, p.z);

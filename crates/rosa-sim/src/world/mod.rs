@@ -64,7 +64,7 @@ impl World {
 /// The 16-bit angle encoding of server_send (0x426580): the size as a share of the turn, the top bit for negative.
 fn encode_angle(v: f32) -> u16 {
     const HALF: i64 = 1 << 15;
-    let turn = f64::from_bits(0x401921fb54442eea);
+    let turn = 6.28318530718;
     let n = ((HALF as f64 / turn) * v.abs() as f64) as i64 & (HALF - 1);
     (if 0.0 > v { HALF | n } else { n }) as u16
 }

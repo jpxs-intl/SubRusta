@@ -93,7 +93,7 @@ impl TrafficCar {
     }
 
     pub fn speed(&self) -> f32 {
-        ((self.vel.x * self.vel.x + self.vel.y * self.vel.y) + self.vel.z * self.vel.z).sqrt()
+        self.vel.length()
     }
 }
 

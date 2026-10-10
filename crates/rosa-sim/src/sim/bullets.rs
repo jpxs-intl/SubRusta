@@ -17,7 +17,7 @@ use crate::{
 
 pub const MAX_BULLETS: usize = 0x4000;
 const LIFETIME: i32 = 600;
-const BULLET_GRAVITY: f32 = f32::from_bits(0x3b32_6750);
+const BULLET_GRAVITY: f32 = 0.0027222224;
 const HIT_WORLD: i32 = 0;
 const HIT_BODY: i32 = 1;
 const HIT_VEHICLE: i32 = 2;
@@ -32,10 +32,10 @@ const IMPULSE: f32 = 3.0;
 
 /// bullet_data: each bullet type's mass (damage and recoil) and drag.
 pub const BULLET_DATA: [(f32, f32); 4] = [
-    (f32::from_bits(0x3c23d70a), f32::from_bits(0x3b956f22)),
-    (f32::from_bits(0x3bcb295f), f32::from_bits(0x3b80522c)),
-    (f32::from_bits(0x3c03126f), f32::from_bits(0x3c0249c2)),
-    (f32::from_bits(0x3c83126f), f32::from_bits(0x3bbf1af7)),
+    (0.01, 0.004560367),
+    (0.0062, 0.0039160457),
+    (0.008, 0.007952156),
+    (0.016, 0.005832072),
 ];
 
 /// A bullet in flight (bullets, 0x5c each).
@@ -78,7 +78,7 @@ impl Sim {
         let b = self.bullets[i].clone();
         self.bullets[i].time = 0;
         let v = b.vel;
-        let speed = ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt();
+        let speed = v.length();
         let damage = ((b.mass * (speed * VEHICLE_DAMAGE_SCALE)) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
         let damage = if damage >= 0 { damage } else { 0 };
         let Some(vehicle) = self.vehicles.get_mut(vid) else { return };
@@ -142,7 +142,7 @@ impl Sim {
             };
 
             bullet.vel = Vec3::new(vx + dir.x * k, vy + dir.y * k, vz + k * dir.z);
-            bullet.pos = Vec3::new(bullet.vel.x + bullet.pos.x, bullet.vel.y + bullet.pos.y, bullet.vel.z + bullet.pos.z);
+            bullet.pos = bullet.vel + bullet.pos;
 
             let (from, to, shooter) = (bullet.prev, bullet.pos, bullet.player);
 
@@ -269,7 +269,7 @@ impl Sim {
             let Some((id, hit)) = human_hit else { continue };
             let b = self.bullets[i].clone();
             let v = b.vel;
-            let speed = ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt();
+            let speed = v.length();
             let mut damage = (b.mass * (speed * DAMAGE_SCALE) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
 
             if damage > 0 {
@@ -299,14 +299,10 @@ impl Sim {
             let f = IMPULSE * (b.mass / (weight + b.mass));
             self.bullets[i].time = 0;
             let Some(body) = self.bodies.get_mut(bone.body) else { continue };
-            body.vel = Vec3::new(f * v.x + body.vel.x, f * v.y + body.vel.y, f * v.z + body.vel.z);
-            let r = Vec3::new(hit.pos.x - body.pos.x, hit.pos.y - body.pos.y, hit.pos.z - body.pos.z);
+            body.vel = f * v + body.vel;
+            let r = hit.pos - body.pos;
             let l = body.ang_momentum;
-            body.ang_momentum = Vec3::new(
-                (r.z * v.y - r.y * v.z) * f + l.x,
-                (v.z * r.x - r.z * v.x) * f + l.y,
-                f * (r.y * v.x - v.y * r.x) + l.z,
-            );
+            body.ang_momentum = v.cross(r) * f + l;
         }
     }
 

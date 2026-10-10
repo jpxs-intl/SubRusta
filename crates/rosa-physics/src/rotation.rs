@@ -7,16 +7,16 @@ pub const IDENTITY: RotMatrix = [Vec3::X, Vec3::Y, Vec3::Z];
 pub fn rotate_orientation(rot: &mut RotMatrix, axis: Vec3, angle: f32) {
     let (s, c) = (angle as f64).sin_cos();
     let (s, c) = (s as f32, c as f32);
-    let (ax, ay, az) = (axis.x, axis.y, axis.z);
+    let a = axis;
     for v in rot.iter_mut() {
         let (vx, vy, vz) = (v.x, v.y, v.z);
-        let cy = ax * vz - az * vx;
-        let cz = ay * vx - ax * vy;
-        let cx = az * vy - ay * vz;
-        let dot = (vy * ay + vx * ax) + vz * az;
-        let nx = ((ay * cz - az * cy) * c + ax * dot) + s * cx;
-        let ny = ((az * cx - ax * cz) * c + ay * dot) + s * cy;
-        let nz = ((cy * ax - cx * ay) * c + dot * az) + cz * s;
+        let cy = a.x * vz - a.z * vx;
+        let cz = a.y * vx - a.x * vy;
+        let cx = a.z * vy - a.y * vz;
+        let dot = (vy * a.y + vx * a.x) + vz * a.z;
+        let nx = ((a.y * cz - a.z * cy) * c + a.x * dot) + s * cx;
+        let ny = ((a.z * cx - a.x * cz) * c + a.y * dot) + s * cy;
+        let nz = ((cy * a.x - cx * a.y) * c + dot * a.z) + cz * s;
         let len = (nz * nz + (nx * nx + ny * ny)).sqrt();
         *v = if len == 0.0 {
             Vec3::ZERO
@@ -32,10 +32,8 @@ pub fn rotate_vector_about_axis(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
     let (s, c) = (angle as f64).sin_cos();
     let (s, c) = (s as f32, c as f32);
     let a = axis;
-    let cx = v.y * a.z - v.z * a.y;
-    let cy = v.z * a.x - v.x * a.z;
-    let cz = v.x * a.y - v.y * a.x;
-    let d = (v.y * a.y + v.x * a.x) + v.z * a.z;
+    let (cx, cy, cz) = (v.y * a.z - v.z * a.y, v.z * a.x - v.x * a.z, v.x * a.y - v.y * a.x);
+    let d = v.dot(a);
     Vec3::new(
         ((cz * a.y - cy * a.z) * c + d * a.x) + s * cx,
         ((cx * a.z - cz * a.x) * c + d * a.y) + s * cy,
@@ -46,26 +44,18 @@ pub fn rotate_vector_about_axis(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
 pub fn angular_velocity(rot: &RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> Vec3 {
     let [r0, r1, r2] = *rot;
     let l = momentum;
-    let a = ((l.x * r0.x + l.y * r0.y) + l.z * r0.z) * inv_inertia.x;
-    let b = ((l.x * r1.x + l.y * r1.y) + l.z * r1.z) * inv_inertia.y;
-    let c = ((l.y * r2.y + l.x * r2.x) + l.z * r2.z) * inv_inertia.z;
-    Vec3::new(
-        ((r0.x * a + 0.0) + r1.x * b) + r2.x * c,
-        ((r0.y * a + 0.0) + r1.y * b) + r2.y * c,
-        ((r0.z * a + 0.0) + r1.z * b) + r2.z * c,
-    )
-}
-
-fn length(v: Vec3) -> f32 {
-    (v.z * v.z + (v.x * v.x + v.y * v.y)).sqrt()
+    let a = l.dot(r0) * inv_inertia.x;
+    let b = l.dot(r1) * inv_inertia.y;
+    let c = l.dot(r2) * inv_inertia.z;
+    r0 * a + 0.0 + r1 * b + r2 * c
 }
 
 fn turned(rot: &RotMatrix, w: Vec3, half: bool) -> RotMatrix {
     let mut out = *rot;
-    let n = length(w);
+    let n = w.length();
     if n > (1.0/65536.0) {
         let inv = 1.0 / n;
-        rotate_orientation(&mut out, Vec3::new(w.x * inv, w.y * inv, inv * w.z), if half { n * 0.5 } else { n });
+        rotate_orientation(&mut out, w * inv, if half { n * 0.5 } else { n });
     }
     out
 }
@@ -76,17 +66,13 @@ pub fn rk4_rotation(rot: &mut RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> V
     let k3 = angular_velocity(&turned(rot, k2, true), momentum, inv_inertia);
     let k4 = angular_velocity(&turned(rot, k3, false), momentum, inv_inertia);
 
-    let avg = Vec3::new(
-        (((k2.x + k2.x) + k1.x) + (k3.x + k3.x) + k4.x) * (1.0 / 6.0),
-        (((k1.y + (k2.y + k2.y)) + (k3.y + k3.y)) + k4.y) * (1.0 / 6.0),
-        (1.0 / 6.0) * (k4.z + ((k3.z + k3.z) + ((k2.z + k2.z) + k1.z))),
-    );
+    let avg = (k2 + k2 + k1 + (k3 + k3) + k4) * (1.0 / 6.0);
 
-    let n = (avg.z * avg.z + (avg.x * avg.x + avg.y * avg.y)).sqrt();
+    let n = avg.length();
 
     if n > (1.0/65536.0) {
         let inv = 1.0 / n;
-        rotate_orientation(rot, Vec3::new(avg.x * inv, avg.y * inv, inv * avg.z), n);
+        rotate_orientation(rot, avg * inv, n);
     }
 
     avg
@@ -134,13 +120,12 @@ pub fn quaternion_to_axis_angle(q: [f32; 4]) -> (Vec3, f32) {
 pub fn quaternion_to_rotation_vector(q: [f32; 4]) -> Vec3 {
     let axis = unit_axis(q);
     let angle = half_angle_acos(q[3]);
-    Vec3::new(axis.x * angle, axis.y * angle, angle * axis.z)
+    axis * angle
 }
 
 /// multiply_matrixes: out[c] = (a[0]·b[c], a[1]·b[c], a[2]·b[c]).
 pub fn multiply_matrixes(a: &RotMatrix, b: &RotMatrix) -> RotMatrix {
-    let dot = |r: Vec3, c: Vec3| (r.y * c.y + r.x * c.x) + r.z * c.z;
-    b.map(|c| Vec3::new(dot(a[0], c), dot(a[1], c), dot(a[2], c)))
+    b.map(|c| Vec3::new(a[0].dot(c), a[1].dot(c), a[2].dot(c)))
 }
 
 /// vector_clamp_horizontal_and_vertical: limits the XZ length to `horizontal` and Y to ±`vertical`.
@@ -163,8 +148,7 @@ pub fn clamp_horizontal_vertical(v: &mut Vec3, horizontal: f32, vertical: f32) {
 
 pub fn quaternion_normalize(q: [f32; 4]) -> [f32; 4] {
     let [x, y, z, w] = q;
-    let len = ((z * z + (x * x + y * y)) + w * w) as f64;
-    let len = len.sqrt();
+    let len = (((z * z + (x * x + y * y)) + w * w) as f64).sqrt();
     if len == 0.0 {
         return [0.0, 0.0, 0.0, 1.0];
     }

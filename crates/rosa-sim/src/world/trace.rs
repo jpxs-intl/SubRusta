@@ -60,8 +60,8 @@ impl AreaFrame {
 
     pub(crate) fn to_local(&self, p: Vec3) -> Vec3 {
         let m = &self.m;
-        let (dx, dy, dz) = (p.x - self.origin.x, p.y - self.origin.y, p.z - self.origin.z);
-        Vec3::new(m[0] * dx + m[1] * dy + m[2] * dz, m[3] * dx + m[4] * dy + m[5] * dz, dx * m[6] + dy * m[7] + dz * m[8])
+        let d = p - self.origin;
+        Vec3::new(m[0] * d.x + m[1] * d.y + m[2] * d.z, m[3] * d.x + m[4] * d.y + m[5] * d.z, d.x * m[6] + d.y * m[7] + d.z * m[8])
     }
 
     pub(crate) fn rotate_back(&self, v: Vec3) -> Vec3 {
@@ -74,7 +74,7 @@ fn masked_cell_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Opt
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let corner = |i: usize| {
         let c = CUBE_CORNERS[i];
-        Vec3::new(c.x * s + base.x, c.y * s + base.y, s * c.z + base.z)
+        c * s + base
     };
     for r in 0..6 {
         if v & (1 << r) == 0 || v & (64 << r) == 0 {
@@ -96,7 +96,7 @@ fn masked_cell_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Opt
 fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32) -> Option<(f32, Vec3, Vec3, u32)> {
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
-    let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, s * p.z + base.z);
+    let sc = |p: Vec3| p * s + base;
     let mut best = 1.0f32;
     let mut out = (Vec3::ZERO, Vec3::ZERO, 0u32);
     let take = |n: Vec3, a: Vec3, b: Vec3, c: Vec3, attr: u32, best: &mut f32, out: &mut (Vec3, Vec3, u32)| {
@@ -223,7 +223,7 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                 {
                     best = t;
                     let p = f.rotate_back(p);
-                    let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
+                    let pos = p + f.origin;
                     result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, cell, 0, 0, kind as i32, None));
                 }
             }
@@ -245,7 +245,7 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                 if let Some((t, p, nrm, attr)) = hit && !(best <= t) {
                         best = t;
                         let p = f.rotate_back(p);
-                        let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
+                        let pos = p + f.origin;
                         result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr, -1, None));
                     }
             }

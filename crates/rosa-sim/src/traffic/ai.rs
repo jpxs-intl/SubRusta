@@ -10,10 +10,10 @@ use crate::world::streets::{Lane, MapStreet, StreetMap};
 const STUCK_TICKS: i32 = 179;
 const STUCK_RESET: i32 = 319;
 const STOPPED: f32 = 1.0 / 60.0;
-const PUSHING: f32 = f32::from_bits(0x3d88_8889);
+const PUSHING: f32 = 1.0 / 15.0;
 /// The lane change eases in at an eighth of the car's speed, at most this much a tick.
 const LANE_CHANGE_RATE: f32 = 0.125;
-const LANE_CHANGE_MAX: f32 = f32::from_bits(0x3c08_8889);
+const LANE_CHANGE_MAX: f32 = 1.0 / 120.0;
 /// The car steers for a point up to 10 ahead, less the further it is off its lane.
 const LOOK_AHEAD: f32 = 10.0;
 const LOOK_FALLOFF: f32 = 0.25;
@@ -23,11 +23,11 @@ const TURN_STEER: f64 = 56.25_f64.to_radians();
 const TURN_STEER_MAX: f32 = 56.25_f32.to_radians();
 const STEER_RATE: f32 = 0.0625;
 const TURN_STEER_RATE: f32 = 0.25;
-const CRUISE: f32 = f32::from_bits(0x3e88_8889);
-const SLOW: f32 = f32::from_bits(0x3e08_8889);
+const CRUISE: f32 = 4.0 / 15.0;
+const SLOW: f32 = 2.0 / 15.0;
 const CRAWL: f32 = 0.3;
-const MIN_SPEED: f32 = f32::from_bits(0x3e08_8889);
-const AGGRESSIVE_MIN: f32 = f32::from_bits(0x3e4c_cccd);
+const MIN_SPEED: f32 = 2.0 / 15.0;
+const AGGRESSIVE_MIN: f32 = 0.2;
 const TICKS_PER_SECOND: f32 = 60.0;
 /// The point ahead of the car the remaining distance is measured from, and where the intersection begins.
 const NOSE: f32 = 4.0;
@@ -47,10 +47,6 @@ const SHARP: f32 = 0.5;
 
 fn lane_at(st: &MapStreet, i: i32) -> Lane {
     usize::try_from(i).ok().and_then(|i| st.lanes.get(i)).copied().unwrap_or_default()
-}
-
-fn neg(v: Vec3) -> Vec3 {
-    Vec3::new(-v.x, -v.y, -v.z)
 }
 
 fn sincos(yaw: f32) -> (f32, f32) {
@@ -96,10 +92,10 @@ fn update_stuck(traffic: &mut Traffic, id: usize) {
     }
 
     let v = c.vel;
-    let speed = (v.z * v.z + (v.y * v.y + v.x * v.x)).sqrt();
+    let speed = v.length();
     let r2 = c.rot[2];
 
-    if STOPPED > speed && (((v.y * r2.y) + (r2.x * v.x)) + (r2.z * v.z)) + c.target_speed > PUSHING {
+    if STOPPED > speed && (r2.dot(v)) + c.target_speed > PUSHING {
         c.stuck += 1;
     } else {
         c.stuck = 0;
@@ -240,7 +236,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         let p = c.lane_change;
         let s = (p * p) * (3.0 - (p + p));
         let v = c.vel;
-        let speed = (v.z * v.z + (v.x * v.x + v.y * v.y)).sqrt();
+        let speed = v.length();
         let np = minss(speed * LANE_CHANGE_RATE, LANE_CHANGE_MAX) + p;
         c.lane_change = np;
         if np > 1.0 {
@@ -248,15 +244,15 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
             c.lane = c.next_lane;
         }
         let t = lane_at(st, c.next_lane).start;
-        from = Vec3::new(from.x + (t.x - from.x) * s, from.y + (t.y - from.y) * s, from.z + (t.z - from.z) * s);
+        from = from + (t - from) * s;
     }
     let c = &mut traffic.cars[id];
-    let d = if c.step(c.route_index).end != 0 { neg(st.dir) } else { st.dir };
+    let d = if c.step(c.route_index).end != 0 { -st.dir } else { st.dir };
     let pos = c.pos;
     let side = st.side;
     let off = ((from.x - pos.x) * side.x + (from.y - pos.y) * side.y + (from.z - pos.z) * side.z).abs();
     let t = maxss(0.0, LOOK_AHEAD - off * LOOK_FALLOFF);
-    let a = Vec3::new(d.x * t + pos.x, pos.y + d.y * t, t * d.z + pos.z);
+    let a = d * t + pos;
     let proj = ((a.x - from.x) * d.x + (a.y - from.y) * d.y) + (a.z - from.z) * d.z;
     let aim_z = proj * d.z + from.z - pos.z;
     let aim_x = from.x + d.x * proj - pos.x;
@@ -321,7 +317,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
                 continue;
             }
             let v = o.vel;
-            let speed = (v.z * v.z + (v.x * v.x + v.y * v.y)).sqrt();
+            let speed = v.length();
             if !(PUSHING > speed) {
                 continue;
             }
@@ -428,16 +424,16 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     let l1 = lane_at(nst, c.target_lane);
     let p1 = if nxt.end != 0 { l1.end } else { l1.start };
     let (ds, dn) = (st.dir, nst.dir);
-    let delta = Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
-    let mut a = (((delta.y * ds.y) + (ds.x * delta.x)) + ds.z * delta.z).abs();
-    let b = (((dn.x * ds.x) + (dn.y * ds.y)) + dn.z * ds.z).abs();
+    let delta = p1 - p0;
+    let mut a = ds.dot(delta).abs();
+    let b = dn.dot(ds).abs();
     if b > SHARP {
         a *= 0.5;
     }
     if cur.end != 0 {
         a = -a;
     }
-    let ctrl = Vec3::new(ds.x * a + p0.x, ds.y * a + p0.y, a * ds.z + p0.z);
+    let ctrl = ds * a + p0;
     let len = ((delta.x * delta.x + 0.0) + delta.z * delta.z).sqrt();
     let u = if len == 0.0 {
         Vec3::ZERO
@@ -448,26 +444,24 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     let (s, co) = sincos(c.yaw);
     let pos = c.pos;
     let (t, om, q0, q1) = 'bez: {
-        let clamped_end = (1.0, 0.0, Vec3::new((p0.x * 0.0) * 0.0, (p0.y * 0.0) * 0.0, (p0.z * 0.0) * 0.0), p1);
+        let clamped_end = (1.0, 0.0, p0 * 0.0 * 0.0, p1);
         if !(len > BEZIER_EPSILON) {
             break 'bez clamped_end;
         }
         let w = c.wheelbase + NEXT_LOOK;
         let t = ((((w * 0.0 + pos.y) - p0.y) * u.y + ((co * w + pos.x) - p0.x) * u.x) + ((s * w + pos.z) - p0.z) * u.z) / len + CORNER_BIAS;
         if 0.0 > t {
-            (0.0, 1.0, p0, Vec3::new((p1.x * 0.0) * 0.0, (p1.y * 0.0) * 0.0, (p1.z * 0.0) * 0.0))
+            (0.0, 1.0, p0, p1 * 0.0 * 0.0)
         } else if t > 1.0 {
             clamped_end
         } else {
             let om = 1.0 - t;
-            (t, om, Vec3::new((p0.x * om) * om, (p0.y * om) * om, (p0.z * om) * om), Vec3::new((p1.x * t) * t, (p1.y * t) * t, (p1.z * t) * t))
+            (t, om, p0 * om * om, p1 * t * t)
         }
     };
-    let bx = ((q0.x + ((ctrl.x + ctrl.x) * om) * t) + q1.x) - pos.x;
-    let by = ((q0.y + ((ctrl.y + ctrl.y) * om) * t) + q1.y) - pos.y;
-    let bz = ((q0.z + ((ctrl.z + ctrl.z) * om) * t) + q1.z) - pos.z;
-    let dist = (bz * bz + (by * by + bx * bx)).sqrt();
-    let target_yaw = if dist > BEZIER_EPSILON { (bz as f64).atan2(bx as f64) as f32 } else { c.yaw };
+    let b = q0 + (ctrl + ctrl) * om * t + q1 - pos;
+    let dist = b.length();
+    let target_yaw = if dist > BEZIER_EPSILON { (b.z as f64).atan2(b.x as f64) as f32 } else { c.yaw };
     let want = steer_toward(c.yaw, target_yaw, TURN_STEER, TURN_STEER_MAX);
     let mut dsteer = want - c.steer;
     let factor = if -TURN_STEER_RATE > dsteer {
@@ -495,7 +489,7 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     let c = &mut traffic.cars[id];
     c.steer += dsteer;
     c.target_speed = (factor * base) as f32;
-    let dn2 = if c.step(ri + 1).end != 0 { neg(dn) } else { dn };
+    let dn2 = if c.step(ri + 1).end != 0 { -dn } else { dn };
     let qx = (p1.x - (dn2.x * NEXT_LOOK + pos.x)) * dn2.x;
     let qz = (p1.z - (NEXT_LOOK * dn2.z + pos.z)) * dn2.z;
     let q = qz + (0.0 * dn2.y + qx);

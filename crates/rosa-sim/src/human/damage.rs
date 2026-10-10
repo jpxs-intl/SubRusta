@@ -24,8 +24,8 @@ pub fn trace_ray_human(h: &Human, start: Vec3, end: Vec3, radius: f32) -> Option
 
         let p = bone.pos;
 
-        let q0 = Vec3::new(back * axis.x + p.x, back * axis.y + p.y, back * axis.z + p.z);
-        let q1 = Vec3::new(p.x + axis.x * front, p.y + axis.y * front, p.z + front * axis.z);
+        let q0 = back * axis + p;
+        let q1 = p + axis * front;
 
         let (hit, on_ray, on_bone, _) = segment_closest_points(start, end, q0, q1, radius + thickness);
 
@@ -33,18 +33,18 @@ pub fn trace_ray_human(h: &Human, start: Vec3, end: Vec3, radius: f32) -> Option
             continue;
         }
 
-        let d = Vec3::new(on_bone.x - on_ray.x, on_bone.y - on_ray.y, on_bone.z - on_ray.z);
-        let len = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+        let d = on_bone - on_ray;
+        let len = d.length();
 
         let normal = if len != 0.0 {
             let inv = 1.0 / len;
-            Vec3::new(d.x * inv, d.y * inv, inv * d.z)
+            d * inv
         } else {
             Vec3::ZERO
         };
 
-        let e = Vec3::new(end.x - start.x, end.y - start.y, end.z - start.z);
-        let t = ((on_ray.x - start.x) * e.x + (on_ray.y - start.y) * e.y + (on_ray.z - start.z) * e.z) / (e.x * e.x + e.y * e.y + e.z * e.z);
+        let e = end - start;
+        let t = ((on_ray.x - start.x) * e.x + (on_ray.y - start.y) * e.y + (on_ray.z - start.z) * e.z) / e.length_squared();
 
         if !(fraction <= t) {
             fraction = t;

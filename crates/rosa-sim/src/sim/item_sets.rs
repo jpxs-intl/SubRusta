@@ -107,8 +107,8 @@ impl Sim {
         let area = &self.world.map.level.area;
         let Some(e) = area.item_sets.set(o.word).and_then(|s| s.entries.get(o.index)) else { return };
         let (pos, _) = entry_pose(e, o.cell, area.block_size, (o.word >> 24) & 3);
-        let d = Vec3::new(pos.x - at.x, pos.y - at.y, pos.z - at.z);
-        let dist = ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let d = pos - at;
+        let dist = d.length();
         if !(RETURN_REACH > dist) {
             return;
         }

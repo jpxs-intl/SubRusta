@@ -21,26 +21,20 @@ const DISK_RADIUS: f32 = 0.5;
 
 /// point_segment_distance: how far `p` is from the segment `a`..`b`.
 pub fn point_segment_distance(a: Vec3, b: Vec3, p: Vec3) -> f32 {
-    let e = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
+    let e = b - a;
     if ((p.x - b.x) * e.x + (p.y - b.y) * e.y) + (p.z - b.z) * e.z >= 0.0 {
-        let d = Vec3::new(b.x - p.x, b.y - p.y, b.z - p.z);
-        return ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt();
+        let d = b - p;
+        return d.length();
     }
-    let w = Vec3::new(p.x - a.x, p.y - a.y, p.z - a.z);
+    let w = p - a;
     let d = if 0.0 >= (e.x * w.x + e.y * w.y) + e.z * w.z {
-        Vec3::new(a.x - p.x, a.y - p.y, a.z - p.z)
+        a - p
     } else {
-        let len = ((e.x * e.x + e.y * e.y) + e.z * e.z).sqrt();
-        let u = if len == 0.0 {
-            Vec3::ZERO
-        } else {
-            let inv = 1.0 / len;
-            Vec3::new(e.x * inv, e.y * inv, e.z * inv)
-        };
-        let t = -((w.y * u.y + w.x * u.x) + w.z * u.z);
-        Vec3::new(a.x - (p.x + u.x * t), a.y - (p.y + u.y * t), a.z - (p.z + u.z * t))
+        let u = e.normalize_or_zero();
+        let t = -w.dot(u);
+        a - (p + u * t)
     };
-    ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()
+    d.length()
 }
 
 /// link_item with a human parent: puts the item into the human's inventory slot, taking it out of wherever it was.
@@ -92,7 +86,7 @@ pub(crate) fn detach_item(h: &mut Human, bodies: &mut RigidBodies, touch: &mut T
         let chest = &h.bones[2];
         let (p, r1) = (chest.pos, chest.rot[1]);
         // the binary also sets the item's previous position to the chest, which its next position sync overwrites
-        let at = Vec3::new(r1.x * -0.25 + p.x, r1.y * -0.25 + p.y, -0.25 * r1.z + p.z);
+        let at = r1 * -0.25 + p;
         if let Some(item) = touch.items.get_mut(item_id) {
             if let Some(body) = bodies.get_mut(item.body) {
                 body.pos = at;
@@ -124,8 +118,8 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             let item_id = h.inventory[slot].items[0] as usize;
             let Some(item) = touch.items.get(item_id) else { break };
             let (a, b) = (h.bones[hand].pos, item.pos2);
-            let d = Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z);
-            if !(((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt() <= HAND_DROP_DISTANCE) {
+            let d = a - b;
+            if !(d.length() <= HAND_DROP_DISTANCE) {
                 unlink_item(h, bodies, touch, item_id);
                 continue;
             }
@@ -145,7 +139,7 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
         if !probed && released && h.inventory[slot].count == 0 && h.input_flags & 0x7c0 == 0 {
             probed = true;
             let (head, [_, _, ahead]) = (h.bones[3].pos, h.bones[3].rot);
-            let end = Vec3::new(ahead.x * -2.5 + head.x, ahead.y * -2.5 + head.y, ahead.z * -2.5 + head.z);
+            let end = ahead * -2.5 + head;
             out.push(HumanOutput::DoorProbe { player: h.player, start: head, end, pos: h.pos });
         }
         if h.inventory[slot].count > 0
@@ -186,7 +180,7 @@ fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Toucha
     let (kind, pos) = (item.item_type, item.pos2);
     if kind == ItemKind::Computer {
         let (p, [_, _, r2]) = (h.bones[0].pos, h.bones[0].rot);
-        let end = Vec3::new(r2.x * COMPUTER_REACH + p.x, r2.y * COMPUTER_REACH + p.y, COMPUTER_REACH * r2.z + p.z);
+        let end = r2 * COMPUTER_REACH + p;
         if point_segment_distance(p, end, pos) > COMPUTER_HOLD {
             unlink_item(h, bodies, touch, item_id);
         }
@@ -196,7 +190,7 @@ fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Toucha
         return;
     }
     let (p, [_, _, r2]) = (h.bones[3].pos, h.bones[3].rot);
-    let end = Vec3::new(r2.x * DISK_REACH + p.x, r2.y * DISK_REACH + p.y, DISK_REACH * r2.z + p.z);
+    let end = r2 * DISK_REACH + p;
     let mut best = DISK_RADIUS;
     let mut found = None;
     for (id, c) in touch.items.iter() {
@@ -528,7 +522,7 @@ fn drop(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, f: usiz
 fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&crate::sim::items::Item) -> bool) -> Option<usize> {
     let head = &h.bones[3];
     let (p, r2) = (head.pos, head.rot[2]);
-    let end = Vec3::new(r2.x * -PICKUP_REACH + p.x, r2.y * -PICKUP_REACH + p.y, -PICKUP_REACH * r2.z + p.z);
+    let end = r2 * -PICKUP_REACH + p;
     let mut best = PICKUP_RADIUS;
     let mut found = None;
     for (id, item) in touch.items.iter() {
@@ -578,7 +572,7 @@ fn pickup(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut 
     }
     let head = &h.bones[3];
     let (p, r2) = (head.pos, head.rot[2]);
-    let end = Vec3::new(r2.x * -PICKUP_REACH + p.x, r2.y * -PICKUP_REACH + p.y, -PICKUP_REACH * r2.z + p.z);
+    let end = r2 * -PICKUP_REACH + p;
     let mut best = PICKUP_RADIUS;
     let mut found = None;
     for (id, item) in touch.items.iter() {

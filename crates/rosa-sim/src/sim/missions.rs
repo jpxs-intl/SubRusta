@@ -139,7 +139,7 @@ pub struct MissionGlobals {
 }
 
 fn step(p: Vec3, r: Vec3, s: f32) -> Vec3 {
-    Vec3::new(r.x * s + p.x, r.y * s + p.y, r.z * s + p.z)
+    r * s + p
 }
 
 impl Sim {
@@ -551,7 +551,7 @@ impl Sim {
             let from = corner(self.traffic.cars[car].street);
             for _ in 0..0x400 {
                 let d = from - corner(to);
-                if (d.x * d.x + d.y * d.y + d.z * d.z).sqrt() >= min {
+                if d.length() >= min {
                     break;
                 }
                 if !streets.streets.is_empty() {

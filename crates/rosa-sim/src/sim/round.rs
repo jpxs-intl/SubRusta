@@ -285,8 +285,8 @@ impl Sim {
             rotate_orientation(&mut rot, axis, 180.0_f32.to_radians());
             let t = base.table;
             let [r0, _, r2] = rot;
-            let first = Vec3::new(PHONE_BACK * r2.x + t.x, PHONE_BACK * r2.y + t.y, PHONE_BACK * r2.z + t.z);
-            let second = Vec3::new(PHONE_SIDE * r0.x + first.x, PHONE_SIDE * r0.y + first.y, PHONE_SIDE * r0.z + first.z);
+            let first = PHONE_BACK * r2 + t;
+            let second = PHONE_SIDE * r0 + first;
             let number = (k as i32 + 1) * PHONE_NUMBER_STEP + 1;
             for (pos, texture, number) in [(first, 0, number - 1), (second, 1, number)] {
                 let Some(id) = self.create_item(ItemKind::Phone, pos, None, rot) else { continue };
@@ -505,7 +505,7 @@ impl Sim {
     /// reset_game's weather outside world mode, rolled before the reseed: a sun angle (the first roll is thrown away),
     /// the clock at 11:00 and an axial tilt.
     pub(crate) fn roll_weather(&mut self) {
-        let pi = f64::from_bits(0x400921fb54442eea);
+        let pi = 3.14159265359;
         let angle = (((rand::random_range(0..256) as i32 + SUN_BASE) as f64 * pi) * SUN_SPAN * SUN_STEP) as f32;
         self.world_time = CLOCK_START;
         let tilt = ((rand::random_range(0..256) as f64 * pi) * SUN_STEP) as f32;

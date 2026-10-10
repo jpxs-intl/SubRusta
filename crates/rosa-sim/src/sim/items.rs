@@ -26,19 +26,19 @@ const DOOR_HINGE_ACROSS: f32 = -0.4375;
 const DOOR_HINGE_UP: f32 = 0.5;
 const DRIVE_DOWN: f32 = -0.15625;
 const DRIVE_BACK: f32 = 0.09375;
-const SETTLE_SPEED: f32 = f32::from_bits(0x3b88_8889);
+const SETTLE_SPEED: f32 = 1.0 / 240.0;
 const SETTLE_TICKS: i32 = 60;
-const CONTACT_FRICTION: f32 = f32::from_bits(0x3f19_999a);
+const CONTACT_FRICTION: f32 = 0.6;
 const CONTACT_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const ITEM_HEALTH: i32 = 100;
-const ITEM_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const ITEM_FRICTION: f32 = 0.4;
 const CONTACT_SOFTNESS: f32 = 1.0 / 32.0;
 /// The soccer ball: a sphere of 0.11 kicked by any bone but the arms' within 0.36 of it, and slowed spinning while it
 /// touches the level.
 const BALL_RADIUS: f32 = 0.11;
 const KICK_REACH: f32 = 0.36;
 const KICK_SKIPPED_BONES: [usize; 4] = [5, 6, 8, 9];
-const KICK_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const KICK_FRICTION: f32 = 0.4;
 const KICK_DEPTH_SCALE: f32 = 1.0 / 32.0;
 const KICK_SOFTNESS: f32 = 1.0 / 16.0;
 const BALL_SPIN_DAMPING: f32 = 0.9375;
@@ -106,7 +106,7 @@ pub struct Touchables<'a> {
 impl Sim {
     pub fn create_item(&mut self, item_type: ItemKind, pos: Vec3, vel: Option<Vec3>, rot: RotMatrix) -> Option<usize> {
         let ty = &self.item_types[item_type as usize];
-        let inertia = Vec3::new(1.0 / ty.inv_inertia.x, 1.0 / ty.inv_inertia.y, 1.0 / ty.inv_inertia.z);
+        let inertia = 1.0 / ty.inv_inertia;
         let body = self.bodies.create(RigidBodyType::Item, pos, rot, vel, inertia, ty.mass)?;
 
         let item = Item {
@@ -158,11 +158,7 @@ impl Sim {
             ItemKind::Door => {
                 let [r0, r1, r2] = rot;
                 let hinge = |up: f32| {
-                    Vec3::new(
-                        (r0.x * DOOR_HINGE_ACROSS + pos.x) + r1.x * up,
-                        (r0.y * DOOR_HINGE_ACROSS + pos.y) + r1.y * up,
-                        (r0.z * DOOR_HINGE_ACROSS + pos.z) + r1.z * up,
-                    )
+                    r0 * DOOR_HINGE_ACROSS + pos + r1 * up
                 };
                 item.state = ItemState::Door { axis: r2, hinges: [hinge(-DOOR_HINGE_UP), hinge(DOOR_HINGE_UP)] };
                 // TODO: each hinge pins the door to the level with a type 4 bond (create_bond_rigidbody_level: body
@@ -334,7 +330,7 @@ impl Sim {
             if let Some(h) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, body.pos) {
                 let t = 0.975 * h.hit.fraction;
                 let d = body.pos - from;
-                body.pos = Vec3::new(d.x * t + from.x, d.y * t + from.y, t * d.z + from.z);
+                body.pos = d * t + from;
             }
             item.pos2 = body.pos;
             item.vel = body.vel;
@@ -481,8 +477,8 @@ impl Sim {
                 let Some(body) = self.bodies.get(body_id) else { continue };
                 let (v, w) = (body.vel, body.ang_vel);
                 let item = self.items.get_mut(id).unwrap();
-                let speed = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
-                let spin = (w.y * w.y + w.x * w.x + w.z * w.z).sqrt();
+                let speed = v.length();
+                let spin = w.length();
                 if SETTLE_SPEED <= speed || SETTLE_SPEED <= spin {
                     item.settled_timer = 0;
                 } else {
@@ -527,17 +523,13 @@ impl Sim {
                 ItemKind::Briefcase | ItemKind::BriefcaseOpen => {
                     if matches!(kind, ItemKind::CashRound | ItemKind::CashWorld) {
                         let k = slot as f32 * CASH_SPREAD * CASH_SCALE * CASH_SCALE - CASH_START;
-                        Vec3::new(p.x + r0.x * k, r0.y * k + p.y, k * r0.z + p.z)
+                        p + r0 * k
                     } else {
                         p
                     }
                 }
-                ItemKind::Computer => Vec3::new(
-                    (p.x + r1.x * DRIVE_DOWN) + r2.x * DRIVE_BACK,
-                    (r1.y * DRIVE_DOWN + p.y) + r2.y * DRIVE_BACK,
-                    (r1.z * DRIVE_DOWN + p.z) + r2.z * DRIVE_BACK,
-                ),
-                _ => Vec3::new(p.x + r1.x * BELOW, r1.y * BELOW + p.y, r1.z * BELOW + p.z),
+                ItemKind::Computer => p + r1 * DRIVE_DOWN + r2 * DRIVE_BACK,
+                _ => p + r1 * BELOW,
             };
             let item = self.items.get_mut(id).unwrap();
             item.mount_pose = Some((pos, rot));
@@ -558,14 +550,10 @@ impl Sim {
             let Some(h) = self.humans.get(item.parent_human as usize) else { continue };
             let (chest, pelvis) = (&h.bones[2], &h.bones[0]);
             let [c0, c1, c2] = chest.rot;
-            let rot = [c0, Vec3::new(-c2.x, -c2.y, -c2.z), c1];
+            let rot = [c0, -c2, c1];
             let [r0, r1, _] = rot;
             let p = chest.pos;
-            let pos = Vec3::new(
-                (r1.x * -0.25 + p.x) + r0.x * 0.125,
-                (r1.y * -0.25 + p.y) + r0.y * 0.125,
-                (-0.25 * r1.z + p.z) + 0.125 * r0.z,
-            );
+            let pos = r1 * -0.25 + p + r0 * 0.125;
             item.pocket_pose = Some((pos, rot));
             item.pos2 = h.vehicle.and_then(|v| self.vehicles.get(v)).map_or(pelvis.pos, |v| v.pos);
             let vel = pelvis.vel;
@@ -620,11 +608,11 @@ impl Sim {
         let Some(center) = self.bodies.get(body_id).map(|b| b.pos) else { return };
         let level = &self.world.map.level;
         let Some((p, n, dist)) = crate::world::sphere_cast::sphere_cast_level(&level.area, &level.meshes, center, BALL_RADIUS) else { return };
-        let offset = Vec3::new(p.x - center.x, p.y - center.y, p.z - center.z);
+        let offset = p - center;
         self.bodies.add_world_contact(body_id, offset, n, BALL_RADIUS - dist, CONTACT_FRICTION, CONTACT_DEPTH_SCALE, CONTACT_SOFTNESS);
         if let Some(b) = self.bodies.get_mut(body_id) {
             let l = b.ang_momentum;
-            b.ang_momentum = Vec3::new(l.x * BALL_SPIN_DAMPING, l.y * BALL_SPIN_DAMPING, l.z * BALL_SPIN_DAMPING);
+            b.ang_momentum = l * BALL_SPIN_DAMPING;
         }
     }
 
@@ -638,25 +626,25 @@ impl Sim {
                 if KICK_SKIPPED_BONES.contains(&k) {
                     continue;
                 }
-                let d = Vec3::new(ball.x - bone.pos.x, ball.y - bone.pos.y, ball.z - bone.pos.z);
-                let len = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+                let d = ball - bone.pos;
+                let len = d.length();
                 if !(KICK_REACH > len) {
                     continue;
                 }
                 let (off, n) = if len != 0.0 {
                     let inv = 1.0 / len;
-                    let u = Vec3::new(d.x * inv, d.y * inv, inv * d.z);
-                    (Vec3::new(u.x * -BALL_RADIUS, u.y * -BALL_RADIUS, u.z * -BALL_RADIUS), Vec3::new(-u.x, -u.y, -u.z))
+                    let u = d * inv;
+                    (u * -BALL_RADIUS, -u)
                 } else {
                     (Vec3::splat(-0.0), Vec3::splat(-0.0))
                 };
-                let p = Vec3::new(off.x + ball.x, off.y + ball.y, off.z + ball.z);
+                let p = off + ball;
                 contacts.push((bone.body, p, n, KICK_REACH - len));
             }
         }
         for (bone_body, p, n, depth) in contacts {
             let (Some(a), Some(b)) = (self.bodies.get(bone_body).map(|b| b.pos), self.bodies.get(ball_body).map(|b| b.pos)) else { continue };
-            let (off_a, off_b) = (Vec3::new(p.x - a.x, p.y - a.y, p.z - a.z), Vec3::new(p.x - b.x, p.y - b.y, p.z - b.z));
+            let (off_a, off_b) = (p - a, p - b);
             self.bodies.add_body_contact(bone_body, ball_body, off_a, off_b, n, depth, KICK_FRICTION, KICK_DEPTH_SCALE, KICK_SOFTNESS);
         }
     }
@@ -671,14 +659,10 @@ impl Sim {
             let sx = if q == 0 || q == 3 { -bounds.x } else { bounds.x };
             let sy = if i <= 3 { -bounds.y } else { bounds.y };
             let sz = if q <= 1 { -bounds.z } else { bounds.z };
-            let corner = Vec3::new(
-                ((pos.x + r0.x * sx) + r1.x * sy) + r2.x * sz,
-                ((pos.y + r0.y * sx) + r1.y * sy) + r2.y * sz,
-                ((sx * r0.z + pos.z) + sy * r1.z) + sz * r2.z,
-            );
+            let corner = pos + r0 * sx + r1 * sy + r2 * sz;
             let Some(h) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, pos, corner) else { continue };
             let (hp, n) = (h.hit.pos, h.hit.normal);
-            let offset = Vec3::new(hp.x - pos.x, hp.y - pos.y, hp.z - pos.z);
+            let offset = hp - pos;
             let depth = (n.x * (hp.x - corner.x) + (hp.y - corner.y) * n.y) + (hp.z - corner.z) * n.z;
             self.bodies.add_world_contact(body_id, offset, n, depth, CONTACT_FRICTION, CONTACT_DEPTH_SCALE, CONTACT_SOFTNESS);
             if let Some(set) = h.set {

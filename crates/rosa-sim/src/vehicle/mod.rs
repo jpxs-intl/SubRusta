@@ -23,7 +23,7 @@ const BOGIE_INERTIA: Vec3 = Vec3::new(0.9375, 1.5, 0.9375);
 /// A helicopter's rotor: 160, 1.5 up the chassis' up axis, held by a point bond at (0, 1.5, 0) and an angular bond.
 const ROTOR_MASS: f32 = 160.0;
 const ROTOR_HEIGHT: f32 = 1.5;
-const ROTOR_INERTIA: Vec3 = Vec3::new(f32::from_bits(0x4080_2aab), 8.0, f32::from_bits(0x4080_2aab));
+const ROTOR_INERTIA: Vec3 = Vec3::new(769.0 / 192.0, 8.0, 769.0 / 192.0);
 const ROTOR_COEFS: [f32; 3] = [4.0, 0.125, 4.0];
 /// The control flags a vehicle starts with: the handbrake on.
 pub const HANDBRAKE: i32 = 4;
@@ -225,8 +225,8 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
     if kind == rosa_protocol::clientbound::game::VehicleKind::Train {
         let [_, r1, r2] = rot;
         let ends = [
-            (Vec3::new((centre.x - r1.x) + r2.x * -6.0, r2.y * -6.0 + (centre.y - r1.y), -6.0 * r2.z + (centre.z - r1.z)), Vec3::new(0.0, -1.0, -6.0)),
-            (Vec3::new((-1.25 * r1.x + centre.x) + r2.x * 6.0, r2.y * 6.0 + (r1.y * -1.25 + centre.y), 6.0 * r2.z + (r1.z * -1.25 + centre.z)), Vec3::new(0.0, -1.0, 6.0)),
+            (centre - r1 + r2 * -6.0, Vec3::new(0.0, -1.0, -6.0)),
+            (-1.25 * r1 + centre + r2 * 6.0, Vec3::new(0.0, -1.0, 6.0)),
         ];
         for (at, anchor) in ends {
             let bogie = bodies.create(RigidBodyType::Vehicle, at, rot, vel, BOGIE_INERTIA, BOGIE_MASS)?;
@@ -237,7 +237,7 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
     }
     let rotor = if kind == rosa_protocol::clientbound::game::VehicleKind::Helicopter {
         let [_, r1, _] = rot;
-        let at = Vec3::new(r1.x * ROTOR_HEIGHT + centre.x, r1.y * ROTOR_HEIGHT + centre.y, ROTOR_HEIGHT * r1.z + centre.z);
+        let at = r1 * ROTOR_HEIGHT + centre;
         let rotor_body = bodies.create(RigidBodyType::Vehicle, at, rot, vel, ROTOR_INERTIA, ROTOR_MASS)?;
         if let Some(b) = bodies.get_mut(rotor_body) {
             b.coefs = ROTOR_COEFS;
@@ -287,8 +287,8 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         gearbox_inertia: 0.0,
         wheel_feedback: 0.0,
         engine_inertia: 12.0,
-        clutch_drag: f32::from_bits(0x4347ffff),
-        drive_divisor: f32::from_bits(0x3ba3d70b),
+        clutch_drag: 199.99998,
+        drive_divisor: 0.0050000004,
         gear: 0,
         prev_gear: 0,
         gear_ratio: 0.0,
