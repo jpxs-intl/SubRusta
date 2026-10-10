@@ -60,7 +60,7 @@ impl Sim {
             }
             let Some(h) = player.human.and_then(|id| self.humans.get_mut(id)) else { continue };
             h.stocks = player.stocks;
-            player.old_health = h.old_health.max(0);
+            player.vitality = h.health.vitality.max(0);
             if h.vehicle.is_some() {
                 if matches!(player.control_mode, 2 | 3) {
                     let c = &player.controls;
@@ -226,12 +226,12 @@ impl Sim {
         let target = self
             .humans
             .iter()
-            .filter(|(_, h)| h.old_health > 0)
+            .filter(|(_, h)| h.health.vitality > 0)
             .min_by(|(_, a), (_, b)| (a.pos - eye).length().total_cmp(&(b.pos - eye).length()))
             .map(|(id, _)| id);
         let Some(id) = target else { return println!("[Sim] No living human to kill") };
         if let Some(h) = self.humans.get_mut(id) {
-            h.old_health = 0;
+            h.health.vitality = 0;
         }
         println!("[Sim] Killed human #{id}");
     }
@@ -268,7 +268,7 @@ impl Sim {
                     wanted: h.player.and_then(|p| self.players.get(p.idx())).map_or(0, |p| wanted_group(p.crim_rating)),
                     vehicle: h.vehicle.map_or(-1, |v| v as i32),
                     vehicle_seat: h.seat as i32,
-                    alive: h.old_health > 0,
+                    alive: h.health.vitality > 0,
                     bleeding: h.bleeding,
                     pos: Vector(root.pos),
                     rot: rot_matrix_to_quaternion(&root.rot),
@@ -301,7 +301,7 @@ impl Sim {
                         action_hand: h.action_hand,
                         action_slot: h.action_slot,
                         progress_bar: h.progress_bar,
-                        health: [h.health, h.chest_hp, h.head_hp, h.left_arm_hp, h.right_arm_hp, h.left_leg_hp, h.right_leg_hp],
+                        health: [h.health.health, h.health.chest, h.health.head, h.health.left_arm, h.health.right_arm, h.health.left_leg, h.health.right_leg],
                         stamina: h.stamina,
                         max_stamina: h.max_stamina,
                         head_vel: Vector(h.bones[3].vel),

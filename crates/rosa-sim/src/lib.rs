@@ -9,13 +9,13 @@ use tokio::sync::mpsc::UnboundedSender;
 pub mod computer;
 pub mod human;
 pub mod input;
+pub mod items;
 pub mod player;
 pub mod sim;
 pub mod time;
 pub mod traffic;
 pub mod vehicle;
 pub mod world;
-pub mod items;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct PlayerId(pub u32);

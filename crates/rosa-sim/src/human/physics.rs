@@ -7,7 +7,8 @@ use super::{
     bones::{BONES, BoneId},
 };
 use crate::{
-    items::Touchables, world::{
+    items::Touchables,
+    world::{
         capsule::{CapsuleHit, capsule_intersect_level, segment_closest_points},
         map::Map,
         trace::line_intersect_level,
@@ -112,7 +113,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
             continue;
         }
-        let standing = movement_state != 2 && h.old_health > 0 && h.health > 49;
+        let standing = movement_state != 2 && h.health.vitality > 0 && h.health.health > 49;
         if (j == BoneId::ShinLeft as usize || j == BoneId::ShinRight as usize) && standing {
             continue;
         }
@@ -132,7 +133,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let p = bone.pos;
         let nh = neg * 0.5;
         let mut a = nh * row + p;
-        if movement_state == 0 && h.old_health > 0 && h.health > 49 && (j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize) {
+        if movement_state == 0 && h.health.vitality > 0 && h.health.health > 49 && (j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize) {
             let q = neg * 0.125;
             a = q * row + p;
         }
@@ -149,17 +150,17 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         if h.last_vehicle_cooldown == 0 && !h.is_immortal {
             if j == BoneId::Head as usize {
                 if impact > HEAD_IMPACT {
-                    h.old_health -= 120;
+                    h.health.vitality -= 120;
                 }
             } else if j == BoneId::Pelvis as usize || j == BoneId::Torso as usize {
                 if impact > TORSO_IMPACT {
-                    h.old_health -= 120;
+                    h.health.vitality -= 120;
                 }
             } else if (j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize) && impact > HEAD_IMPACT {
                 if j == BoneId::ThighLeft as usize {
-                    h.left_leg_hp = 0;
+                    h.health.left_leg = 0;
                 } else {
-                    h.right_leg_hp = 0;
+                    h.health.right_leg = 0;
                 }
             }
         }
@@ -185,7 +186,7 @@ pub(super) fn bone_track_contacts(h: &Human, bodies: &mut RigidBodies, track: &c
     if tris.is_empty() {
         return;
     }
-    let standing = h.movement_state != 2 && h.old_health > 0 && h.health > 49;
+    let standing = h.movement_state != 2 && h.health.vitality > 0 && h.health.health > 49;
     for (j, bone) in h.bones.iter().enumerate() {
         if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
             continue;
@@ -299,8 +300,8 @@ pub(super) fn vehicle_contacts(h: &mut Human, bodies: &mut RigidBodies, touch: &
             if h.is_immortal || (rel.dot(n)) <= threshold {
                 continue;
             }
-            h.old_health -= 120;
-            if (-119..=0).contains(&h.old_health) {
+            h.health.vitality -= 120;
+            if (-119..=0).contains(&h.health.vitality) {
                 out.push(HumanOutput::Sound { sound: Sound::BodyHit, pos: h.pos, volume: 1.0, pitch: 0.5 });
                 if v.last_driver != -1 {
                     out.push(HumanOutput::RunOver { driver: crate::PlayerId(v.last_driver as u32), victim: h.player });

@@ -245,15 +245,18 @@ impl Sim {
             if p.account_id == u32::MAX {
                 continue;
             }
+
             let worth = match super::economy::corporation_of(p.team).and_then(|c| self.corporations.get(c)) {
                 Some(c) => (p.money as f32 + p.stocks as f32 * (SALE_SHARE * c.price)) as i32,
                 None => p.money,
             };
+
             if let Some(a) = self.saved_accounts.get_player_data(p.account_id) {
                 a.money = worth as u32;
                 a.corp_rating = p.corp_rating as u32;
                 a.crim_rating = p.crim_rating as u32;
             }
+
             self.account_spawn_timers.insert(p.account_id, p.spawn_timer);
         }
     }
@@ -264,9 +267,11 @@ impl Sim {
             let t = self.world.map.level.area.track.spawns.get(TEST2_SPAWN_TRAIN).map_or(Vec3::ZERO, |s| s.0);
             return Vec3::new(TEST2_SPAWN_EAST + t.x, TEST2_SPAWN_UP + t.y, t.z);
         }
+
         let streets = &self.world.map.streets;
         let Some(i) = streets.streets.first().and_then(|s| streets.intersections.get(s.intersections[SPAWN_END])) else { return Vec3::ZERO };
         let p = i.world_pos;
+
         Vec3::new((SPAWN_EAST_A + p.x) + SPAWN_EAST_B, SPAWN_UP + p.y, p.z - SPAWN_NORTH)
     }
 
@@ -275,11 +280,12 @@ impl Sim {
         let spawns = self.world.map.level.area.track.spawns.clone();
         for (i, (p, angle)) in spawns.into_iter().enumerate() {
             let mut rot = rosa_physics::rotation::IDENTITY;
-            rosa_physics::rotation::rotate_orientation(&mut rot, Vec3::Y, angle);
+
+            rotate_orientation(&mut rot, Vec3::Y, angle);
+
             let pos = Vec3::new(p.x, p.y + TRAIN_LIFT, p.z);
-            if let Some(v) =
-                self.spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::Train, TRAIN_COLOR, pos, rot).and_then(|id| self.vehicles.get_mut(id))
-            {
+
+            if let Some(v) = self.spawn_vehicle(VehicleKind::Train, TRAIN_COLOR, pos, rot).and_then(|id| self.vehicles.get_mut(id)) {
                 v.train_index = i as i32;
             }
         }
@@ -288,21 +294,28 @@ impl Sim {
     /// logic_world.
     pub(crate) fn logic_world(&mut self) {
         self.expire_world_bots();
+
         if self.gamestate == GameState::Intermission {
             self.start_world();
         }
+
         if self.gamestate != GameState::InGame {
             return;
         }
+
         self.world_time += self.world_state.rate;
+
         let clock = self.world_time;
+
         if clock == MISSIONS_AT {
             self.start_world_missions();
         }
+
         if clock % DAY_STEP == 0 && clock <= LAST_DAY_STEP {
             for k in 0..CORPORATIONS {
                 self.increment_manager_rating(k);
             }
+
             for k in 0..CORPORATIONS {
                 if self.corp_state[k].player_count > 0 {
                     if self.world_state.memo_timers[k] <= 0 {
@@ -313,23 +326,30 @@ impl Sim {
                 }
             }
         }
+
         if clock > DAY_END {
             return self.end_world_day();
         }
+
         self.stock_burger_shops();
         self.expire_corp_missions(clock);
+
         if clock % SAVE_PERIOD == 0 {
             self.world_save_tick();
         }
+
         if clock % DAY_STEP == 0 {
             self.world_crime_tick();
         }
+
         self.place_world_memos();
+
         for (_, p) in self.players.iter_mut() {
             if !p.is_bot && p.human.is_none() {
                 p.menu = MenuType::EnterCity;
             }
         }
+
         self.keep_mission_items();
     }
 
@@ -419,15 +439,19 @@ impl Sim {
         self.world_time = CLOCK_START;
         self.world_state.rate = CLOCK_RATE;
         self.world_create_train();
+
         let map = &self.world.map;
         if !map.streets.streets.is_empty() {
             crate::traffic::spawn::create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, self.world_cfg.traffic);
         }
+
         let labs: Vec<usize> =
             self.world.map.level.buildings.iter().enumerate().filter(|(_, b)| b.kind == crate::world::building::LAB).map(|(i, _)| i).collect();
+
         for building in labs {
             self.spawn_building_patrol_npcs(building, LAB_GUARD);
         }
+
         self.world_state.memo_timers = [0; CORPORATIONS];
     }
 

@@ -4,10 +4,7 @@ use rosa_protocol::clientbound::game::MenuType;
 
 use rosa_protocol::clientbound::game::ItemKind;
 
-use super::{
-    Sim,
-    items::touchables,
-};
+use super::{Sim, items::touchables};
 use crate::items::state::BILL_VALUES;
 use crate::items::state::ItemState;
 use crate::items::types::ItemType;
@@ -343,13 +340,7 @@ impl Sim {
     }
 
     /// An item at the human, set up by `init` and put into the first of `slots` that takes it. Returns the item.
-    pub(super) fn give_item(
-        &mut self,
-        human: usize,
-        kind: u8,
-        slots: std::ops::Range<usize>,
-        init: impl FnOnce(&mut ItemState),
-    ) -> Option<usize> {
+    pub(super) fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>, init: impl FnOnce(&mut ItemState)) -> Option<usize> {
         let kind = ItemKind::try_from(kind).ok()?;
         let pos = self.humans.get(human).map(|h| h.pos)?;
         let item = self.create_item(kind, pos, None, IDENTITY)?;

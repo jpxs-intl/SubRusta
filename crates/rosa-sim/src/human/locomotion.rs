@@ -952,11 +952,11 @@ pub fn update_locomotion_constraints(h: &mut Human, bodies: &mut RigidBodies, su
     let speed = tv.length() * 60.0 - 0.5;
     let stride = speed.clamp(0.0, 1.0);
     let mut leg_hp = [1.0f32; 2];
-    if h.left_leg_hp <= 99 {
-        leg_hp[0] = h.left_leg_hp as f32 / 100.0;
+    if h.health.left_leg <= 99 {
+        leg_hp[0] = h.health.left_leg as f32 / 100.0;
     }
-    if h.right_leg_hp <= 99 {
-        leg_hp[1] = h.right_leg_hp as f32 / 100.0;
+    if h.health.right_leg <= 99 {
+        leg_hp[1] = h.health.right_leg as f32 / 100.0;
     }
 
     let upright_yaw = |h: &Human| {

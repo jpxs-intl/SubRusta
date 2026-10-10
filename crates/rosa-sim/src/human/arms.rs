@@ -1,5 +1,6 @@
 use crate::{
-    items::{Touchables, state::{ItemState, PhoneStatus}, types::ItemType}, world::{capsule::segment_closest_points, map::Map, trace::line_intersect_level},
+    items::{Touchables, logic::phone::PhoneStatus, state::ItemState, types::ItemType},
+    world::{capsule::segment_closest_points, map::Map, trace::line_intersect_level},
 };
 use glam::Vec3;
 use rosa_physics::{
@@ -161,12 +162,12 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         h.throw_pitch = 8.0 * h.free_look_pitch;
     }
     let mut arm_hp = [1.0f32; 2];
-    if h.left_arm_hp <= 99 {
-        arm_hp[0] = h.left_arm_hp as f32 / 100.0;
+    if h.health.left_arm <= 99 {
+        arm_hp[0] = h.health.left_arm as f32 / 100.0;
     }
 
-    if h.right_arm_hp <= 99 {
-        arm_hp[1] = h.right_arm_hp as f32 / 100.0;
+    if h.health.right_arm <= 99 {
+        arm_hp[1] = h.health.right_arm as f32 / 100.0;
     }
 
     if h.movement_state == 1 && 0.0 > h.locomotion.torso_vel.y {

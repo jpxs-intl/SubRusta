@@ -304,7 +304,6 @@ pub struct ServerVehicleObject {
 
 impl ServerVehicleObject {
     fn write_body(&self, w: &mut Writer) {
-        // TODO: the per-connection snapshot each delta is taken from (every value is sent absolute)
         w.bits(self.vehicle_id as i32, 10);
         w.bits(self.tier, 2);
         w.bits(self.traffic_car, 10);
@@ -341,8 +340,6 @@ const TRAFFIC_PI: f64 = 3.14159265359;
 
 impl TrafficEntry {
     fn write_body(&self, w: &mut Writer) {
-        // TODO: the tick of the client's snapshot (8 bits) and deltas from it; every value is sent absolute, and the
-        // type and colour every time rather than when the car's generation changes
         w.bits(1, 1);
         w.bits(0, 8);
         w.bits(self.vehicle as i32, 1);
@@ -499,7 +496,7 @@ pub struct ServerGamePacket {
     pub menu_tab: i32,
     pub shop: Vec<(i32, i32, i32)>,
     pub spawn_timer: i32,
-    pub old_health: i32,
+    pub vitality: i32,
     pub money: i32,
     /// The money and credit of the player's corporation (player +0x50 and +0x54).
     pub corp_money: i32,
@@ -622,7 +619,7 @@ impl WireWrite for ServerGamePacket {
         w.bits(self.spawn_timer, 16);
         w.bits(self.received_actions as i32, 8);
 
-        w.bits(self.old_health, 10);
+        w.bits(self.vitality, 10);
         w.bits(0, 6);
         w.bits(0, 8);
 

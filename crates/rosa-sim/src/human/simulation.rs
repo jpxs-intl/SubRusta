@@ -19,9 +19,12 @@ use super::{
     },
     seated::{fall_out, simulate_seated, walk_simulation},
 };
-use crate::{input::{GRAB, JUMP, RAGDOLL}, items::Touchables};
 use crate::time::TICKS_PER_MINUTE;
 use crate::world::map::Map;
+use crate::{
+    input::{GRAB, JUMP, RAGDOLL},
+    items::Touchables,
+};
 
 const TURN_STEP: f32 = 3.0 / 64.0;
 const DESPAWN_TICKS: i32 = TICKS_PER_MINUTE;
@@ -87,8 +90,8 @@ pub(crate) fn simulate_human(
         turn_towards_view(h);
     }
     h.strength = base_strength;
-    if h.old_health <= 24 {
-        h.strength = weak_strength(id, h.old_health, ticks, base_strength);
+    if h.health.vitality <= 24 {
+        h.strength = weak_strength(id, h.health.vitality, ticks, base_strength);
     }
     let has_item = h.inventory[0].count > 0 || h.inventory[1].count > 0;
 
@@ -131,7 +134,7 @@ pub(crate) fn simulate_human(
 
     if let Some(vid) = seated {
         simulate_seated(h, bodies, map, touch, vid, has_item, base_strength);
-        if h.old_health <= 0 || h.health <= 49 {
+        if h.health.vitality <= 0 || h.health.health <= 49 {
             fall_out(h, touch, vid);
         }
         if h.input_flags & GRAB != 0 && h.last_input_flags & GRAB == 0 {
@@ -140,7 +143,7 @@ pub(crate) fn simulate_human(
     } else {
         walk_and_collide(h, bodies, map, touch, &nearby, out);
     }
-    if h.old_health > 0 {
+    if h.health.vitality > 0 {
         hand_grab_and_inventory(h, id, bodies, touch, out);
         action_simulation(h, id, bodies, touch, out);
     } else {
@@ -157,13 +160,13 @@ pub(crate) fn simulate_human(
     if let Some(lift) = simulate_movement(h, bodies, &Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby: &nearby }, ticks) {
         lift_held_items(h, bodies, touch, lift);
     }
-    if h.old_health <= 0 || h.health <= 49 {
+    if h.health.vitality <= 0 || h.health.health <= 49 {
         joint_limits(h, bodies);
     }
 
     h.pos = h.bones[0].pos;
     if -32.0 > h.bones[0].pos.y {
-        h.old_health = -100;
+        h.health.vitality = -100;
     }
     if h.vehicle.is_none() {
         bone_track_contacts(h, bodies, &map.level.area.track);
@@ -180,8 +183,8 @@ pub(crate) fn simulate_human(
 /// The part of human_simulation for a human on foot: the jump charging, the feet held to the ground, the bones
 /// against the level and against nearby vehicles.
 fn walk_and_collide(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, nearby: &[usize], out: &mut Vec<HumanOutput>) {
-    let alive = h.old_health > 0;
-    let standing = alive && h.health > 49;
+    let alive = h.health.vitality > 0;
+    let standing = alive && h.health.health > 49;
     if alive && h.movement_state == 0 && h.input_flags & JUMP != 0 && h.locomotion.jump_charge <= 31 {
         h.locomotion.jump_charge += 1;
     }
@@ -236,8 +239,8 @@ fn drop_everything(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchabl
 const KEPT_BODY_TICKS: i32 = 4;
 
 fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>, keep_bodies: bool) -> HumanTick {
-    let alive = h.old_health > 0;
-    if h.old_health > 0 {
+    let alive = h.health.vitality > 0;
+    if h.health.vitality > 0 {
         if h.player.is_some() {
             h.despawn_ticks = DESPAWN_TICKS;
             return HumanTick::Keep;
@@ -319,15 +322,15 @@ fn turn_towards_view(h: &mut Human) {
 }
 
 /// How much of its strength a badly hurt human has left, wavering over time.
-fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
+fn weak_strength(id: usize, vitality: i32, ticks: u32, base: f32) -> f32 {
     let id = id as i32;
     let t = (id.wrapping_mul(id).wrapping_mul(id).wrapping_add(ticks as i32)) & 0x1ff;
     let x = t as f32 * (1.0 / 512.0);
     let s = ((x as f64 * 360.0_f64.to_radians()) as f32 as f64).sin();
-    let hp = old_health as f32;
+    let hp = vitality as f32;
     let a = hp / 25.0;
     let mut r = (s * 0.25 * (base - a) as f64 + (a * 0.5 + 0.375) as f64) as f32;
-    if old_health <= 9 {
+    if vitality <= 9 {
         r *= (hp / 10.0) * 0.5 + 0.5;
     }
     r
@@ -344,20 +347,20 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
         if h.down_timer > 0 {
             h.down_timer -= 1;
         }
-        if h.health <= 49 {
+        if h.health.health <= 49 {
             h.down_timer = 1800;
         }
-    } else if h.health <= 74 {
-        h.pain = h.pain.max(((75 - h.health) * 2).min(60));
+    } else if h.health.health <= 74 {
+        h.pain = h.pain.max(((75 - h.health.health) * 2).min(60));
     }
 
-    if h.old_health <= 0 {
+    if h.health.vitality <= 0 {
         h.bleeding = false;
-        h.health = 0;
+        h.health.health = 0;
         return;
     }
 
-    h.health = h.health.max(0);
+    h.health.health = h.health.health.max(0);
     for hp in parts(h) {
         *hp = (*hp).max(0);
     }
@@ -365,31 +368,31 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
     let every = |n: u32| ticks.is_multiple_of(n);
     if h.is_immortal {
         if every(8) {
-            heal(&mut h.health);
+            heal(&mut h.health.health);
         }
         if every(16) {
             parts(h).into_iter().for_each(heal);
         }
         if every(256) {
-            heal(&mut h.blood_level);
+            heal(&mut h.health.blood_level);
         }
     } else {
-        if h.chest_hp <= 0 || h.head_hp <= 0 {
-            h.old_health = 0;
+        if h.health.chest <= 0 || h.health.head <= 0 {
+            h.health.vitality = 0;
         }
         if h.bleeding {
             if every(64) {
-                heal(&mut h.health);
+                heal(&mut h.health.health);
             }
         } else {
             if every(32) {
-                heal(&mut h.health);
+                heal(&mut h.health.health);
             }
             if every(64) {
                 parts(h).into_iter().for_each(heal);
             }
             if every(256) {
-                heal(&mut h.blood_level);
+                heal(&mut h.health.blood_level);
             }
         }
     }
@@ -398,8 +401,8 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
         bleed(id, h, ticks, out);
     }
 
-    if !h.is_immortal && h.blood_level <= 10 {
-        h.old_health = 0;
+    if !h.is_immortal && h.health.blood_level <= 10 {
+        h.health.vitality = 0;
     }
 }
 
@@ -411,15 +414,15 @@ fn heal(v: &mut i32) {
 }
 
 fn parts(h: &mut Human) -> [&mut i32; 6] {
-    [&mut h.chest_hp, &mut h.head_hp, &mut h.left_arm_hp, &mut h.right_arm_hp, &mut h.left_leg_hp, &mut h.right_leg_hp]
+    [&mut h.health.chest, &mut h.health.head, &mut h.health.left_arm, &mut h.health.right_arm, &mut h.health.left_leg, &mut h.health.right_leg]
 }
 
 fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
-    let blood = h.blood_level;
+    let blood = h.health.blood_level;
     if blood <= 19 {
         let cap = blood * 2 + 10;
-        if h.health > cap {
-            h.health = cap;
+        if h.health.health > cap {
+            h.health.health = cap;
         }
         if blood <= 0 {
             return;
@@ -427,7 +430,7 @@ fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     }
     let id = id as i32;
     if (id.wrapping_mul(id).wrapping_mul(id) ^ ticks as i32) as u8 == 0 && !h.is_immortal {
-        h.blood_level = blood - 3;
+        h.health.blood_level = blood - 3;
         let p = h.bones[1].pos;
         out.push(HumanOutput::Blood(Vec3::new(0.0 * 0.5 + p.x, 1.0 * 0.5 + p.y, 0.5 * 0.0 + p.z)));
     }

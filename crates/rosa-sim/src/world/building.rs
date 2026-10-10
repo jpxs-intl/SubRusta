@@ -42,6 +42,7 @@ pub fn building_type(name: &str, roundcity: bool) -> i32 {
             _ => 9,
         };
     }
+
     match name {
         "base01" => 0,
         "base02" => 1,
@@ -68,6 +69,7 @@ pub const CLOTHING_STORE: i32 = 5;
 pub const BANK: i32 = 6;
 pub const GUN_STORE: i32 = 8;
 pub const BURGER_SHOP: i32 = 9;
+
 /// What a clothing store sells (two suits, a third, two necklaces) and a burger shop's single burger.
 const CLOTHING_STOCK: [(i32, i32); 5] = [(0, 1000), (1, 5000), (2, 10000), (3, 10000), (4, 100000)];
 const BURGER_PRICE: i32 = 20;

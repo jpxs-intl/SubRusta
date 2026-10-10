@@ -71,7 +71,7 @@ impl Sim {
         if cfg.crimekick <= a.crim_rating
             && let Some(h) = self.humans.get_mut(attacker_human)
         {
-            h.old_health = 0;
+            h.health.vitality = 0;
         }
     }
 

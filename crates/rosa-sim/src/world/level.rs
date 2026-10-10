@@ -3,9 +3,19 @@ use std::path::Path;
 use glam::{IVec3, Vec3};
 use rosa_map::file_types::{csx::CityFileCSX, sbc::CityFileSBC, sbl::BlockFile};
 
-use crate::{items::types::item_types, world::{
-    area::{ALL_FACES, AreaGrid, MESH}, blocks::{BlockTable, StaticDims}, building::Buildings, city::{instantiate_sectors, resolve_block_types}, ground::Ground, item_sets::ItemSets, meshes::{BlockMeshes, PortalGroups}, roads::RoadNetwork,
-}};
+use crate::{
+    items::types::item_types,
+    world::{
+        area::{ALL_FACES, AreaGrid, MESH},
+        blocks::{BlockTable, StaticDims},
+        building::Buildings,
+        city::{instantiate_sectors, resolve_block_types},
+        ground::Ground,
+        item_sets::ItemSets,
+        meshes::{BlockMeshes, PortalGroups},
+        roads::RoadNetwork,
+    },
+};
 
 pub struct Level {
     pub area: AreaGrid,

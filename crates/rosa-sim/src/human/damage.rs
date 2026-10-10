@@ -59,36 +59,36 @@ pub fn trace_ray_human(h: &Human, start: Vec3, end: Vec3, radius: f32) -> Option
 /// already gone, and any hit may start bleeding.
 pub fn damage_human(h: &mut Human, bone: BoneId, damage: i32) {
     if !h.is_immortal {
-        h.blood_level -= damage / 2;
+        h.health.blood_level -= damage / 2;
     }
     let blood_health = |health: i32, blood: i32| (health as f32 - ((90 - blood) * damage) as f32 / 100.0) as i32;
     match bone {
         BoneId::Pelvis | BoneId::Stomach | BoneId::Torso => {
-            h.chest_hp -= damage;
+            h.health.chest -= damage;
             h.pain += damage;
-            if h.blood_level < 100 {
-                let scale = (1.0f32).min((100 - h.blood_level) as f32 / 25.0);
-                h.health = (h.health as f32 - scale * damage as f32) as i32;
+            if h.health.blood_level < 100 {
+                let scale = (1.0f32).min((100 - h.health.blood_level) as f32 / 25.0);
+                h.health.health = (h.health.health as f32 - scale * damage as f32) as i32;
             }
         }
         BoneId::Head => {
-            h.head_hp -= damage;
-            h.health -= damage;
+            h.health.head -= damage;
+            h.health.health -= damage;
         }
-        BoneId::ShoulderLeft | BoneId::ForearmLeft | BoneId::HandLeft => h.left_arm_hp += damage - damage * 4,
-        BoneId::ShoulderRight | BoneId::ForearmRight | BoneId::HandRight => h.right_arm_hp += damage - damage * 4,
+        BoneId::ShoulderLeft | BoneId::ForearmLeft | BoneId::HandLeft => h.health.left_arm += damage - damage * 4,
+        BoneId::ShoulderRight | BoneId::ForearmRight | BoneId::HandRight => h.health.right_arm += damage - damage * 4,
         BoneId::ThighLeft | BoneId::ShinLeft | BoneId::FootLeft => {
-            h.left_leg_hp -= damage * 2;
+            h.health.left_leg -= damage * 2;
 
-            if h.blood_level < 100 {
-                h.health = blood_health(h.health, h.blood_level);
+            if h.health.blood_level < 100 {
+                h.health.health = blood_health(h.health.health, h.health.blood_level);
             }
         }
         _ => {
-            h.right_leg_hp -= damage * 2;
+            h.health.right_leg -= damage * 2;
 
-            if h.blood_level < 100 {
-                h.health = blood_health(h.health, h.blood_level);
+            if h.health.blood_level < 100 {
+                h.health.health = blood_health(h.health.health, h.health.blood_level);
             }
         }
     }
@@ -98,5 +98,5 @@ pub fn damage_human(h: &mut Human, bone: BoneId, damage: i32) {
     }
 
     h.pain = h.pain.min(90);
-    h.health = h.health.max(0);
+    h.health.health = h.health.health.max(0);
 }

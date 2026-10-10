@@ -45,23 +45,30 @@ pub fn link_item_to_human(h: &mut Human, human_id: usize, bodies: &mut RigidBodi
     if count > 1 || (slot <= 1 && count == 1) {
         return false;
     }
+
     let Some(item) = touch.items.get(item_id) else { return false };
     let is_gun = touch.types[item.item_type as usize].is_gun;
+
     if (slot == 2 && !is_gun) || (slot > 2 && is_gun) {
         return false;
     }
+
     if item.parent_item != -1 {
         remove_link(touch.items, item_id, item.parent_item as usize);
     }
+
     let item = touch.items.get(item_id).unwrap();
+
     if item.parent_human != -1 {
         // TODO: item_detach_human from another human
         if item.parent_human as usize == human_id {
             detach_item(h, bodies, touch, item_id, item.parent_slot as usize);
         }
     }
+
     let item = touch.items.get_mut(item_id).unwrap();
     item.parent_item = -1;
+
     let n = h.inventory[slot].count;
     if n <= 7 {
         h.inventory[slot].count = n + 1;
@@ -69,6 +76,7 @@ pub fn link_item_to_human(h: &mut Human, human_id: usize, bodies: &mut RigidBodi
         item.parent_slot = slot as i32;
         h.inventory[slot].items[n as usize] = item_id as i32;
     }
+
     true
 }
 
@@ -124,7 +132,7 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
                 unlink_item(h, bodies, touch, item_id);
                 continue;
             }
-            if h.health <= 49 {
+            if h.health.health <= 49 {
                 unlink_item(h, bodies, touch, item_id);
             }
             break;
@@ -135,7 +143,6 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
         if slot == 0 && h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0 && h.inventory[0].count == 0 {
             grab_item(h, touch);
         }
-        // TODO: grabbing other humans and vehicles with an empty hand; doors and ropes in hand
         let released = h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0;
         if !probed && released && h.inventory[slot].count == 0 && h.input_flags & MODE_KEYS == 0 {
             probed = true;
@@ -551,9 +558,7 @@ fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&Item) -> bool) ->
 /// a computer used instead (action 4, queued for the right hand).
 fn grab_item(h: &mut Human, touch: &mut Touchables) {
     let items = &*touch.items;
-    let free = |i: &Item| {
-        i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1)
-    };
+    let free = |i: &Item| i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1);
     let Some(item_id) = item_in_sight(h, touch, free) else { return };
     let item = touch.items.get(item_id).unwrap();
     let kind = item.item_type;

@@ -82,6 +82,26 @@ pub struct Attachments {
     pub chains: Vec<AttachmentChain>,
 }
 
+pub struct HumanHealth {
+    pub health: i32,
+    pub blood_level: i32,
+    /// Whether the human is alive (the binary's oldHealth): 100 at spawn, dead at 0 or below. Fatal injuries set it
+    /// to 0, a crush takes 120, at 24 or below the human weakens and at 9 or below a bandage can save them.
+    pub vitality: i32,
+    pub chest: i32,
+    pub head: i32,
+    pub left_arm: i32,
+    pub right_arm: i32,
+    pub left_leg: i32,
+    pub right_leg: i32,
+}
+
+impl Default for HumanHealth {
+    fn default() -> Self {
+        Self { health: 100, blood_level: 100, vitality: 100, chest: 100, head: 100, left_arm: 100, right_arm: 100, left_leg: 100, right_leg: 100 }
+    }
+}
+
 pub struct Human {
     pub player: Option<PlayerId>,
     /// The account of the player this human belongs to (record 0x34), kept after the player leaves.
@@ -92,15 +112,7 @@ pub struct Human {
     pub customization: CharacterCustomization,
     // left eye offset, left eye scale, right eye offset, right eye scale
     pub face_shape: [Vec3; 4],
-    pub health: i32,
-    pub blood_level: i32,
-    pub old_health: i32,
-    pub chest_hp: i32,
-    pub head_hp: i32,
-    pub left_arm_hp: i32,
-    pub right_arm_hp: i32,
-    pub left_leg_hp: i32,
-    pub right_leg_hp: i32,
+    pub health: HumanHealth,
     pub stamina: i32,
     pub max_stamina: i32,
     pub vehicle: Option<usize>,

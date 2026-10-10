@@ -1,6 +1,10 @@
 use rosa_protocol::clientbound::game::ItemKind;
 
-use crate::{PlayerId, items::types::ItemType, sim::memos};
+use crate::{
+    PlayerId,
+    items::{logic::phone::Phone, types::ItemType},
+    sim::memos,
+};
 
 /// The part of an item record that depends on its type. The binary keeps all of these in one record and reuses
 /// fields across types (a radio's channel sits in the computer's line fields); here each type carries only its own.
@@ -125,38 +129,6 @@ impl Cash {
 
         true
     }
-}
-
-/// Where a phone is in a call (item +0x27c).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[repr(i32)]
-pub enum PhoneStatus {
-    #[default]
-    Idle = 0,
-    Dialing = 1,
-    /// Calling out, or being called while not yet answered.
-    Ringing = 2,
-    Connected = 3,
-    Busy = 4,
-}
-
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct Phone {
-    pub number: i32,
-    pub status: PhoneStatus,
-    pub connected: Option<usize>,
-    /// Ticks spent ringing or busy (+0x164).
-    pub ring_timer: i32,
-    /// The number on the screen (+0x168).
-    pub display_number: i32,
-    /// The digits dialled so far (+0x16c).
-    pub entered_number: i32,
-    /// Ticks before the keypad works again after a call is placed (+0x13c).
-    pub cooldown: i32,
-    /// +0x278
-    pub texture: i32,
-    /// Where a pay phone was put (+0x300).
-    pub home: glam::Vec3,
 }
 
 impl ItemState {

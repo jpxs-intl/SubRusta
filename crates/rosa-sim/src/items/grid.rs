@@ -26,9 +26,11 @@ impl ItemGrid {
             for z in min.z..=max.z {
                 for x in min.x..=max.x {
                     let c = IVec3::new(x, y, z);
+
                     if !in_grid(c) {
                         continue;
                     }
+
                     self.cells.entry(c).or_default().push(id);
                 }
             }
@@ -39,16 +41,21 @@ impl ItemGrid {
     pub fn query(&self, min: IVec3, max: IVec3) -> Vec<usize> {
         let mut out = Vec::new();
         let mut seen = [0u64; MAX_ITEMS / 64];
+
         for y in min.y..=max.y {
             for z in min.z..=max.z {
                 for x in min.x..=max.x {
                     let c = IVec3::new(x, y, z);
+
                     if !in_grid(c) {
                         continue;
                     }
+
                     let Some(cell) = self.cells.get(&c) else { continue };
+
                     for &id in cell {
                         let (word, bit) = (id / 64, 1u64 << (id % 64));
+
                         if seen[word] & bit == 0 {
                             seen[word] |= bit;
                             out.push(id);

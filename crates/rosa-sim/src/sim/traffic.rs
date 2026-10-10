@@ -55,12 +55,16 @@ impl Sim {
     /// the map has streets (none for races).
     pub(crate) fn reset_game(&mut self) {
         self.load_mode_map();
+
         self.ticks_since_reset = 0;
+
         for (_, p) in self.players.iter_mut() {
             p.items_bought = 0;
             p.actions.reset();
         }
+
         let map = &self.world.map;
+
         self.traffic = Traffic::new(&map.streets, map.map_name == "round");
         self.missions.counter = 0;
         self.world_state.memos = 0;
@@ -73,39 +77,50 @@ impl Sim {
             GameMode::Versus => crate::sim::crime::VERSUS_TEAM_DAMAGE,
             _ => 0,
         };
+
         for c in &mut self.corp_state {
             for m in &mut c.missions {
                 m.active = false;
                 m.result = None;
             }
         }
+
         if self.gamemode == GameMode::Round {
             self.reset_round();
         }
+
         if self.gamemode == GameMode::Eliminator {
             self.reset_eliminator();
         }
+
         if self.gamemode == GameMode::World {
             self.reset_corporation_rounds();
         }
+
         if self.gamemode == GameMode::World {
             self.gamestate = rosa_protocol::clientbound::game::GameState::Intermission;
             self.game_timer = 0;
             self.round_elapsed = 0;
             self.reset_world_players();
         }
+
         if self.gamemode == GameMode::Sandbox {
             self.gamestate = rosa_protocol::clientbound::game::GameState::InGame;
         }
+
         self.traffic.coop = self.gamemode == GameMode::CoOp;
         self.world.map.level.area.reset_dynamic();
+
         if self.world.map.map_name == "test2" {
             self.world.map.level.area.track = crate::world::track::Track::race_track();
         }
+
         self.roll_weather();
+
         if self.gamemode == GameMode::World {
             self.respawn_world();
         }
+
         self.restock_dealerships();
         self.stock_gun_stores();
 
@@ -121,6 +136,7 @@ impl Sim {
 
             self.apply_team_doors();
         }
+
         self.announce_players();
     }
 
@@ -189,7 +205,7 @@ impl Sim {
             c.state = 0;
             for (hid, h) in self.humans.iter() {
                 let Some(pid) = h.player else { continue };
-                if h.old_health <= 0 || c.state > EDGE || c.human == hid as i32 {
+                if h.health.vitality <= 0 || c.state > EDGE || c.human == hid as i32 {
                     continue;
                 }
                 let range = if self.players.get(pid.idx()).is_some_and(|p| p.is_bot) { BOT_RANGE } else { PLAYER_RANGE };

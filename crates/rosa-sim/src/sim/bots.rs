@@ -180,7 +180,7 @@ impl Sim {
         let map = &self.world.map;
         for j in self.humans.ids() {
             let h = self.humans.get(j).unwrap();
-            if h.old_health <= 0 {
+            if h.health.vitality <= 0 {
                 continue;
             }
             let Some(their) = h.player.and_then(|p| self.players.get(p.idx())) else { continue };

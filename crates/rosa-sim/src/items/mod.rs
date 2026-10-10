@@ -17,7 +17,16 @@ pub mod sets;
 pub mod state;
 pub mod types;
 
-use crate::{PlayerId, items::{grid::ItemGrid, state::ItemState, types::ItemType}, sim::{Sim, hull::collide_convex_hulls, humans::{HUMAN_SLOTS, OBJECT_SLOTS}}, world::trace::line_intersect_level};
+use crate::{
+    PlayerId,
+    items::{grid::ItemGrid, state::ItemState, types::ItemType},
+    sim::{
+        Sim,
+        hull::collide_convex_hulls,
+        humans::{HUMAN_SLOTS, OBJECT_SLOTS},
+    },
+    world::trace::line_intersect_level,
+};
 
 pub const MAX_ITEMS: usize = 1024;
 
@@ -303,6 +312,7 @@ impl Sim {
         Some((item, self.bodies.get(item.body)?))
     }
 
+    /// Main physics logic, step the physics then solve bonds, cleanup items and vehicles.
     pub fn physics_tick(&mut self) {
         self.physics_step();
         self.physics_solve();

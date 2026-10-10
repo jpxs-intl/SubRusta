@@ -8,7 +8,10 @@ use rosa_protocol::clientbound::game::{
 
 use super::Sim;
 use crate::{
-    PlayerId, items::state::ItemState, vehicle::{NETWORKED_VEHICLES, spawn_vehicle}, world::trace::line_intersect_level,
+    PlayerId,
+    items::state::ItemState,
+    vehicle::{NETWORKED_VEHICLES, spawn_vehicle},
+    world::trace::line_intersect_level,
 };
 
 const SPAWN_DISTANCE: f32 = 6.0;

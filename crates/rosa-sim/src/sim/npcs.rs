@@ -68,7 +68,7 @@ impl Sim {
             let mut state = 0;
             for (_, h) in self.humans.iter() {
                 let Some(p) = h.player.and_then(|p| self.players.get(p.idx())) else { continue };
-                if p.is_bot || h.old_health <= 0 {
+                if p.is_bot || h.health.vitality <= 0 {
                     continue;
                 }
                 if state == 2 {
@@ -102,7 +102,7 @@ impl Sim {
     /// The end of do_npc's check: a killed NPC lets its bot go and waits 18000 ticks.
     fn check_npc_dead(&mut self, idx: usize) {
         let Some(h) = self.npcs[idx].as_ref().and_then(|n| n.human) else { return };
-        if self.humans.get(h).is_some_and(|h| h.old_health > 0) {
+        if self.humans.get(h).is_some_and(|h| h.health.vitality > 0) {
             return;
         }
         let bot = self.npcs[idx].as_mut().and_then(|n| {

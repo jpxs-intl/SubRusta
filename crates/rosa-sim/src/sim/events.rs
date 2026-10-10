@@ -241,14 +241,14 @@ impl Sim {
                     {
                         let human = self.humans.get_mut(human).unwrap();
 
-                        human.chest_hp = 100;
-                        human.head_hp = 100;
-                        human.right_arm_hp = 100;
-                        human.left_arm_hp = 100;
-                        human.left_leg_hp = 100;
-                        human.right_leg_hp = 100;
-                        human.old_health = 100;
-                        human.blood_level = 100;
+                        human.health.chest = 100;
+                        human.health.head = 100;
+                        human.health.right_arm = 100;
+                        human.health.left_arm = 100;
+                        human.health.left_leg = 100;
+                        human.health.right_leg = 100;
+                        human.health.vitality = 100;
+                        human.health.blood_level = 100;
                         human.pain = 0;
                     }
                     return;
@@ -261,7 +261,7 @@ impl Sim {
             return self.admin_message(player_id, &action.message);
         }
 
-        let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.old_health > 0));
+        let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.health.vitality > 0));
         match (self.gamestate, speaker) {
             (GameState::Intermission, _) | (_, None) => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
             (_, Some(human)) => self.send_chat(&action.message, ChatType::Chat, human as i32, 0),

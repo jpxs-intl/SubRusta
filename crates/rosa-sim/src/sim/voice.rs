@@ -4,7 +4,10 @@ use glam::Vec3;
 use rosa_protocol::clientbound::game::{GameState, ItemKind};
 
 use super::{Earshot, Sim, TickCtx};
-use crate::{Client, PlayerId, items::state::{ItemState, PhoneStatus}};
+use crate::{
+    Client, PlayerId,
+    items::{logic::phone::PhoneStatus, state::ItemState},
+};
 
 /// A speaker's reach by volume level: whisper, talk and shout.
 const WHISPER_RANGE: f32 = 8.0;

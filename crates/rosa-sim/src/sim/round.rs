@@ -6,8 +6,8 @@ use rosa_protocol::{
 };
 
 use super::{Sim, items::touchables};
-use crate::{PlayerId, items::state::ItemState};
 use crate::time::TICKS_PER_MINUTE;
+use crate::{PlayerId, items::state::ItemState};
 
 /// The round corporations: Goldmen, Monsota and OXS.
 const ROUND_CORPS: usize = 3;
@@ -469,10 +469,13 @@ impl Sim {
     /// though a week had just ended.
     pub fn check_occupied(&mut self) {
         let occupied = self.players.iter().any(|(_, p)| !p.is_bot);
+
         if occupied && !self.occupied {
             self.weekday = WEEK_DAYS;
+
             self.reset_game();
         }
+
         self.occupied = occupied;
     }
 

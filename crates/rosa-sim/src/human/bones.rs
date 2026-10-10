@@ -103,6 +103,7 @@ impl BoneTemplate {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 const fn bone(
     parent: BoneId,
     offset: Vec3,

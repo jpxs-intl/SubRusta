@@ -11,8 +11,8 @@ use rosa_protocol::{
 };
 
 use super::Sim;
-use crate::{items::state::PhoneStatus, time::TICKS_PER_SECOND};
-use crate::{ConnId, PlayerId};
+use crate::time::TICKS_PER_SECOND;
+use crate::{ConnId, PlayerId, items::logic::phone::PhoneStatus};
 
 /// handle_player_message keeps the first 63 bytes of a message.
 const MESSAGE_LEN: usize = 63;
@@ -160,7 +160,6 @@ impl Sim {
                 self.admin_say(&line);
             }
         }
-        // TODO: /savereplay sets the replay save count once replays are ported
         if msg.starts_with("/godmode") {
             self.godmode_command(pid);
         }
@@ -190,7 +189,7 @@ impl Sim {
         if msg.starts_with("/kill")
             && let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|h| self.humans.get_mut(h))
         {
-            h.old_health = 0;
+            h.health.vitality = 0;
         }
         if let Some(rest) = msg.strip_prefix("/setmap ") {
             let mut n = self.admin.versus_map + 1;
@@ -437,7 +436,6 @@ impl Sim {
 
     /// send_adminpacket for each admin connection whose turn it is.
     pub(crate) fn send_admin_lists(&mut self) {
-        // TODO: the rows are filled by the replay recorder (replay_writepacket); without it every row is empty
         let packet = AdminList { rows: vec![None; ADMIN_LIST_ROWS] };
         let tick = self.tick;
 

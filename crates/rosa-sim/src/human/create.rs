@@ -6,8 +6,8 @@ use super::{
     AttachmentChain, AttachmentGroup, AttachmentLink, Attachments, BONE_COUNT, Bone, Human, INVENTORY_SLOTS, InventorySlot, Joint, Locomotion, QueuedAction,
     bones::{BONES, BoneTemplate},
 };
-use crate::time::TICKS_PER_MINUTE;
 use crate::{human::BoneId, player::Player};
+use crate::{human::HumanHealth, time::TICKS_PER_MINUTE};
 
 const PLAYER_FACE_SHAPE: [Vec3; 4] = [Vec3::new(3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE, Vec3::new(-3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE];
 const JOINT_ORDER: [usize; 15] = [1, 2, 3, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7, 8, 9];
@@ -86,15 +86,7 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         team,
         customization,
         face_shape,
-        health: 100,
-        blood_level: 100,
-        old_health: 100,
-        chest_hp: 100,
-        head_hp: 100,
-        left_arm_hp: 100,
-        right_arm_hp: 100,
-        left_leg_hp: 100,
-        right_leg_hp: 100,
+        health: HumanHealth::default(),
         stamina: 127,
         max_stamina: 255,
         vehicle: None,

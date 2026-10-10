@@ -83,8 +83,8 @@ pub struct Player {
     pub corp_rating: i32,
     pub crim_rating: i32,
     pub spawn_timer: i32,
-    /// The human's health as of the last tick, never below zero (player oldHealth, sent to the client).
-    pub old_health: i32,
+    /// The human's vitality as of the last tick, never below zero (player oldHealth, sent to the client).
+    pub vitality: i32,
     pub phone_number: u32,
     pub is_ready: bool,
     pub voice: PlayerVoice,
@@ -187,7 +187,7 @@ impl Player {
             corp_rating: 0,
             crim_rating: 0,
             spawn_timer: 0,
-            old_health: 0,
+            vitality: 0,
             phone_number: j.auth_packet.phone_number,
             is_ready: false,
             voice: PlayerVoice::new(),
@@ -251,7 +251,7 @@ impl Player {
             corp_rating: 0,
             crim_rating: 0,
             spawn_timer: 0,
-            old_health: 0,
+            vitality: 0,
             phone_number: 0,
             is_ready: false,
             voice: PlayerVoice::new(),

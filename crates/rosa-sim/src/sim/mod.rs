@@ -341,16 +341,21 @@ impl Sim {
 
         loop {
             self.check_occupied();
+
             std::thread::sleep(Duration::from_millis(1));
             let mut burst = 0;
+
             while last_tick.elapsed() > Duration::from_millis(15) {
                 burst += 1;
+
                 if burst <= 3 {
                     last_tick += tick;
                 } else {
                     last_tick = Instant::now();
                 }
+
                 let started = Instant::now();
+
                 self.server_tick();
                 self.tick_stats.record(started, started.elapsed());
             }
@@ -360,41 +365,54 @@ impl Sim {
     /// One server tick: the inbound packets, the players' actions, the game mode, the world and the broadcast.
     pub fn server_tick(&mut self) {
         self.connection_timeouts();
+
         while let Ok(inp) = self.in_rx.try_recv() {
             self.apply(inp);
         }
+
         let mut pending = HashMap::new();
+
         for (_, player) in self.players.iter_mut() {
             pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
         }
 
         self.process_actions(pending);
         self.admin_reset();
+
         if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator | GameMode::World) {
             self.start_round_if_all_ready();
         }
+
         self.update_shop_menus();
         self.count_corp_players();
+
         if self.gamemode == GameMode::Round {
             self.logic_round();
         }
+
         if self.gamemode == GameMode::Eliminator {
             self.logic_eliminator();
         }
+
         if self.gamestate == GameState::InGame {
             self.simulate_traffic();
             self.do_npc();
         }
+
         if self.gamemode == GameMode::World {
             self.logic_world();
         }
+
         self.player_simulation();
+
         if self.gamemode == GameMode::Round {
             self.round_account_sync();
         }
+
         if self.gamemode == GameMode::World {
             self.world_account_sync();
         }
+
         self.physics_tick();
         self.broadcast_tick();
         self.send_admin_lists();
@@ -407,10 +425,12 @@ impl Sim {
 
         self.tick += 1;
         self.ticks_since_reset = self.ticks_since_reset.wrapping_add(1);
-        if self.gamestate as u8 <= GameState::InGame as u8 {
+
+        if matches!(self.gamestate, GameState::InGame | GameState::Idle | GameState::Intermission) {
             self.bullet_simulation();
             self.bullet_ttl();
         }
+
         if self.gamestate == GameState::InGame {
             self.run_bots();
         }
@@ -464,7 +484,7 @@ impl Sim {
     fn broadcast_tick(&mut self) {
         let humans = self.human_objects();
         let own_humans = self.own_human_data();
-        let heads = self.humans.iter().map(|(id, h)| (id, (h.bones[3].pos, h.old_health > 0))).collect();
+        let heads = self.humans.iter().map(|(id, h)| (id, (h.bones[3].pos, h.health.vitality > 0))).collect();
         let items = self.item_objects();
         let vehicles = self.vehicle_objects();
         let pocketed = self.items.iter().filter(|(_, i)| i.in_pocket).map(|(id, _)| id as u16).collect();
@@ -577,7 +597,7 @@ impl Sim {
                 Vec::new()
             },
             spawn_timer: player.spawn_timer,
-            old_health: player.old_health,
+            vitality: player.vitality,
             money: player.money,
             corp_money: player.corp_money,
             corp_credit: player.corp_credit,

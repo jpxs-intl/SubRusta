@@ -193,42 +193,63 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         return cross_intersection(traffic, map, id);
     }
 
-    let n_streets = map.streets.len() as i32;
+    keep_route(traffic, map, id, street);
+    let st = &map.streets[street as usize];
+    let lane = traffic.cars[id].lane;
+    let to = steer_along_lane(traffic, map, id, street);
+    pick_target_lane(traffic, map, id);
+    let (remaining, junction, way) = approach_junction(traffic, map, id, st, to);
+    let approach = slow_for_signal(traffic, id, remaining, junction, way);
+    let queued = slow_for_queue(traffic, id, remaining, approach);
+    let Some(blocked) = slow_for_clearance(traffic, map, id, st, queued) else { return };
+    let c = &mut traffic.cars[id];
+    if blocked && CRAWL > c.target_speed && c.next_lane == lane {
+        let nl = c.next_lane + if rand::random::<bool>() { 1 } else { -1 };
+        c.next_lane = nl.max(0).min(st.lanes.len() as i32 - 1);
+    }
+    if MIN_SPEED > c.target_speed {
+        c.target_speed = MIN_SPEED;
+    }
+}
 
+/// The Round City loop flip, and a new route once the car reaches the end of its current one.
+fn keep_route(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32) {
     if traffic.roundcity && (street == LOOP_STREET || street == LOOP_STREET_2) {
         let c = &traffic.cars[id];
         let end = c.step(c.route_index).end;
         let wrong_way = if street == LOOP_STREET { end != 0 } else { end == 0 };
-
         if wrong_way {
             roundcity_flip(traffic, map, id, street);
         }
     }
 
-    {
-        let c = &mut traffic.cars[id];
-        if c.route_len - 1 <= c.route_index {
-            c.street = street;
-            c.intersection = -1;
-            let dest = if traffic.roundcity { if street == LOOP_STREET { LOOP_STREET_2 } else { LOOP_STREET } } else { rand::random_range(0..n_streets) };
-            replan(traffic, map, id, street, dest);
-        }
+    let c = &mut traffic.cars[id];
+    if c.route_len - 1 <= c.route_index {
+        c.street = street;
+        c.intersection = -1;
+        let dest = match traffic.roundcity {
+            true if street == LOOP_STREET => LOOP_STREET_2,
+            true => LOOP_STREET,
+            false => rand::random_range(0..map.streets.len() as i32),
+        };
+        replan(traffic, map, id, street, dest);
     }
+}
+
+/// Eases into the next lane and steers for a point ahead on the lane. Returns the lane's far end.
+fn steer_along_lane(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32) -> Vec3 {
     let st = &map.streets[street as usize];
     let c = &traffic.cars[id];
     let lane = c.lane;
-    let ri = c.route_index;
-    let reverse = c.step(ri).end != 0;
+    let reverse = c.step(c.route_index).end != 0;
     let l = lane_at(st, lane);
     let (mut from, to) = if reverse { (l.end, l.start) } else { (l.start, l.end) };
-    let next_turn = c.step(ri + 1).turn;
     let nl = if c.is_aggressive != 0 || lane != c.next_lane { c.next_lane } else { pick_lane(traffic, map, id, street) };
+    let c = &mut traffic.cars[id];
     if lane != nl {
-        let c = &mut traffic.cars[id];
         let p = c.lane_change;
         let s = (p * p) * (3.0 - (p + p));
-        let speed = c.vel.length();
-        let np = minss(speed * LANE_CHANGE_RATE, LANE_CHANGE_MAX) + p;
+        let np = minss(c.vel.length() * LANE_CHANGE_RATE, LANE_CHANGE_MAX) + p;
         c.lane_change = np;
         if np > 1.0 {
             c.lane_change = 0.0;
@@ -237,34 +258,42 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         let t = lane_at(st, c.next_lane).start;
         from = from + (t - from) * s;
     }
-    let c = &mut traffic.cars[id];
-    let d = if c.step(c.route_index).end != 0 { -st.dir } else { st.dir };
+    let d = if reverse { -st.dir } else { st.dir };
     let pos = c.pos;
-    let side = st.side;
-    let off = ((from.x - pos.x) * side.x + (from.y - pos.y) * side.y + (from.z - pos.z) * side.z).abs();
-    let t = maxss(0.0, LOOK_AHEAD - off * LOOK_FALLOFF);
-    let a = d * t + pos;
-    let proj = ((a.x - from.x) * d.x + (a.y - from.y) * d.y) + (a.z - from.z) * d.z;
+    let off = (from - pos).dot(st.side).abs();
+    let a = d * maxss(0.0, LOOK_AHEAD - off * LOOK_FALLOFF) + pos;
+    let proj = (a - from).dot(d);
     let aim_z = proj * d.z + from.z - pos.z;
     let aim_x = from.x + d.x * proj - pos.x;
     let target_yaw = (aim_z as f64).atan2(aim_x as f64) as f32;
     let want = steer_toward(c.yaw, target_yaw, STREET_STEER, STREET_STEER_MAX);
-    let mut ds = want - c.steer;
-    ds = ds.clamp(-STEER_RATE, STEER_RATE);
-    c.steer += ds;
-    let next_street = c.step(c.route_index + 1).street;
+    c.steer += (want - c.steer).clamp(-STEER_RATE, STEER_RATE);
+    to
+}
+
+/// The lane to arrive in on the next street: one of the two outer lanes on its side for a turn, else the same lane.
+fn pick_target_lane(traffic: &mut Traffic, map: &StreetMap, id: usize) {
+    let c = &mut traffic.cars[id];
     c.target_lane = c.lane;
     let r = rand::random_range(0..2);
     let nxt = c.step(c.route_index + 1);
     if nxt.turn == 1 {
-        c.target_lane = if nxt.end != 0 { r + 1 } else { !r + lane_count(map, next_street) - 1 };
+        c.target_lane = if nxt.end != 0 { r + 1 } else { !r + lane_count(map, nxt.street) - 1 };
     } else if nxt.turn == -1 {
-        let left = left_lanes(map, next_street);
+        let left = left_lanes(map, nxt.street);
         c.target_lane = if nxt.end != 0 { left - 1 - r } else { r + left };
     }
-    let (s, co) = sincos(c.yaw);
-    let remaining = (d.x * (to.x - (co * NOSE + pos.x)) + d.y * 0.0) + d.z * (to.z - (s * NOSE + pos.z));
+}
+
+/// The distance left to the lane's end, the junction there and which of its ways the car comes in on; the car enters
+/// the intersection once within a unit of the end.
+fn approach_junction(traffic: &mut Traffic, map: &StreetMap, id: usize, st: &MapStreet, to: Vec3) -> (f32, usize, i32) {
+    let c = &mut traffic.cars[id];
     let cur = c.step(c.route_index);
+    let d = if cur.end != 0 { -st.dir } else { st.dir };
+    let (s, co) = sincos(c.yaw);
+    let pos = c.pos;
+    let remaining = (d.x * (to.x - (co * NOSE + pos.x)) + d.y * 0.0) + d.z * (to.z - (s * NOSE + pos.z));
     let junction = st.intersections[(cur.end ^ 1) as usize];
     let ways = map.intersections[junction].streets;
     let mut way = if ways[2] == cur.street { 2 } else { (ways[1] == cur.street) as i32 };
@@ -275,8 +304,16 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         c.intersection = junction as i32;
         c.street = -1;
     }
+    (remaining, junction, way)
+}
+
+/// The cruising speed (faster for an aggressive car far from a turn), cut to the stopping speed at a red or amber
+/// light. Returns the stopping speed.
+fn slow_for_signal(traffic: &mut Traffic, id: usize, remaining: f32, junction: usize, way: i32) -> f32 {
+    let c = &traffic.cars[id];
+    let next_turn = c.step(c.route_index + 1).turn;
     let aggressive = c.is_aggressive != 0;
-    let fast = aggressive && (remaining > FAST_DISTANCE || nxt.turn == 0);
+    let fast = aggressive && (remaining > FAST_DISTANCE || next_turn == 0);
     let base = if fast { coop_speed(traffic, 8) } else { CRUISE };
     let c = &mut traffic.cars[id];
     let mut approach = maxss(0.0, ((remaining - STOP_LINE) * 0.5) / TICKS_PER_SECOND);
@@ -290,118 +327,99 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
             c.target_speed = approach;
         }
     }
-    let mut limited = false;
-    if QUEUE_DISTANCE > remaining && nxt.street != -1 {
-        let end = traffic.cars[id].step(traffic.cars[id].route_index + 1).end;
-        let target_lane = traffic.cars[id].target_lane;
-        let Traffic { street_cars, cars, .. } = &mut *traffic;
-        let list = street_cars.get(nxt.street as usize).map_or(&[][..], |v| v.as_slice());
-        for &j in list {
-            if j == id || (cars[j].lane_mask >> (target_lane & 31)) & 1 == 0 {
-                continue;
-            }
-            if aggressive {
-                approach = maxss(AGGRESSIVE_MIN, approach);
-            }
-            let o = &cars[j];
-            if !(QUEUE_REACH > o.near[(end & 1) as usize]) {
-                continue;
-            }
-            let speed = o.vel.length();
-            if !(PUSHING > speed) {
-                continue;
-            }
-            let c = &mut cars[id];
-            if c.target_speed > approach {
-                c.target_speed = approach;
-                limited = true;
-            }
-        }
-    }
+    approach
+}
+
+/// Near the junction, the stopping speed while a nearly still car waits at the start of the target lane on the next
+/// street. Returns whether the speed was cut.
+fn slow_for_queue(traffic: &mut Traffic, id: usize, remaining: f32, mut approach: f32) -> bool {
     let c = &traffic.cars[id];
-    let look = Vec3::new(co * SCAN_AHEAD + pos.x, pos.y + 0.0, pos.z + SCAN_AHEAD * s);
-    let ps = c.physical_street;
-    let mut ahead = -1;
-    for (k, o) in map.streets.iter().enumerate() {
-        if k as i32 == ps {
+    let nxt = c.step(c.route_index + 1);
+    if !(QUEUE_DISTANCE > remaining && nxt.street != -1) {
+        return false;
+    }
+    let aggressive = c.is_aggressive != 0;
+    let target_lane = c.target_lane;
+    let Traffic { street_cars, cars, .. } = &mut *traffic;
+    let list = street_cars.get(nxt.street as usize).map_or(&[][..], |v| v.as_slice());
+    let mut limited = false;
+    for &j in list {
+        if j == id || (cars[j].lane_mask >> (target_lane & 31)) & 1 == 0 {
             continue;
         }
-        if look.x >= o.bounds_min.x
-            && o.bounds_max.x >= look.x
-            && look.z >= o.bounds_min.z
-            && o.bounds_max.z >= look.z
-            && look.y >= o.bounds_min.y
-            && o.bounds_max.y >= look.y
-        {
-            ahead = k as i32;
+        if aggressive {
+            approach = maxss(AGGRESSIVE_MIN, approach);
+        }
+        let o = &cars[j];
+        if !(QUEUE_REACH > o.near[(nxt.end & 1) as usize]) || !(PUSHING > o.vel.length()) {
+            continue;
+        }
+        let c = &mut cars[id];
+        if c.target_speed > approach {
+            c.target_speed = approach;
+            limited = true;
         }
     }
-    let tail;
-    'clear: {
-        if ps != -1 {
-            let sd = st.dir;
-            let dot = ((co * sd.x) + sd.y * 0.0) + s * sd.z;
-            let mask = (1 << (c.next_lane & 31)) | c.lane_mask;
-            let mut clr = lane_clearance(traffic, map, id, ps, mask, 0.0 > dot, c.front_proj);
-            if aggressive {
-                clr = maxss(AGGRESSIVE_MIN, clr);
-            }
-            let c = &mut traffic.cars[id];
-            if c.target_speed > clr {
-                c.target_speed = clr;
-                limited = true;
-                if ahead == -1 {
-                    if !aggressive {
-                        return;
-                    }
-                    tail = true;
-                    break 'clear;
-                }
+    limited
+}
+
+/// The speed cut to the room left in the car's lanes, and in the street just ahead of it when it is about to leave
+/// its own. Returns None when a calm car is done for the tick, else whether the car is held up (so it may try another
+/// lane).
+fn slow_for_clearance(traffic: &mut Traffic, map: &StreetMap, id: usize, st: &MapStreet, mut limited: bool) -> Option<bool> {
+    let c = &traffic.cars[id];
+    let aggressive = c.is_aggressive != 0;
+    let (s, co) = sincos(c.yaw);
+    let pos = c.pos;
+    let look = Vec3::new(co * SCAN_AHEAD + pos.x, pos.y + 0.0, pos.z + SCAN_AHEAD * s);
+    let ps = c.physical_street;
+    let ahead = map
+        .streets
+        .iter()
+        .enumerate()
+        .rposition(|(k, o)| k as i32 != ps && look.cmpge(o.bounds_min).all() && o.bounds_max.cmpge(look).all())
+        .map_or(-1, |k| k as i32);
+    if ps != -1 {
+        let sd = st.dir;
+        let dot = ((co * sd.x) + sd.y * 0.0) + s * sd.z;
+        let mask = (1 << (c.next_lane & 31)) | c.lane_mask;
+        let mut clr = lane_clearance(traffic, map, id, ps, mask, 0.0 > dot, c.front_proj);
+        if aggressive {
+            clr = maxss(AGGRESSIVE_MIN, clr);
+        }
+        let c = &mut traffic.cars[id];
+        if c.target_speed > clr {
+            c.target_speed = clr;
+            limited = true;
+            if ahead == -1 {
+                return aggressive.then_some(true);
             }
         }
-        if ahead != -1 {
-            let o = &map.streets[ahead as usize];
-            let d2 = o.dir;
-            let w = map.intersections[o.intersections[0]].world_pos;
-            let dot = (co * d2.x + d2.y * 0.0) + s * d2.z;
-            let c = &traffic.cars[id];
-            let (mn, mx) = (c.bounds_min, c.bounds_max);
-            let pmax = ((mx.x - w.x) * d2.x + (mx.y - w.y) * d2.y) + (mx.z - w.z) * d2.z;
-            let pmin = ((mn.x - w.x) * d2.x + d2.y * (mn.y - w.y)) + d2.z * (mn.z - w.z);
-            let p = if dot > 0.0 { maxss(pmin, pmax) } else { minss(pmin, pmax) };
-            let clr = lane_clearance(traffic, map, id, ahead, 1 << (c.next_lane & 31), 0.0 > dot, p);
-            let c = &mut traffic.cars[id];
-            if !aggressive {
-                if c.target_speed > clr {
-                    c.target_speed = clr;
-                }
-                return;
-            }
-            let clr = maxss(AGGRESSIVE_MIN, clr);
-            if c.target_speed > clr {
-                c.target_speed = clr;
-                tail = true;
-                break 'clear;
-            }
-        } else if !aggressive {
-            return;
-        }
-        tail = limited;
     }
+    if ahead == -1 {
+        return aggressive.then_some(limited);
+    }
+    let o = &map.streets[ahead as usize];
+    let d2 = o.dir;
+    let w = map.intersections[o.intersections[0]].world_pos;
+    let dot = (co * d2.x + d2.y * 0.0) + s * d2.z;
+    let c = &traffic.cars[id];
+    let (pmin, pmax) = ((c.bounds_min - w).dot(d2), (c.bounds_max - w).dot(d2));
+    let p = if dot > 0.0 { maxss(pmin, pmax) } else { minss(pmin, pmax) };
+    let clr = lane_clearance(traffic, map, id, ahead, 1 << (c.next_lane & 31), 0.0 > dot, p);
     let c = &mut traffic.cars[id];
-    if tail && CRAWL > c.target_speed && c.next_lane == lane {
-        let mut nl = c.next_lane + if rand::random::<bool>() { 1 } else { -1 };
-        if nl < 0 {
-            nl = 0;
+    if !aggressive {
+        if c.target_speed > clr {
+            c.target_speed = clr;
         }
-        if !(st.lanes.len() as i32 > nl) {
-            nl = st.lanes.len() as i32 - 1;
-        }
-        c.next_lane = nl;
+        return None;
     }
-    if MIN_SPEED > c.target_speed {
-        c.target_speed = MIN_SPEED;
+    let clr = maxss(AGGRESSIVE_MIN, clr);
+    if c.target_speed > clr {
+        c.target_speed = clr;
+        return Some(true);
     }
+    Some(limited)
 }
 
 /// The intersection part of ai_traffic_car: a curve from the lane's end to the next street's lane, slower for a turn

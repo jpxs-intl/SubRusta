@@ -229,7 +229,7 @@ impl Sim {
             let eliminator = self.eliminator.groups[..self.eliminator.count].iter().any(|g| g.eliminator == pid.0 as i32);
             let hu = self.humans.get_mut(h).unwrap();
             if eliminator {
-                hu.old_health = 100;
+                hu.health.vitality = 100;
                 hu.is_immortal = true;
             }
             hu.view_yaw = 0.0;
