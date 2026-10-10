@@ -208,6 +208,10 @@ impl Sim {
         }
     }
 
+    pub fn mark_item_for_deletion(&mut self, item_id: usize) {
+        if let Some(item) = self.items.get_mut(item_id) { item.despawn_time = 0 }
+    }
+
     /// The use key on an item in hand: a briefcase opens or closes when pressed, a burger is eaten when let go, and a
     /// bandage patches up the nearest bleeding or dying human while held.
     fn use_logic(&mut self, id: usize) {
@@ -256,7 +260,7 @@ impl Sim {
             *left -= 1;
 
             if *left <= 0 {
-                item.despawn_time = 0;
+                self.mark_item_for_deletion(id);
             }
         }
     }
@@ -300,7 +304,7 @@ impl Sim {
         *left -= 1;
 
         if *left <= 0 {
-            item.despawn_time = 0;
+            self.mark_item_for_deletion(id);
         }
 
         if let Some(t) = self.humans.get_mut(target) {

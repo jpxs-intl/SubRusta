@@ -287,14 +287,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
         }
 
         while b.shop.len() < DEALERSHIP_SLOTS {
-            let kind = match crate::rng::rand() & 15 {
-                0..=1 => 7,
-                2..=5 => 0,
-                6..=9 => 15,
-                10..=12 => 9,
-                13..=14 => 6,
-                _ => ((crate::rng::rand() & 15) == 0) as i32 + 4,
-            };
+            let kind = crate::vehicle::types::random_stock_vehicle() as i32;
 
             let price = types.get(kind as usize).map_or(0, |t| t.price);
             let extra = (crate::rng::rand() as i32) % VEHICLE_COLORS;

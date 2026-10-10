@@ -3,7 +3,7 @@ use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{
     Team,
     clientbound::game::{
-        GameState, ItemKind, MenuType,
+        GameState, ItemKind, MenuType, VehicleKind,
         events::{Event, ServerEvent, mission::EventMission},
     },
 };
@@ -47,7 +47,7 @@ const GUNS: [(ItemKind, ItemKind); 5] = [
     (ItemKind::Uzi, ItemKind::UziMag),
 ];
 /// The car on each corporation's table: a random pick of three types.
-const TABLE_CARS: [i32; 3] = [15, 6, 16];
+const TABLE_CARS: [VehicleKind; 3] = [VehicleKind::Hatchback, VehicleKind::Beamer, VehicleKind::Test];
 const PHONE_NUMBER_STEP: i32 = 1111;
 
 /// One eliminator group (0x24 bytes): the target (+0), the eliminator (+4) and the protector (+8), where the target
@@ -270,7 +270,7 @@ impl Sim {
             let color = rand() % 6;
             let vid = self.corporation_spawn_vehicle(kind, k, color);
             let map = &self.world.map;
-            let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, kind as usize, 0, 0, 0, 0, 0.0);
+            let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, kind, 0, 0, 0, 0, 0.0);
             self.traffic.cars[car].is_bot = 0;
             self.traffic.cars[car].vehicle = vid.map_or(-1, |v| v as i32);
             if let Some(v) = vid.and_then(|v| self.vehicles.get_mut(v)) {
@@ -486,10 +486,14 @@ impl Sim {
 
     /// distance_based_item_despawning: loose items within `radius` of `p` despawn.
     pub(crate) fn distance_based_item_despawning(&mut self, p: Vec3, radius: f32) {
+        let radius_sq = radius * radius;
+
         for (_, item) in self.items.iter_mut() {
-            let (dx, dy, dz) = (p.x - item.pos2.x, p.y - item.pos2.y, p.z - item.pos2.z);
-            let d = (dz * dz + (dx * dx + dy * dy)).sqrt();
-            if radius > d && item.parent_human == -1 {
+            if item.parent_human != -1 {
+                continue;
+            }
+
+            if p.distance_squared(item.pos2) < radius_sq {
                 item.despawn_time = 0;
             }
         }

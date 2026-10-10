@@ -166,7 +166,7 @@ pub fn trace_hit(surface: &Surface, start: Vec3, end: Vec3) -> Option<(Vec3, Opt
     let (mut best, mut vehicle) = (level.unwrap_or((1.0, Vec3::ZERO)), None);
     for &id in surface.nearby {
         let Some(v) = surface.vehicles.get(id) else { continue };
-        let Some(t) = surface.vehicle_types.get(v.kind) else { continue };
+        let Some(t) = surface.vehicle_types.get(v.kind as usize) else { continue };
         if let Some(hit) = trace_vehicle(v, t, start, end)
             && !(best.0 <= hit.0)
         {

@@ -40,8 +40,6 @@ const TIES: [u8; ROUND_CORPS] = [2, 9, 8];
 const PHONE_BACK: f32 = 7.75;
 const PHONE_SIDE: f32 = 0.5;
 const PHONE_NUMBER_STEP: i32 = 1111;
-const TOWN_CAR: i32 = 0;
-const MINIVAN: i32 = 9;
 const MINIVAN_PLAYERS: i32 = 4;
 /// With weekly play on, the sixth round starts a new week.
 pub(crate) const WEEK_DAYS: i32 = 5;
@@ -267,9 +265,9 @@ impl Sim {
             }
         }
         for k in 0..ROUND_CORPS {
-            if let Some(v) = self.corporation_spawn_vehicle(TOWN_CAR, k, 0) {
+            if let Some(v) = self.corporation_spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::TownCar, k, 0) {
                 let map = &self.world.map;
-                let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, 0, 0, 0, 0, 0, 0.0);
+                let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, 0, 0, 0, 0.0);
                 self.traffic.cars[car].is_bot = 0;
                 self.traffic.cars[car].vehicle = v as i32;
                 if let Some(veh) = self.vehicles.get_mut(v) {
@@ -277,7 +275,7 @@ impl Sim {
                 }
             }
             if self.corp_state[k].player_count > MINIVAN_PLAYERS {
-                self.corporation_spawn_vehicle(MINIVAN, k, 0);
+                self.corporation_spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::Minivan, k, 0);
             }
             let base = &self.world.map.level.bases[k];
             let mut rot = IDENTITY;
@@ -659,7 +657,8 @@ impl Sim {
                     id
                 } else if kind == ItemKind::Key {
                     let Some(k) = round_corp(team) else { continue };
-                    let Some(v) = self.corporation_spawn_vehicle(s.a, k, s.b) else { continue };
+                    let Some(kind) = u8::try_from(s.a).ok().and_then(|a| rosa_protocol::clientbound::game::VehicleKind::try_from(a).ok()) else { continue };
+                    let Some(v) = self.corporation_spawn_vehicle(kind, k, s.b) else { continue };
                     let Some(id) = self.create_item(ItemKind::Key, pos, None, IDENTITY) else { continue };
                     if let Some(i) = self.items.get_mut(id) {
                         i.state = ItemState::Key { vehicle: Some(v) };

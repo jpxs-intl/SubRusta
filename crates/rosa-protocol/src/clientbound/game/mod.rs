@@ -84,6 +84,49 @@ impl TryFrom<u8> for ItemKind {
     }
 }
 
+/// The vehicle types, by the index the server and client know them by.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VehicleKind {
+    #[default]
+    TownCar = 0,
+    TownCar2 = 1,
+    Metro = 2,
+    Limo = 3,
+    Turbo = 4,
+    TurboS = 5,
+    Beamer = 6,
+    Van = 7,
+    Van2 = 8,
+    Minivan = 9,
+    Truck = 10,
+    Trailer = 11,
+    Helicopter = 12,
+    Train = 13,
+    /// No type is ever built here; a vehicle of it has no chassis to collide with.
+    NoClip = 14,
+    Hatchback = 15,
+    Test = 16,
+    /// Past the type table: what the truck's hitch looks for, and what /pickup spawns (nothing).
+    Pickup = 17,
+}
+
+impl VehicleKind {
+    pub const COUNT: usize = 18;
+}
+
+impl TryFrom<u8> for VehicleKind {
+    type Error = u8;
+
+    fn try_from(v: u8) -> Result<Self, u8> {
+        if (v as usize) < Self::COUNT {
+            Ok(unsafe { std::mem::transmute::<u8, VehicleKind>(v) })
+        } else {
+            Err(v)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuType {
     Empty = 0,
@@ -247,7 +290,7 @@ pub struct TrafficEntry {
     pub index: u16,
     /// Whether the car is a real vehicle right now.
     pub vehicle: bool,
-    pub kind: i32,
+    pub kind: VehicleKind,
     pub color: i32,
     pub pos: Vector,
     pub yaw: f32,
@@ -264,7 +307,7 @@ impl TrafficEntry {
         w.bits(0, 8);
         w.bits(self.vehicle as i32, 1);
         w.bits(1, 1);
-        w.bits(self.kind, 6);
+        w.bits(self.kind as i32, 6);
         w.bits(self.color, 4);
         let p = self.pos.0;
         for v in [(p.x + 4096.0) * 4096.0, (p.y + 0.0) * 4096.0, (p.z + 4096.0) * 4096.0] {

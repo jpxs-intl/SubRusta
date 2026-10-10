@@ -229,7 +229,7 @@ pub(super) fn vehicle_contacts(h: &mut Human, bodies: &mut RigidBodies, touch: &
     for k in 0..h.nearby_vehicles.len() {
         let vid = h.nearby_vehicles[k];
         let Some(v) = touch.vehicles.get(vid) else { continue };
-        let Some(t) = touch.vehicle_types.get(v.kind) else { continue };
+        let Some(t) = touch.vehicle_types.get(v.kind as usize) else { continue };
         for j in 0..BONE_COUNT {
             if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
                 continue;

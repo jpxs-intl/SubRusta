@@ -32,7 +32,7 @@ const STUCK_REVERSE: i32 = 279;
 /// Where a traffic car's vehicle goes: its type's chassis centred on the car, 1.5 back from its position.
 pub(crate) fn vehicle_pos(c: &crate::traffic::TrafficCar, types: &[crate::vehicle::types::VehicleType]) -> Vec3 {
     let [r0, r1, r2] = c.rot;
-    let k = types.get(c.kind).map_or(Vec3::ZERO, |t| t.centroid);
+    let k = types.get(c.kind as usize).map_or(Vec3::ZERO, |t| t.centroid);
     let (nx, ny, nz) = (-k.x, -k.y, -k.z);
     let back = -BODY_OFFSET;
     let p = c.pos;
@@ -192,7 +192,7 @@ impl Sim {
                     if let Some(veh) = self.vehicles.get_mut(v) {
                         veh.traffic_car = id as i32;
                     }
-                    let e = EventUpdateVehicleTypeColor { vehicle_id: v as i32, vehicle_type: kind as u8, vehicle_color: color as u8 };
+                    let e = EventUpdateVehicleTypeColor { vehicle_id: v as i32, vehicle_type: kind, vehicle_color: color as u8 };
                     self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
                 }
                 continue;
@@ -232,7 +232,7 @@ impl Sim {
     fn drive_traffic_vehicle(&mut self, id: usize) {
         let c = &mut self.traffic.cars[id];
         let Some(v) = usize::try_from(c.vehicle).ok().and_then(|v| self.vehicles.get_mut(v)) else { return };
-        let k = self.vehicle_types.get(c.kind).map_or(Vec3::ZERO, |t| t.centroid);
+        let k = self.vehicle_types.get(c.kind as usize).map_or(Vec3::ZERO, |t| t.centroid);
         let [r0, r1, r2] = v.rot;
         let vp = v.pos;
         c.vel = v.vel;
@@ -308,7 +308,7 @@ pub(crate) fn traffic_section(client: &mut crate::Client, traffic: &Traffic, map
         .into_iter()
         .map(|i| {
             let c = &traffic.cars[i];
-            TrafficEntry { index: i as u16, vehicle: c.vehicle != -1, kind: c.kind as i32, color: c.color, pos: Vector(c.pos), yaw: c.yaw }
+            TrafficEntry { index: i as u16, vehicle: c.vehicle != -1, kind: c.kind, color: c.color, pos: Vector(c.pos), yaw: c.yaw }
         })
         .collect();
     let count = map.intersections.len() as i32;

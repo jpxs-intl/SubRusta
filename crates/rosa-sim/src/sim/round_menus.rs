@@ -54,7 +54,7 @@ pub struct GhostHuman {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct VehicleOffer {
     pub active: bool,
-    pub kind: i32,
+    pub kind: rosa_protocol::clientbound::game::VehicleKind,
     pub color: i32,
     pub price: i32,
 }
@@ -84,14 +84,7 @@ impl Sim {
             }
         }
         for o in self.vehicle_stock.iter_mut().filter(|o| !o.active) {
-            let kind = match crate::rng::rand() & 15 {
-                0..=1 => 7,
-                2..=5 => 0,
-                6..=9 => 15,
-                10..=12 => 9,
-                13..=14 => 6,
-                _ => ((crate::rng::rand() & 15) == 0) as i32 + 4,
-            };
+            let kind = crate::vehicle::types::random_stock_vehicle();
             let price = self.vehicle_types.get(kind as usize).map_or(0, |t| t.price);
             let color = (crate::rng::rand() as i32) % VEHICLE_COLORS;
             *o = VehicleOffer { active: true, kind, color, price };
@@ -223,7 +216,7 @@ impl Sim {
         let offer = self.vehicle_stock[slot];
         let Some(p) = self.players.get(pid.idx()) else { return };
         let Some(k) = team_index(p.team) else { return };
-        if !offer.active || p.money < offer.price || offer.kind == -1 {
+        if !offer.active || p.money < offer.price {
             return;
         }
         let Some(pos) = self.buyer_pos(pid, human) else { return };
@@ -244,14 +237,14 @@ impl Sim {
     }
 
     /// corporation_spawn_vehicle: a vehicle in the first free car space of the corporation's base.
-    pub(crate) fn corporation_spawn_vehicle(&mut self, kind: i32, k: usize, color: i32) -> Option<usize> {
+    pub(crate) fn corporation_spawn_vehicle(&mut self, kind: rosa_protocol::clientbound::game::VehicleKind, k: usize, color: i32) -> Option<usize> {
         let spaces = self.world.map.level.bases[k].car_spaces.clone();
         let taken = &mut self.corp_state[k].car_space_taken;
         taken.resize(spaces.len(), false);
         let i = taken.iter().position(|t| !t)?;
         taken[i] = true;
         let (pos, rot) = spaces[i];
-        self.spawn_vehicle(kind as usize, color, pos, rot)
+        self.spawn_vehicle(kind, color, pos, rot)
     }
 
     /// The manager firing a teammate from inside the base: their weapons, ammo, keys, grenades and bandages despawn,
@@ -341,11 +334,14 @@ impl Sim {
                 if !(ty.is_gun || ty.magazine_ammo > 0 || matches!(kind, ItemKind::Key | ItemKind::Grenade | ItemKind::Bandage)) {
                     continue;
                 }
+                
                 item.despawn_time = 0;
+
                 if let Some(&child) = item.children.first() {
                     if let Some(c) = self.items.get_mut(child) {
                         c.despawn_time = 0;
                     }
+
                     super::items::remove_link(&mut self.items, child, id as usize);
                 }
             }

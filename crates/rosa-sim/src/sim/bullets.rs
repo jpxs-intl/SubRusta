@@ -27,7 +27,6 @@ const HIT_BODY: i32 = 1;
 const HIT_VEHICLE: i32 = 2;
 const VEHICLE_DAMAGE_SCALE: f32 = 1.5;
 const TYRE_BURST_RADIUS: f32 = 0.75;
-const TRAIN: usize = 13;
 const HEAD: usize = 3;
 const DAMAGE_SCALE: f32 = 5.5;
 const TICKS_PER_SECOND: f32 = 60.0;
@@ -105,7 +104,7 @@ impl Sim {
                 w.popped = 1;
                 ServerEvent::UpdateVehicle(update(TYRE_BURST, k))
             }
-            _ if vehicle.kind == TRAIN => return,
+            _ if vehicle.kind == rosa_protocol::clientbound::game::VehicleKind::Train => return,
             VehiclePart::Window(k) => {
                 if let Some(w) = vehicle.broken_windows.get_mut(k) {
                     *w = true;
@@ -163,7 +162,7 @@ impl Sim {
             }
             let mut vehicle_hit = None;
             for (vid, v) in self.vehicles.iter() {
-                let Some(t) = self.vehicle_types.get(v.kind) else { continue };
+                let Some(t) = self.vehicle_types.get(v.kind as usize) else { continue };
                 if let Some(hit) = trace_vehicle_parts(v, t, from, to, true)
                     && !(best <= hit.fraction)
                 {

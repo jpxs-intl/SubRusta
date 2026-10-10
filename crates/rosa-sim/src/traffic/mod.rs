@@ -36,7 +36,7 @@ pub struct RouteStep {
 /// players and as a real vehicle near them.
 #[derive(Clone, Debug)]
 pub struct TrafficCar {
-    pub kind: usize,
+    pub kind: rosa_protocol::clientbound::game::VehicleKind,
     /// The bot driving it (+0x04) and the vehicle it is while near a player (+0x08), -1 for none.
     pub human: i32,
     pub vehicle: i32,

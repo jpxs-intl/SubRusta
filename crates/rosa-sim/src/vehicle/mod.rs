@@ -62,7 +62,7 @@ pub struct Wheel {
 /// A vehicle in the world (vehicles, 0x5168 each).
 #[derive(Clone, Debug)]
 pub struct Vehicle {
-    pub kind: usize,
+    pub kind: rosa_protocol::clientbound::game::VehicleKind,
     /// The type's +0x08 flag (controllableState); a vehicle in state 3 is not sent to clients.
     pub controllable_state: i32,
     pub health: i32,
@@ -157,11 +157,11 @@ fn body_centre(pos: Vec3, rot: &RotMatrix, com: Vec3) -> Vec3 {
 /// spawn_vehicle: a vehicle of type `kind` at `pos` turned by `rot`, its chassis body at the type's centre of mass
 /// and a body for each wheel.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, types: &[VehicleType], kind: usize, color: i32, pos: Vec3, rot: RotMatrix, vel: Option<Vec3>) -> Option<usize> {
+pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, types: &[VehicleType], kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: RotMatrix, vel: Option<Vec3>) -> Option<usize> {
     // TODO: the helicopter's rotor body (type 12: 160 at 1.5 up, coefs 4, 0.125, 4, a point bond at (0, 1.5, 0) and an
     // angular bond); the train's two bogies (type 13: 80000 each, point bonds at (0, -1, -6) and (0, -1, 6) and
     // angular bonds); the cage weights the record keeps; the per-connection update state
-    let t = types.get(kind)?;
+    let t = types.get(kind as usize)?;
     let centre = body_centre(pos, &rot, t.center_of_mass);
     let body = bodies.create(RigidBodyType::Vehicle, centre, rot, vel, t.inertia, t.mass)?;
     let [r0, r1, r2] = rot;
@@ -202,7 +202,7 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
             })
         })
         .collect();
-    let driven = if kind == 15 { vec![0, 1] } else { vec![2, 3] };
+    let driven = if kind == rosa_protocol::clientbound::game::VehicleKind::Hatchback { vec![0, 1] } else { vec![2, 3] };
     let vel = vel.unwrap_or(Vec3::ZERO);
     vehicles.insert(Vehicle {
         kind,

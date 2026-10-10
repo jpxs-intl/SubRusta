@@ -1,6 +1,7 @@
 use glam::Vec3;
 
 use rosa_map::file_types::tst::TstFile;
+use rosa_protocol::clientbound::game::VehicleKind;
 
 use super::sbv::VehicleBody;
 
@@ -137,7 +138,7 @@ pub struct VehicleType {
 
 /// A vehicle type built from a body file and the settings vehicle setup gives it.
 struct SbvSpec {
-    kind: usize,
+    kind: VehicleKind,
     file: &'static str,
     name: &'static str,
     price: i32,
@@ -150,21 +151,17 @@ struct SbvSpec {
 }
 
 const SBV_TYPES: [SbvSpec; 9] = [
-    SbvSpec { kind: 0, file: "park5", name: "Town Car", price: 1000, mass: 1000.0, engine_power: 0.875, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5625, -0.375], [0.375, -0.5625, -0.375], [-0.375, -0.5625, 0.75], [0.375, -0.5625, 0.75]] },
-    SbvSpec { kind: 16, file: "turbo5", name: "Test", price: 20000, mass: 800.0, engine_power: 1.0, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, 0.125]] },
-    SbvSpec { kind: 15, file: "golf5", name: "Hatchback", price: 2000, mass: 800.0, engine_power: 0.875, wheel_radius: 0.3125, wheel_mass: 10.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, -0.125], [-0.375, -0.5625, 1.0], [0.375, -0.5625, 1.0]] },
-    SbvSpec { kind: 4, file: "turbo5", name: "Turbo", price: 20000, mass: 800.0, engine_power: 1.125, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
-    SbvSpec { kind: 5, file: "turbo5", name: "Turbo S", price: 40000, mass: 750.0, engine_power: 1.5, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
-    SbvSpec { kind: 7, file: "van4", name: "Van", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
-    SbvSpec { kind: 8, file: "van4", name: "Van2", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
-    SbvSpec { kind: 9, file: "minivan2", name: "Minivan", price: 100, mass: 1200.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5, -0.4375], [0.375, -0.5, -0.4375], [-0.375, -0.5, 0.4375], [0.375, -0.5, 0.4375], [-0.375, -0.5, 1.3125], [0.375, -0.5, 1.3125]] },
-    SbvSpec { kind: 6, file: "beamer2", name: "Beamer", price: 10000, mass: 900.0, engine_power: 1.25, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5, -0.25], [0.375, -0.5, -0.25], [-0.375, -0.5, 0.625], [0.375, -0.5, 0.625]] },
+    SbvSpec { kind: VehicleKind::TownCar, file: "park5", name: "Town Car", price: 1000, mass: 1000.0, engine_power: 0.875, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5625, -0.375], [0.375, -0.5625, -0.375], [-0.375, -0.5625, 0.75], [0.375, -0.5625, 0.75]] },
+    SbvSpec { kind: VehicleKind::Test, file: "turbo5", name: "Test", price: 20000, mass: 800.0, engine_power: 1.0, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, 0.125]] },
+    SbvSpec { kind: VehicleKind::Hatchback, file: "golf5", name: "Hatchback", price: 2000, mass: 800.0, engine_power: 0.875, wheel_radius: 0.3125, wheel_mass: 10.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, -0.125], [-0.375, -0.5625, 1.0], [0.375, -0.5625, 1.0]] },
+    SbvSpec { kind: VehicleKind::Turbo, file: "turbo5", name: "Turbo", price: 20000, mass: 800.0, engine_power: 1.125, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
+    SbvSpec { kind: VehicleKind::TurboS, file: "turbo5", name: "Turbo S", price: 40000, mass: 750.0, engine_power: 1.5, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
+    SbvSpec { kind: VehicleKind::Van, file: "van4", name: "Van", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
+    SbvSpec { kind: VehicleKind::Van2, file: "van4", name: "Van2", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
+    SbvSpec { kind: VehicleKind::Minivan, file: "minivan2", name: "Minivan", price: 100, mass: 1200.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5, -0.4375], [0.375, -0.5, -0.4375], [-0.375, -0.5, 0.4375], [0.375, -0.5, 0.4375], [-0.375, -0.5, 1.3125], [0.375, -0.5, 1.3125]] },
+    SbvSpec { kind: VehicleKind::Beamer, file: "beamer2", name: "Beamer", price: 10000, mass: 900.0, engine_power: 1.25, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5, -0.25], [0.375, -0.5, -0.25], [-0.375, -0.5, 0.625], [0.375, -0.5, 0.625]] },
 ];
 
-/// Van2 is built from van.tst, which leaves its body slot (and so its collision mesh) empty.
-const VAN2: usize = 8;
-const TRAIN: usize = 13;
-const HELICOPTER: usize = 12;
 /// How far load_tst raises and moves back the shapes it reads.
 const TST_SHIFT: f32 = 0.625;
 
@@ -295,10 +292,10 @@ impl VehicleType {
 
     /// A wheel at each of the body file's mounts, hung between its nearest node and the nearest node beyond it, then
     /// the track and wheelbase between the mounts.
-    fn hang_wheels(&mut self, body: &VehicleBody, kind: usize, drive: i32, radius: f32, mass: f32, mounts: usize) {
+    fn hang_wheels(&mut self, body: &VehicleBody, kind: VehicleKind, drive: i32, radius: f32, mass: f32, mounts: usize) {
         let (vertical_offset, travel_damping) = match kind {
-            0 => (-0.0625, 0.5),
-            4 | 5 => (0.0, 0.75),
+            VehicleKind::TownCar => (-0.0625, 0.5),
+            VehicleKind::Turbo | VehicleKind::TurboS => (0.0, 0.75),
             _ => (-0.03125, 0.625),
         };
         let spin_response = 1.0 / (0.625 * (radius * radius));
@@ -342,7 +339,7 @@ impl VehicleType {
     /// vehicletype_attach_wheels_sized: the body file's chassis nodes (heavier below the floor) and springs, the
     /// first eight nodes as the cage, a wheel at each mount hung between its nearest node and the nearest node beyond
     /// it, then the track, wheelbase, centre of mass (nodes below the floor at mass 4) and inertia.
-    fn attach_wheels(&mut self, body: &VehicleBody, kind: usize, drive: i32, radius: f32, mass: f32, mounts: usize) {
+    fn attach_wheels(&mut self, body: &VehicleBody, kind: VehicleKind, drive: i32, radius: f32, mass: f32, mounts: usize) {
         self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { unk_00: 0, pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
         for e in &body.file.edges {
             self.add_node_edge(0, e.a, e.b);
@@ -381,7 +378,7 @@ impl VehicleType {
 
     /// vehicletype_precompute_physics: the node masses as shares, the centroid (wheels around it), the radius around
     /// the cage centre, the cage weights of its right and forward probes and the nodes around the cage mean.
-    fn precompute_physics(&mut self, kind: usize) {
+    fn precompute_physics(&mut self, kind: VehicleKind) {
         let total = self.nodes.iter().fold(0.0f32, |t, n| t + n.mass);
         for n in self.nodes.iter_mut() {
             n.mass /= total;
@@ -417,7 +414,7 @@ impl VehicleType {
         let mx = sum.x * inv;
         self.centred_nodes = positions.iter().map(|p| Vec3::new(p.x - mx, p.y - sum.y * inv, p.z - sum.z * inv)).collect();
         self.parts = self.panels.iter().filter(|p| p.window != 1).map(|p| Part { count: p.count, nodes: p.nodes }).collect();
-        if kind == 0 {
+        if kind == VehicleKind::TownCar {
             self.parts.push(Part { count: 4, nodes: [10, 11, 13, 12] });
         }
     }
@@ -434,9 +431,10 @@ impl VehicleType {
     /// load_tst: a test shape file's mesh replaces the render vertices and faces and its parts the windows (raised and
     /// moved back by 0.625 but for Van2), and Van2's second mesh replaces the chassis nodes and faces. A block the
     /// file does not hold leaves the list empty.
-    fn load_tst(&mut self, path: &std::path::Path, kind: usize) {
-        let tst = TstFile::load(path, kind == VAN2).unwrap_or_default();
-        let shift = |p: Vec3| if kind != VAN2 { Vec3::new(p.x, p.y + TST_SHIFT, p.z + TST_SHIFT) } else { p };
+    /// Van2 is built from van.tst, which leaves its body slot (and so its collision mesh) empty.
+    fn load_tst(&mut self, path: &std::path::Path, kind: VehicleKind) {
+        let tst = TstFile::load(path, kind == VehicleKind::Van2).unwrap_or_default();
+        let shift = |p: Vec3| if kind != VehicleKind::Van2 { Vec3::new(p.x, p.y + TST_SHIFT, p.z + TST_SHIFT) } else { p };
         let mesh = tst.mesh.as_ref();
         self.render_verts = mesh.map_or(Vec::new(), |m| m.vertices.iter().map(|v| shift(v.pos.0)).collect());
         self.render_faces = mesh.map_or(Vec::new(), |m| m.faces.iter().map(|f| f.corners.iter().map(|c| c.vertex as usize).collect()).collect());
@@ -450,7 +448,7 @@ impl VehicleType {
                 })
                 .collect()
         });
-        if kind == VAN2 {
+        if kind == VehicleKind::Van2 {
             let chassis = tst.chassis.as_ref();
             self.chassis_faces = chassis.map_or(Vec::new(), |m| m.faces.iter().map(|f| f.corners.iter().map(|c| c.vertex as usize).collect()).collect());
             // TODO: the chassis mesh's vertices become the body slot's nodes (+0x4014), which the collision hull
@@ -466,10 +464,10 @@ impl VehicleType {
         let body = VehicleBody::load(&data.join("park5.sbv"))?;
         let mut t = VehicleType { body_file: 1, controllable_state: 2, name: "Helicopter".to_string(), price: 1000000, mass: 1000.0, ..Default::default() };
         t.body_meshes(&body);
-        t.load_tst(&data.join("helitest.tst"), HELICOPTER);
-        t.attach_wheels(&body, HELICOPTER, 0, 0.375, 12.0, 0);
+        t.load_tst(&data.join("helitest.tst"), VehicleKind::Helicopter);
+        t.attach_wheels(&body, VehicleKind::Helicopter, 0, 0.375, 12.0, 0);
         t.seats = vec![Vec3::new(-0.375, -0.5625, -0.875), Vec3::new(0.375, -0.5625, -0.875), Vec3::new(-0.375, -0.5625, 0.75), Vec3::new(0.375, -0.5625, 0.75)];
-        t.precompute_physics(HELICOPTER);
+        t.precompute_physics(VehicleKind::Helicopter);
         Some(t)
     }
 
@@ -487,8 +485,8 @@ impl VehicleType {
         t.attach_wheels(&body, spec.kind, spec.drive, spec.wheel_radius, spec.wheel_mass, body.file.wheels.len());
         t.seats = spec.seats.iter().map(|s| Vec3::from_array(*s)).collect();
         t.body_meshes(&body);
-        if spec.kind == VAN2 {
-            t.load_tst(&data.join("van.tst"), VAN2);
+        if spec.kind == VehicleKind::Van2 {
+            t.load_tst(&data.join("van.tst"), VehicleKind::Van2);
         }
         t.precompute_physics(spec.kind);
         Some(t)
@@ -589,7 +587,7 @@ impl VehicleType {
         t.seats = vec![Vec3::new(-0.375, -0.375, -0.25), Vec3::new(0.375, -0.375, -0.25), Vec3::new(-0.375, -0.375, 1.0), Vec3::new(0.375, -0.375, 1.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(1);
+        t.precompute_physics(VehicleKind::TownCar2);
         t
     }
 
@@ -609,7 +607,7 @@ impl VehicleType {
         t.seats = vec![Vec3::new(-0.375, -0.375, 0.0), Vec3::new(0.375, -0.375, 0.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(2);
+        t.precompute_physics(VehicleKind::Metro);
         t
     }
 
@@ -633,7 +631,7 @@ impl VehicleType {
         t.seats = vec![Vec3::new(-0.375, -0.375, -1.25), Vec3::new(0.375, -0.375, -1.25), Vec3::new(-0.375, -0.375, 2.0), Vec3::new(0.375, -0.375, 2.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(3);
+        t.precompute_physics(VehicleKind::Limo);
         t
     }
 
@@ -703,7 +701,7 @@ impl VehicleType {
         t.track = 1.125;
         t.wheelbase = (z[1] + (z[2] - z[1]) * 0.75) - ((z[0] - z[1]) * 0.75 + z[1]);
         t.seats = vec![Vec3::new(-0.375, 0.125, -0.875), Vec3::new(0.375, 0.125, -0.875)];
-        t.precompute_physics(10);
+        t.precompute_physics(VehicleKind::Truck);
         t
     }
 
@@ -758,14 +756,14 @@ impl VehicleType {
         }
         t.track = 1.125;
         t.wheelbase = ((z[2] - z[1]) * 0.75 + z[1]) - ((z[0] - z[1]) * 0.75 + z[1]);
-        t.precompute_physics(11);
+        t.precompute_physics(VehicleKind::Trailer);
         t
     }
 
     /// vehicletype_attach_wheels, the older wheel setup the train uses: the body file's chassis nodes (heavier below
     /// the floor) without its springs, the first eight as the cage, a wheel at each mount as the sized setup hangs
     /// them but placed at the mount itself, the inertia about the origin and no centre of mass.
-    fn attach_wheels_unsized(&mut self, body: &VehicleBody, kind: usize, drive: i32, radius: f32, mass: f32) {
+    fn attach_wheels_unsized(&mut self, body: &VehicleBody, kind: VehicleKind, drive: i32, radius: f32, mass: f32) {
         self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { unk_00: 0, pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
         self.cage = SBV_CAGE.to_vec();
         self.hang_wheels(body, kind, drive, radius, mass, body.file.wheels.len());
@@ -792,9 +790,23 @@ impl VehicleType {
     fn train(data: &std::path::Path) -> Option<Self> {
         let body = VehicleBody::load(&data.join("train04.sbv"))?;
         let mut t = VehicleType { body_file: 1, name: "Train".to_string(), price: 1000, mass: 320000.0, ..Default::default() };
-        t.attach_wheels_unsized(&body, TRAIN, 0, 0.375, 12.0);
+        t.attach_wheels_unsized(&body, VehicleKind::Train, 0, 0.375, 12.0);
         t.body_meshes(&body);
         Some(t)
+    }
+}
+
+/// The type a dealership or round corporation stocks: mostly town cars, hatchbacks, minivans and vans, now and then a
+/// beamer, rarely a turbo and very rarely a Turbo S.
+pub fn random_stock_vehicle() -> VehicleKind {
+    match crate::rng::rand() & 15 {
+        0..=1 => VehicleKind::Van,
+        2..=5 => VehicleKind::TownCar,
+        6..=9 => VehicleKind::Hatchback,
+        10..=12 => VehicleKind::Minivan,
+        13..=14 => VehicleKind::Beamer,
+        _ if crate::rng::rand() & 15 == 0 => VehicleKind::TurboS,
+        _ => VehicleKind::Turbo,
     }
 }
 
@@ -803,19 +815,19 @@ pub fn vehicle_types(data: &std::path::Path) -> Vec<VehicleType> {
     let mut types = vec![VehicleType::default(); VEHICLE_TYPES];
     for spec in &SBV_TYPES {
         if let Some(t) = VehicleType::from_sbv(spec, data) {
-            types[spec.kind] = t;
+            types[spec.kind as usize] = t;
         }
     }
-    types[1] = VehicleType::town_car_2();
-    types[2] = VehicleType::metro();
-    types[3] = VehicleType::limo();
-    types[10] = VehicleType::truck();
-    types[11] = VehicleType::trailer();
+    types[VehicleKind::TownCar2 as usize] = VehicleType::town_car_2();
+    types[VehicleKind::Metro as usize] = VehicleType::metro();
+    types[VehicleKind::Limo as usize] = VehicleType::limo();
+    types[VehicleKind::Truck as usize] = VehicleType::truck();
+    types[VehicleKind::Trailer as usize] = VehicleType::trailer();
     if let Some(t) = VehicleType::helicopter(data) {
-        types[HELICOPTER] = t;
+        types[VehicleKind::Helicopter as usize] = t;
     }
     if let Some(t) = VehicleType::train(data) {
-        types[TRAIN] = t;
+        types[VehicleKind::Train as usize] = t;
     }
     types
 }

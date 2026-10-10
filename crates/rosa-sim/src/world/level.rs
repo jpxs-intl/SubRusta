@@ -42,6 +42,7 @@ fn list_names(dir: &Path, ext: &str) -> Vec<String> {
     v
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_level(
     city: &CityFileSBC,
     csx: &CityFileCSX,

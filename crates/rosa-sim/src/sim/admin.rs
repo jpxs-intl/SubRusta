@@ -6,7 +6,7 @@ use rosa_protocol::{
     GameMode, Team,
     clientbound::{
         admin_list::{ADMIN_LIST_ROWS, AdminList},
-        game::{ItemKind, events::chat::ChatType},
+        game::{ItemKind, VehicleKind, events::chat::ChatType},
     },
     frame_packet,
 };
@@ -25,15 +25,6 @@ const LIST_PAGE: usize = 10;
 /// The vehicles the spawn commands put 4 units in front of the admin, in colour 1.
 const SPAWN_AHEAD: f32 = -4.0;
 const SPAWN_COLOR: i32 = 1;
-const HELI: usize = 12;
-const TOWN_CAR: usize = 0;
-const BEAMER: usize = 6;
-const PICKUP: usize = 17;
-const TURBO: usize = 5;
-const VAN: usize = 7;
-/// The admin phone's number, and the pocket it and /arm's bandages go in.
-const ADMIN_PHONE: i32 = 9999;
-const ADMIN_POCKET: usize = 6;
 /// /arm's guns by number (1 to 5, anything else the MP5), with four magazines.
 const ARM_GUNS: [ItemKind; 5] = [ItemKind::Ak47, ItemKind::M16, ItemKind::Mp5, ItemKind::Uzi, ItemKind::Pistol];
 const ARM_DEFAULT: usize = 2;
@@ -45,8 +36,6 @@ const VERSUS_MAPS: i32 = 32;
 /// A connection is dropped 1800 ticks after its last packet; a kick leaves it 600 of them.
 const TIMEOUT: i32 = 1800;
 const KICK_TIMEOUT: i32 = 1200;
-/// Admin connections get the admin list every 128 ticks, staggered by connection.
-const ADMIN_LIST_PERIOD: u32 = 0x7f;
 
 /// The admin side of the server: the password and admin phones (serveradmin.txt), the kicked addresses, a ban
 /// waiting to be confirmed, a game mode change asked for with /resetgame and the versus map picked with /setmap.
@@ -163,7 +152,14 @@ impl Sim {
         if msg.starts_with("/godmode") {
             self.godmode_command(pid);
         }
-        for (cmd, kind) in [("/heli", HELI), ("/car", TOWN_CAR), ("/beamer", BEAMER), ("/pickup", PICKUP), ("/turbo", TURBO), ("/van", VAN)] {
+        for (cmd, kind) in [
+            ("/heli", VehicleKind::Helicopter),
+            ("/car", VehicleKind::TownCar),
+            ("/beamer", VehicleKind::Beamer),
+            ("/pickup", VehicleKind::Pickup),
+            ("/turbo", VehicleKind::TurboS),
+            ("/van", VehicleKind::Van),
+        ] {
             if msg.starts_with(cmd) {
                 self.admin_spawn_vehicle(pid, kind);
             }
@@ -276,7 +272,7 @@ impl Sim {
             self.admin.pending_ban = None;
         }
         if let Some(name) = msg.strip_prefix("/kick ") {
-            let target = self.connection_order().into_iter().filter(|c| self.clients.get(c).and_then(|c| self.players.get(c.player_id.idx())).is_some_and(|p| p.username == name)).last();
+            let target = self.connection_order().into_iter().rfind(|c| self.clients.get(c).and_then(|c| self.players.get(c.player_id.idx())).is_some_and(|p| p.username == name));
             if let Some(c) = target.and_then(|t| self.clients.get_mut(&t)) {
                 c.timeout = KICK_TIMEOUT;
                 let ip = c.addr.ip();
@@ -298,7 +294,7 @@ impl Sim {
         conns
     }
 
-    fn admin_spawn_vehicle(&mut self, pid: PlayerId, kind: usize) {
+    fn admin_spawn_vehicle(&mut self, pid: PlayerId, kind: VehicleKind) {
         let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|h| self.humans.get(h)) else { return };
         let (p, r) = (h.bones[0].pos, h.bones[0].rot[2]);
         let pos = Vec3::new(r.x * SPAWN_AHEAD + p.x, r.y * SPAWN_AHEAD + p.y, SPAWN_AHEAD * r.z + p.z);
@@ -309,7 +305,7 @@ impl Sim {
     fn admin_phone(&mut self, pid: PlayerId) {
         for id in self.items.ids() {
             let Some(item) = self.items.get(id) else { continue };
-            let Some(p) = item.state.phone().filter(|p| item.item_type == ItemKind::Phone && p.number == ADMIN_PHONE) else { continue };
+            let Some(p) = item.state.phone().filter(|p| item.item_type == ItemKind::Phone && p.number == 9999) else { continue };
             if let Some(other) = p.connected {
                 if let Some(o) = self.items.get_mut(other).and_then(|i| i.state.phone_mut()) {
                     o.connected = None;
@@ -318,17 +314,19 @@ impl Sim {
                 }
                 self.phone_update(other);
             }
-            if let Some(item) = self.items.get_mut(id) {
-                item.despawn_time = 0;
-            }
+
+            self.mark_item_for_deletion(id);
         }
+
         let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human) else { return };
         let Some((pos, rot)) = self.humans.get(h).map(|hu| (hu.bones[0].pos, hu.bones[0].rot)) else { return };
         let Some(id) = self.create_item(ItemKind::Phone, pos, None, rot) else { return };
+
         if let Some(p) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
-            p.number = ADMIN_PHONE;
+            p.number = 9999;
         }
-        self.link_to_slot(h, id, ADMIN_POCKET);
+        
+        self.link_to_slot(h, id, 6);
     }
 
     /// /arm [1-5]: a gun with four magazines and two bandages.
@@ -340,7 +338,7 @@ impl Sim {
         let Some((pos, rot)) = self.humans.get(h).map(|hu| (hu.bones[0].pos, hu.bones[0].rot)) else { return };
         for _ in 0..ARM_BANDAGES {
             if let Some(id) = self.create_item(ItemKind::Bandage, pos, None, rot) {
-                self.link_to_slot(h, id, ADMIN_POCKET);
+                self.link_to_slot(h, id, 6);
             }
         }
     }
@@ -360,6 +358,7 @@ impl Sim {
                 a.ban_time = value as u32;
                 format!("{} {i} banned {value}", account_name(a))
             }
+
             5 => {
                 a.crim_rating = value as u32;
                 let id = a.account_id;
@@ -385,9 +384,11 @@ impl Sim {
         for c in self.clients.values_mut() {
             c.timeout += 1;
         }
+
         for conn in self.connection_order() {
             let Some(c) = self.clients.get(&conn) else { continue };
             let banned = self.players.get(c.player_id.idx()).and_then(|p| self.saved_accounts.players.iter().find(|a| a.account_id == p.account_id)).is_some_and(|a| a.ban_time > 0);
+
             if banned || c.timeout >= TIMEOUT || self.players.get(c.player_id.idx()).is_none() {
                 self.on_leave(conn);
             }
@@ -400,6 +401,7 @@ impl Sim {
         if !self.admin.reset_requested {
             return;
         }
+
         if let Some(mode) = self.admin.next_mode.filter(|m| matches!(m, GameMode::Round | GameMode::Eliminator) && *m != self.gamemode) {
             // TODO: reset_game loads the round map for these modes; switching from another map needs map reloading
             if self.world.map.map_name == "round" {
@@ -409,6 +411,7 @@ impl Sim {
                 self.gamemode = mode;
             }
         }
+
         self.reset_game();
         self.admin.reset_requested = false;
     }
@@ -418,9 +421,11 @@ impl Sim {
         // TODO: the rows are filled by the replay recorder (replay_writepacket); without it every row is empty
         let packet = AdminList { rows: vec![None; ADMIN_LIST_ROWS] };
         let tick = self.tick;
-        for (i, conn) in self.connection_order().into_iter().enumerate() {
+
+        for (index, conn) in self.connection_order().into_iter().enumerate() {
             let Some(c) = self.clients.get(&conn) else { continue };
-            if c.admin_visible && (tick ^ i as u32) & ADMIN_LIST_PERIOD == 0 {
+
+            if c.admin_visible && tick % 128 == index as u32 % 128 {
                 let _ = self.out_tx.send((frame_packet(packet.clone()), c.addr));
             }
         }

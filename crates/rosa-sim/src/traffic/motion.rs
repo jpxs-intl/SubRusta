@@ -61,7 +61,7 @@ pub fn update_signals(traffic: &mut Traffic, map: &StreetMap) {
 /// A car away from players: it turns with its steering, keeps its speed along its heading, speeds up or slows
 /// towards its target, and follows the ground, pitched to it over the wheelbase.
 pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType], id: usize) {
-    let (radius, wheel_y) = types.get(traffic.cars[id].kind).and_then(|t| t.wheels.first()).map_or((0.0, 0.0), |w| (w.radius, w.local_pos.y));
+    let (radius, wheel_y) = types.get(traffic.cars[id].kind as usize).and_then(|t| t.wheels.first()).map_or((0.0, 0.0), |w| (w.radius, w.local_pos.y));
     let c = &mut traffic.cars[id];
     if c.is_bot != DRIVEN {
         c.target_speed = 0.0;

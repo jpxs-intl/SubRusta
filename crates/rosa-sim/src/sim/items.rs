@@ -616,14 +616,17 @@ impl Sim {
 
     fn cleanup_items(&mut self) {
         let mut dead = Vec::new();
+        
         for (id, item) in self.items.iter_mut() {
             if item.despawn_time <= 65534 {
                 item.despawn_time -= 1;
+
                 if item.despawn_time <= 0 {
                     dead.push(id);
                 }
             }
         }
+
         for id in dead {
             self.delete_item(id);
         }

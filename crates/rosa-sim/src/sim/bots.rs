@@ -467,7 +467,7 @@ impl Sim {
         if self.teammate_in_line(hid, team, h.bones[3].pos, start, end, TEAMMATE_RANGE_SEATED) {
             return;
         }
-        let own_body = self.vehicles.get(veh).and_then(|v| crate::vehicle::physics::trace_vehicle_parts(v, &self.vehicle_types[v.kind], start, end, false));
+        let own_body = self.vehicles.get(veh).and_then(|v| crate::vehicle::physics::trace_vehicle_parts(v, &self.vehicle_types[v.kind as usize], start, end, false));
         if own_body.is_some_and(|hit| matches!(hit.part, crate::vehicle::physics::VehiclePart::Body(_))) {
             return;
         }

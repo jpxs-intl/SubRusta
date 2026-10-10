@@ -1,9 +1,9 @@
-use crate::codec::WireWrite;
+use crate::{clientbound::game::VehicleKind, codec::WireWrite};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventUpdateVehicleTypeColor {
     pub vehicle_id: i32,
-    pub vehicle_type: u8,
+    pub vehicle_type: VehicleKind,
     pub vehicle_color: u8
 }
 

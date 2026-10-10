@@ -1,6 +1,6 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
-use rosa_protocol::GameMode;
+use rosa_protocol::{GameMode, clientbound::game::VehicleKind};
 
 use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, rand_bit, rand_mod, route::plan_route};
 use crate::{vehicle::types::VehicleType, world::map::Map};
@@ -9,10 +9,6 @@ use crate::{vehicle::types::VehicleType, world::map::Map};
 /// dumps).
 const SPAWN_PI: f64 = 3.14159265359;
 const SPAWN_HALF_PI: f64 = 1.570796326795;
-const TOWN_CAR: usize = 0;
-const VAN: usize = 7;
-const MINIVAN: usize = 9;
-const HATCHBACK: usize = 15;
 const COLORS: i32 = 6;
 const PROGRESS_STEP: f32 = 0.00390625;
 /// The ground is found by tracing 128 down from two above the street's higher end.
@@ -27,13 +23,13 @@ const PARKING_LANE: i32 = 2;
 
 /// The traffic's vehicle types by a roll of 0 to 15: town cars most often, then vans and minivans, and a few
 /// hatchbacks.
-fn car_kind(roll: u32) -> usize {
+fn car_kind(roll: u32) -> VehicleKind {
     match roll {
-        0..=2 => VAN,
-        3..=8 => TOWN_CAR,
-        9..=12 => MINIVAN,
-        13 => VAN,
-        _ => HATCHBACK,
+        0..=2 => VehicleKind::Van,
+        3..=8 => VehicleKind::TownCar,
+        9..=12 => VehicleKind::Minivan,
+        13 => VehicleKind::Van,
+        _ => VehicleKind::Hatchback,
     }
 }
 
@@ -68,7 +64,7 @@ pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], m
 /// create_traffic_car: a car on a street's lane `lane` from the middle (towards its first intersection's side for
 /// slot 0), `progress` of the way along, on the ground, with a route to a random street.
 #[allow(clippy::too_many_arguments)]
-pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType], kind: usize, color: i32, street: i32, slot: i32, lane: i32, progress: f32) -> usize {
+pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType], kind: VehicleKind, color: i32, street: i32, slot: i32, lane: i32, progress: f32) -> usize {
     let streets = &map.streets;
     let st = &streets.streets[street as usize];
     let n = st.lanes.len() as i32;
@@ -101,7 +97,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
     let start = Vec3::new(pos.x, top, pos.z);
     let end = Vec3::new(pos.x + up.x * TRACE_DEPTH, top + up.y * TRACE_DEPTH, TRACE_DEPTH * up.z + pos.z);
     let ground = crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, start, end).map_or(top, |h| h.hit.pos.y);
-    let wheel_y = types.get(kind).and_then(|t| t.wheels.first()).map_or(0.0, |w| w.local_pos.y);
+    let wheel_y = types.get(kind as usize).and_then(|t| t.wheels.first()).map_or(0.0, |w| w.local_pos.y);
     let left = st.left_lanes;
     let car_lane = if slot != 0 { left - 1 - lane } else { lane + left };
     let id = traffic.cars.len();

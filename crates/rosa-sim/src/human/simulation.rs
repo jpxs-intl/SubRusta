@@ -146,7 +146,6 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     }
 
     h.pos = h.bones[0].pos;
-    h.unk_2c = (seated.is_none() || has_item || h.seat_exit != 0) as i32;
     if -32.0 > h.bones[0].pos.y {
         h.old_health = -100;
     }

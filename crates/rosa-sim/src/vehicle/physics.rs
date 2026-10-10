@@ -1,4 +1,5 @@
 use glam::Vec3;
+use rosa_protocol::clientbound::game::VehicleKind;
 use rosa_physics::{
     RigidBodies, RigidBody, Table,
     rotation::rotate_vector_about_axis,
@@ -19,11 +20,6 @@ use crate::{
 
 const WATER_LEVEL: f32 = 23.0;
 const FALLEN: f32 = -32.0;
-const NO_CLIP: usize = 14;
-const MINIVAN: usize = 9;
-const VAN: usize = 7;
-const TRAIN: usize = 13;
-const HELICOPTER: usize = 12;
 const DRIVEN: i32 = 1;
 const ROTOR: i32 = 2;
 const UNCONTROLLED: i32 = -1;
@@ -47,8 +43,6 @@ const CHASSIS_FRICTION: f32 = 0.6;
 const MAX_CHASSIS_DEPTH: f32 = 0.125;
 /// A vehicle in this controllable state is out of play: not sent to clients and not collided with.
 const HIDDEN: i32 = 3;
-const TRUCK: usize = 10;
-const TRAILER: usize = 17;
 const VEHICLE_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
 const VEHICLE_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const VEHICLE_SOFTNESS: f32 = 1.0 / 32.0;
@@ -71,7 +65,7 @@ pub fn update_vehicle_bounds(vehicles: &mut Table<Vehicle>, bodies: &RigidBodies
     // TODO: items in the level blocks the bounds cover (the item-set cells not yet taken) are spawned and woken
     for (_, v) in vehicles.iter_mut() {
         let Some(b) = bodies.get(v.body) else { continue };
-        let t = &types[v.kind];
+        let t = &types[v.kind as usize];
         v.prev_pos = v.pos;
         v.prev_rot = v.rot;
         let c = t.centroid_offset;
@@ -126,7 +120,7 @@ fn crash_and_drag(id: usize, v: &mut Vehicle, bodies: &mut RigidBodies, out: &mu
         v.despawn_time = 0;
         v.spawned_state = 0;
     }
-    if v.kind != NO_CLIP {
+    if v.kind != VehicleKind::NoClip {
         if dv > DAMAGE_SPEED {
             out.push(VehicleOutput::Damage { vehicle: id, amount: (dv * TICKS_PER_SECOND + 10.0) as i32 });
         }
@@ -201,7 +195,7 @@ fn update_car_drivetrain(v: &mut Vehicle, out: &mut Vec<VehicleOutput>) {
     } else {
         0.0
     };
-    let threshold = if v.kind == MINIVAN { f32::from_bits(0x40fb53d1) } else { f32::from_bits(0x41278d36) };
+    let threshold = if v.kind == VehicleKind::Minivan { f32::from_bits(0x40fb53d1) } else { f32::from_bits(0x41278d36) };
     let uncontrolled = |v: &mut Vehicle| {
         v.engine_speed *= 0.9375;
         v.brake = 1.0;
@@ -443,12 +437,12 @@ pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodie
         if v.controllable_state == DRIVEN {
             update_car_drivetrain(v, &mut out);
         }
-        if v.controllable_state == ROTOR || v.kind == HELICOPTER || v.kind == TRAIN {
+        if v.controllable_state == ROTOR || v.kind == VehicleKind::Helicopter || v.kind == VehicleKind::Train {
             // TODO: vehicle_update_helicopter (rotor speed and angles, the rotor bond's target, lift and steering
             // impulses) and vehicle_update_train (the bogies held to the city's rail tracks)
         }
         step_wheels(map, bodies, v);
-        glass.extend(sweep_chassis(map, bodies, v, &types[v.kind]));
+        glass.extend(sweep_chassis(map, bodies, v, &types[v.kind as usize]));
     }
     (out, glass)
 }
@@ -458,7 +452,7 @@ pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodie
 /// push shared between the wheel and the chassis by their masses.
 pub fn step_wheel_constraints(vehicles: &mut Table<Vehicle>, bodies: &mut Table<RigidBody>) {
     for (_, v) in vehicles.iter_mut() {
-        if v.kind == HELICOPTER || v.wheels.is_empty() {
+        if v.kind == VehicleKind::Helicopter || v.wheels.is_empty() {
             continue;
         }
         v.unk_3894 = 0;
@@ -543,7 +537,7 @@ pub fn step_wheel_constraints(vehicles: &mut Table<Vehicle>, bodies: &mut Table<
 /// gearbox's.
 pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<RigidBody>) {
     for (_, v) in vehicles.iter_mut() {
-        if v.kind == HELICOPTER || v.wheels.is_empty() {
+        if v.kind == VehicleKind::Helicopter || v.wheels.is_empty() {
             continue;
         }
         let [r0, r1, _] = v.rot;
@@ -587,7 +581,7 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
             wb.ang_impulse = Vec3::new(axle.x * t + i.x, axle.y * t + i.y, t * axle.z + i.z);
         }
         let es = v.engine_speed;
-        let x = ((60.0 * (es * 60.0)) as f64 / FULL_TURN / if v.kind == MINIVAN { 5000.0 } else { 7000.0 }) as f32;
+        let x = ((60.0 * (es * 60.0)) as f64 / FULL_TURN / if v.kind == VehicleKind::Minivan { 5000.0 } else { 7000.0 }) as f32;
         let torque = if x > 1.0 {
             0.0
         } else {
@@ -599,9 +593,9 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
                 let c = c + x * (x * x);
                 (1.0 - c, c)
             };
-            if v.kind == MINIVAN {
+            if v.kind == VehicleKind::Minivan {
                 ((0.75 * one_minus) * one_minus + (one_minus + one_minus) * c) + (0.25 * c) * c
-            } else if v.kind == VAN {
+            } else if v.kind == VehicleKind::Van {
                 (0.625 * c) * c + (one_minus * one_minus + c * (one_minus * 2.5))
             } else {
                 (0.625 * c) * c + ((one_minus + one_minus) * c + (one_minus * 0.75) * one_minus)
@@ -833,7 +827,7 @@ pub fn vehicle_vehicle_contacts(vehicles: &Table<Vehicle>, bodies: &mut RigidBod
         if vi.controllable_state == HIDDEN {
             continue;
         }
-        let Some(ti) = types.get(vi.kind) else { continue };
+        let Some(ti) = types.get(vi.kind as usize) else { continue };
         let Some(mesh) = ti.mesh.as_ref() else { continue };
         for (j, vj) in vehicles.iter() {
             if i == j || vj.controllable_state == HIDDEN || vi.occupants[0] == j as i32 || vj.occupants[0] == i as i32 {
@@ -843,10 +837,10 @@ pub fn vehicle_vehicle_contacts(vehicles: &Table<Vehicle>, bodies: &mut RigidBod
             if b0.x > a1.x || b0.y > a1.y || b0.z > a1.z || a0.x > b1.x || a0.y > b1.y || a0.z > b1.z {
                 continue;
             }
-            if vi.kind == TRUCK && vj.kind == TRAILER {
+            if vi.kind == VehicleKind::Truck && vj.kind == VehicleKind::Pickup {
                 continue;
             }
-            let Some(tj) = types.get(vj.kind) else { continue };
+            let Some(tj) = types.get(vj.kind as usize) else { continue };
             for &n in &mesh.verts {
                 let end = to_world(vi, n);
                 let Some((_, hit, normal)) = segment_intersect_vehicle(vj, tj, vi.pos, end) else { continue };

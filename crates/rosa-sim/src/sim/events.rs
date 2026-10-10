@@ -22,7 +22,7 @@ impl Sim {
             .saved_accounts
             .get_or_create(
                 j.auth_packet.account_id,
-                &j.auth_packet.name,
+                &j.auth_packet.player_name,
                 j.auth_packet.phone_number,
                 j.auth_packet.steam_id,
             )
@@ -35,7 +35,7 @@ impl Sim {
         let admin = self.is_admin_phone(accout_data.phone_number);
 
         if admin {
-            println!("[Sim] Admin {} is joining!", j.join_packet.player_name);
+            println!("[Sim] Admin {} is joining!", j.auth_packet.player_name);
         }
 
         if self.players.len() >= self.max_players as usize && !admin {

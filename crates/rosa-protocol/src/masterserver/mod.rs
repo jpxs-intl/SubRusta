@@ -8,7 +8,7 @@ pub struct AuthPacket {
     pub phone_number: u32,
     pub steam_id: u64,
     pub auth_ticket: u32,
-    pub name: String,
+    pub player_name: String,
 }
 
 impl WireRead for AuthPacket {
@@ -25,7 +25,7 @@ impl WireRead for AuthPacket {
             phone_number,
             steam_id,
             auth_ticket,
-            name
+            player_name: name
         })
     }
 }

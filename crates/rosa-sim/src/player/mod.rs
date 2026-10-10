@@ -153,7 +153,7 @@ impl Player {
             corp_credit: 0,
             input: InputFlags::empty(),
             team: Team::Spectator,
-            username: j.join_packet.player_name,
+            username: j.auth_packet.player_name,
             money: 0,
             stocks: 0,
             corp_rating: 0,

@@ -156,11 +156,7 @@ pub struct Human {
     pub despawn_ticks: i32,
     pub last_vehicle: i32,
     pub strength: f32,
-    // TODO: name these once more of their readers and writers are ported
-    pub unk_2c: i32,
-    /// Ticks until the human can eat again (record 0x40).
     pub eat_cooldown: i32,
-    /// The progress bar shown to the player (record 0x6e04), e.g. while bandaging.
     pub progress_bar: i32,
     /// Ticks an immortal human knocked below 50 health is kept from being shot (record 0x6c, 1800 when knocked down).
     pub down_timer: i32,

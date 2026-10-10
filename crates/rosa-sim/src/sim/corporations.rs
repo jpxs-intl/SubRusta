@@ -359,7 +359,8 @@ impl Sim {
         let Some(item) = self.items.get_mut(slot.items[0] as usize) else { return };
         let Some(value) = item.state.cash().map(Cash::value) else { return };
         self.corp_state[k].money += value;
-        item.despawn_time = 0;
+
+        self.mark_item_for_deletion(slot.items[0] as usize);
     }
 
     /// Withdrawl: a $20, $100 or $1000 bill onto the cash in hand (the right hand, or the left when the right holds
@@ -431,23 +432,28 @@ impl Sim {
     /// disconnect_phone: the team's two phones hang up on whoever they were talking to and despawn.
     fn disconnect_phone(&mut self, k: usize) {
         let number = (k as i32 + 1) * PHONE_NUMBER_STEP;
+
         for id in self.items.ids() {
             let Some(item) = self.items.get(id).filter(|i| i.item_type == ItemKind::Phone) else { continue };
             let Some(phone) = item.state.phone().filter(|p| p.number == number || p.number == number + 1) else { continue };
+
             if let Some(other) = phone.connected {
                 if let Some(o) = self.items.get_mut(other).and_then(|i| i.state.phone_mut()) {
                     o.status = PhoneStatus::Idle;
                     o.connected = None;
                     o.display_number = 0;
                 }
+
                 self.phone_update(other);
             }
+
             let Some(item) = self.items.get_mut(id) else { continue };
             if let Some(phone) = item.state.phone_mut() {
                 phone.status = PhoneStatus::Idle;
                 phone.connected = None;
             }
-            item.despawn_time = 0;
+
+            self.mark_item_for_deletion(id);
         }
     }
 

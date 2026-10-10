@@ -9,7 +9,7 @@ use rosa_protocol::clientbound::game::{
 use super::Sim;
 use crate::{
     PlayerId,
-    vehicle::{NETWORKED_VEHICLES, spawn_vehicle, types::VEHICLE_TYPES},
+    vehicle::{NETWORKED_VEHICLES, spawn_vehicle},
     world::trace::line_intersect_level,
 };
 
@@ -17,7 +17,6 @@ const SPAWN_DISTANCE: f32 = 6.0;
 const GROUND_SEARCH: f32 = 8.0;
 const RIDE_HEIGHT: f32 = 1.0;
 const HIDDEN_STATE: i32 = 3;
-const TRAIN: usize = 13;
 /// The update_vehicle kinds: a window broken, a tyre burst, the vehicle wrecked.
 pub(crate) const WINDOW_BROKEN: i32 = 0;
 pub(crate) const TYRE_BURST: i32 = 1;
@@ -37,9 +36,9 @@ fn to_byte(v: f32, min: i32) -> i32 {
 
 impl Sim {
     /// spawn_vehicle and its update_vehicle_type_and_color event.
-    pub fn spawn_vehicle(&mut self, kind: usize, color: i32, pos: Vec3, rot: rosa_physics::RotMatrix) -> Option<usize> {
+    pub fn spawn_vehicle(&mut self, kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: rosa_physics::RotMatrix) -> Option<usize> {
         let id = spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, None)?;
-        let e = EventUpdateVehicleTypeColor { vehicle_id: id as i32, vehicle_type: kind as u8, vehicle_color: color as u8 };
+        let e = EventUpdateVehicleTypeColor { vehicle_id: id as i32, vehicle_type: kind, vehicle_color: color as u8 };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
         Some(id)
     }
@@ -49,11 +48,12 @@ impl Sim {
         let mut args = message.split_whitespace().skip(1).map(|a| a.parse::<i32>().ok());
         let kind = args.next().flatten().unwrap_or(0);
         let color = args.next().flatten().unwrap_or(0);
-        if !(0..VEHICLE_TYPES as i32).contains(&kind) || self.vehicle_types[kind as usize].nodes.is_empty() {
+        let kind = u8::try_from(kind).ok().and_then(|k| rosa_protocol::clientbound::game::VehicleKind::try_from(k).ok()).filter(|&k| self.vehicle_types.get(k as usize).is_some_and(|t| !t.nodes.is_empty()));
+        let Some(kind) = kind else {
             let ready: Vec<String> = self.vehicle_types.iter().enumerate().filter(|(_, t)| !t.nodes.is_empty()).map(|(k, t)| format!("{k} {}", t.name)).collect();
             self.send_chat(&format!("Vehicle types: {}", ready.join(", ")), rosa_protocol::clientbound::game::events::chat::ChatType::Announce, -1, 0);
             return;
-        }
+        };
         let Some(player) = self.players.get(player_id.idx()) else { return };
         let mut rot = IDENTITY;
         rotate_orientation(&mut rot, Vec3::Y, player.view_yaw);
@@ -61,8 +61,8 @@ impl Sim {
         let map = &self.world.map;
         let ground = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, ahead + Vec3::Y * GROUND_SEARCH, ahead - Vec3::Y * GROUND_SEARCH);
         let pos = ground.map_or(ahead, |g| Vec3::new(ahead.x, g.hit.pos.y + RIDE_HEIGHT, ahead.z));
-        match self.spawn_vehicle(kind as usize, color, pos, rot) {
-            Some(id) => println!("[Sim] Spawned vehicle {kind} #{id} at {pos:?}"),
+        match self.spawn_vehicle(kind, color, pos, rot) {
+            Some(id) => println!("[Sim] Spawned vehicle {kind:?} #{id} at {pos:?}"),
             None => println!("[Sim] Vehicle table full"),
         }
     }
@@ -116,7 +116,7 @@ impl Sim {
     /// cannot be hurt.
     pub(crate) fn vehicle_take_damage(&mut self, id: usize, amount: i32) {
         let Some(v) = self.vehicles.get_mut(id) else { return };
-        if v.kind == TRAIN || v.health <= 0 {
+        if v.kind == rosa_protocol::clientbound::game::VehicleKind::Train || v.health <= 0 {
             return;
         }
         v.health -= amount;
@@ -194,7 +194,7 @@ impl Sim {
         // TODO: a trailer (type 17) meets the items whose type has the +0x00 flag with collide_convex_hulls_margin and
         // their second hull instead
         for (_, v) in self.vehicles.iter() {
-            let Some(hull) = self.vehicle_types.get(v.kind).and_then(|t| t.mesh.as_ref()) else { continue };
+            let Some(hull) = self.vehicle_types.get(v.kind as usize).and_then(|t| t.mesh.as_ref()) else { continue };
             let found = self.item_grid.query(glam::IVec3::from_array(v.block_min), glam::IVec3::from_array(v.block_max));
             for id in found {
                 let Some(item) = self.items.get(id) else { continue };

@@ -502,7 +502,7 @@ impl Sim {
         let streets = &self.world.map.streets;
         let street = if streets.streets.is_empty() { 0 } else { random_street(streets) };
         let progress = (rand() & 255) as f32 * (1.0 / 256.0);
-        let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, 0, 0, street, slot, 1, progress);
+        let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, street, slot, 1, progress);
         self.missions.chase_car = car as i32;
         let streets = &self.world.map.streets;
         let to = if streets.streets.is_empty() { 0 } else { random_street(streets) };
@@ -522,7 +522,7 @@ impl Sim {
         let vid = crate::vehicle::spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, Some(vel));
         self.traffic.cars[car].vehicle = vid.map_or(-1, |v| v as i32);
         let Some(vid) = vid else { return };
-        let e = EventUpdateVehicleTypeColor { vehicle_id: vid as i32, vehicle_type: kind as u8, vehicle_color: color as u8 };
+        let e = EventUpdateVehicleTypeColor { vehicle_id: vid as i32, vehicle_type: kind, vehicle_color: color as u8 };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
         let v = self.vehicles.get_mut(vid).unwrap();
         v.traffic_car = car as i32;
