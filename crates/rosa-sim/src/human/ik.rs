@@ -4,7 +4,7 @@ use rosa_physics::{
     rotation::{IDENTITY, multiply_matrixes, quaternion_multiply, quaternion_to_axis_angle, rot_matrix_to_quaternion, rotate_orientation},
 };
 
-use super::{Human, bones::BONES};
+use super::Human;
 
 /// The per-call settings of human_update_three_bone_ik_constraints.
 pub struct IkParams {
@@ -12,7 +12,6 @@ pub struct IkParams {
     pub twist: f32,
     pub max_turn: f32,
     pub clamp_max: f32,
-    pub pose_spin: [f32; 3],
     pub spin_limit: [f32; 3],
     pub flags: u32,
 }
@@ -34,44 +33,6 @@ pub fn clamp_bone_relative_correction(h: &Human, a: usize, b: usize, v: &mut Vec
     }
 }
 
-/// human_limit_relative_joint_rotation: nudges `v` (in world space) back when the child bone leaves its joint limits.
-pub fn limit_relative_joint_rotation(h: &Human, parent: usize, child: usize, v: &mut Vec3) {
-    let [p0, p1, p2] = h.bones[child].rot;
-    let [c0, c1, c2] = h.bones[parent].rot;
-    let d = |a: Vec3, b: Vec3| (a.x * b.x + a.y * b.y) + a.z * b.z;
-    let m = [
-        Vec3::new(d(p0, c0), d(p1, c0), d(c0, p2)),
-        Vec3::new(d(c1, p0), d(c1, p1), d(c1, p2)),
-        Vec3::new(d(p0, c2), d(p1, c2), d(c2, p2)),
-    ];
-    let mut q = rot_matrix_to_quaternion(&m);
-    let mut l = [(v.y * c0.y + v.x * c0.x) + c0.z * v.z, (v.x * c1.x + v.y * c1.y) + v.z * c1.z, (v.y * c2.y + v.x * c2.x) + v.z * c2.z];
-    if 0.0 > q[3] {
-        q = q.map(|c| -c);
-    }
-    let mut a = [q[0] + q[0], q[1] + q[1], q[2] + q[2]];
-    if (child == 11 || child == 14) && (a[0] as f64) > 90.0_f64.to_radians() {
-        a[0] = (-180.0_f64.to_radians() - (180.0_f64.to_radians() - a[0] as f64)) as f32;
-    }
-    let t = &BONES[child];
-    let (lo, hi) = (t.limit_min.to_array(), t.limit_max.to_array());
-    for k in 0..3 {
-        if lo[k] > a[k] {
-            let x = -(a[k] - lo[k]) * 0.25 - l[k];
-            if x > 0.0 {
-                l[k] += x;
-            }
-        }
-        if a[k] > hi[k] {
-            let x = -(a[k] - hi[k]) * 0.25 - l[k];
-            if 0.0 > x {
-                l[k] += x;
-            }
-        }
-    }
-    *v = Vec3::new((c0.x * l[0] + c1.x * l[1]) + c2.x * l[2], (c0.y * l[0] + c1.y * l[1]) + c2.y * l[2], (l[0] * c0.z + l[1] * c1.z) + l[2] * c2.z);
-}
-
 fn conjugate_towards(m: [f32; 4], flip: bool) -> [f32; 4] {
     if flip { [m[0], m[1], m[2], -m[3]] } else { [-m[0], -m[1], -m[2], m[3]] }
 }
@@ -87,13 +48,12 @@ fn clamp_turn(axis: Vec3, angle: f32, max: f32) -> Vec3 {
     Vec3::new(axis.x * lim, axis.y * lim, lim * axis.z)
 }
 
-fn set_joint(h: &Human, bodies: &mut RigidBodies, bone: usize, target: Vec3, spin_limit: f32, pose_spin: f32) {
+fn set_joint(h: &Human, bodies: &mut RigidBodies, bone: usize, target: Vec3, spin_limit: f32) {
     let Some(id) = h.bones[bone].joint else { return };
     if let Some(Bond::Joint(j)) = bodies.bond_mut(id) {
         j.target_ang_vel = target;
         j.limit_active = false;
         j.spin_limit = spin_limit;
-        j.pose_spin = pose_spin;
     }
 }
 
@@ -178,17 +138,8 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let mut t1 = Vec3::new(x, y, z);
     if p.flags & 16 != 0 {
         clamp_bone_relative_correction(h, root, first, &mut t1, p.clamp_max, 1.0);
-        if let Some(id) = h.bones[first].joint
-            && let Some(Bond::Joint(j)) = bodies.bond(id)
-        {
-            let mut lim = j.pose_limit;
-            limit_relative_joint_rotation(h, root, first, &mut lim);
-            if let Some(Bond::Joint(j)) = bodies.bond_mut(id) {
-                j.pose_limit = lim;
-            }
-        }
     }
-    set_joint(h, bodies, first, t1, p.spin_limit[0], p.pose_spin[0]);
+    set_joint(h, bodies, first, t1, p.spin_limit[0]);
 
     let mid = first + 1;
     let m2 = multiply_matrixes(&h.bones[mid].rot, &h.bones[first].rot);
@@ -205,7 +156,7 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let ty = (b0.y * av.x + b1.y * av.y) + b2.y * av.z;
     let tz = (av.x * b0.z + av.y * b1.z) + av.z * b2.z;
     let (x, y, z) = half_corr(correction, Vec3::new(tx, ty, tz));
-    set_joint(h, bodies, mid, Vec3::new(x, y, z), p.spin_limit[1], p.pose_spin[1]);
+    set_joint(h, bodies, mid, Vec3::new(x, y, z), p.spin_limit[1]);
 
     let end = first + 2;
     let m3 = multiply_matrixes(&h.bones[end].rot, &h.bones[mid].rot);
@@ -233,5 +184,5 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let ty = (b0.y * av.x + b1.y * av.y) + b2.y * av.z;
     let tz = (av.z * b2.z) + (av.x * b0.z + av.y * b1.z);
     let t3 = Vec3::new(tx + 0.5 * correction.x, ty + 0.5 * correction.y, 0.5 * correction.z + tz);
-    set_joint(h, bodies, end, t3, p.spin_limit[2], p.pose_spin[2]);
+    set_joint(h, bodies, end, t3, p.spin_limit[2]);
 }

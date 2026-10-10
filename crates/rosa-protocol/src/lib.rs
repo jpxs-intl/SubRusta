@@ -50,6 +50,7 @@ pub enum Team {
 
 impl Team {
     pub const CORPORATIONS: [Team; 6] = [Team::Goldmen, Team::Monsota, Team::OXS, Team::Nexaco, Team::Pentacom, Team::Prodocon];
+    pub const CORPORATION_NAMES: [&str; 6] = ["Goldmen Inc", "Monsota", "OXS International", "Nexaco", "Pentacom", "Prodocon"];
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

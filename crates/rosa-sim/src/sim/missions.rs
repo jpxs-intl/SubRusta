@@ -91,8 +91,6 @@ pub struct Mission {
     pub provided_cash: i32,
     /// +0x54
     pub rate: f32,
-    /// +0x58
-    pub unk_58: i32,
     /// +0x5c: the line settle_mission_result writes, kept as whether it expired and the rating it gave (None
     /// before, and after reset_game clears it).
     pub result: Option<(bool, i32)>,
@@ -493,7 +491,6 @@ impl Sim {
             m.disk_type = disk_type;
             m.value = value;
             m.deadline = deadline;
-            m.unk_58 = 0;
             m.provided_cash = 0;
             m.location = location;
             m.rate = value as f32 * RATE_SCALE;
@@ -535,7 +532,6 @@ impl Sim {
         }
         if let Some(p) = self.players.get_mut(driver.idx()) {
             p.team = Team::Mission;
-            p.bot.unk_2d24 = 1;
             p.bot.waypoint = 0;
             p.bot.waypoint_count = 0;
         }

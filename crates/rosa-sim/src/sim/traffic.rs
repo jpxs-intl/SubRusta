@@ -1,8 +1,7 @@
 use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_protocol::{
-    GameMode,
-    clientbound::game::{TrafficEntry, events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor}},
+    GameMode, Team, clientbound::game::{TrafficEntry, events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor}},
 };
 
 use super::Sim;
@@ -100,15 +99,18 @@ impl Sim {
         }
         self.restock_dealerships();
         self.stock_gun_stores();
+
         let map = &self.world.map;
         if !matches!(self.gamemode, GameMode::Racing | GameMode::Round | GameMode::Eliminator | GameMode::World) && !map.streets.streets.is_empty() {
             create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
         }
+
         // TODO: round and eliminator modes work the doors from logic_round and logic_eliminator once those are ported
         if self.gamemode == GameMode::World {
-            for k in 0..crate::sim::corporations::CORPORATIONS {
+            for k in 0..Team::CORPORATIONS.len() {
                 self.set_team_door(k, true);
             }
+
             self.apply_team_doors();
         }
         self.announce_players();

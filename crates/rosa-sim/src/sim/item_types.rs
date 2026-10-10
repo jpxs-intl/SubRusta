@@ -27,8 +27,6 @@ pub struct ItemType {
     pub fire_rate: i32,
     /// Index into the bullet table (+0x1c).
     pub bullet_type: i32,
-    // TODO: name once its readers are ported (+0x20, 90 for most guns)
-    pub unk_20: i32,
     /// Muzzle speed per tick (+0x28).
     pub bullet_velocity: f32,
     /// How far a shot strays (+0x2c).
@@ -41,7 +39,7 @@ pub struct ItemType {
 
 impl ItemType {
     fn new(name: &str, price: i32, mass: f32, can_collide: bool, bounds: Vec3) -> Self {
-        Self { name: name.to_string(), price, mass, can_collide, bounds, inv_inertia: inverse_inertia(bounds), hull: None, is_gun: false, mirrored_aim: 0, hands: 0, magazine_ammo: 0, pockets: [0; 5], hold_pos: [Vec3::ZERO; 2], hold_rot: [[0.0; 4]; 2], fire_rate: 0, bullet_type: 0, unk_20: 0, bullet_velocity: 0.0, bullet_spread: 0.0, can_mount_to: [0; ItemKind::COUNT], gun_hold_pos: Vec3::ZERO }
+        Self { name: name.to_string(), price, mass, can_collide, bounds, inv_inertia: inverse_inertia(bounds), hull: None, is_gun: false, mirrored_aim: 0, hands: 0, magazine_ammo: 0, pockets: [0; 5], hold_pos: [Vec3::ZERO; 2], hold_rot: [[0.0; 4]; 2], fire_rate: 0, bullet_type: 0, bullet_velocity: 0.0, bullet_spread: 0.0, can_mount_to: [0; ItemKind::COUNT], gun_hold_pos: Vec3::ZERO }
     }
 }
 
@@ -140,7 +138,6 @@ pub fn item_types() -> Vec<ItemType> {
     for (k, t) in types.iter_mut().enumerate() {
         t.fire_rate = FIRE_RATE[k];
         t.bullet_type = BULLET_TYPE[k];
-        t.unk_20 = UNK_20[k];
         t.bullet_velocity = BULLET_VELOCITY[k];
         t.bullet_spread = BULLET_SPREAD[k];
         t.gun_hold_pos = GUN_HOLD_POS[k];
@@ -192,7 +189,6 @@ const IT3_MESHES: [(ItemKind, &str); 4] = [(ItemKind::Computer, "computer.it3"),
 
 const FIRE_RATE: [i32; ItemKind::COUNT] = [6, 8, 0, 7, 0, 30, 0, 5, 0, 6, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const BULLET_TYPE: [i32; ItemKind::COUNT] = [2, 0, 0, 1, 0, 3, 0, 2, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-const UNK_20: [i32; ItemKind::COUNT] = [90, 90, 0, 90, 0, 18, 0, 90, 0, 90, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const BULLET_VELOCITY: [f32; ItemKind::COUNT] = [f32::from_bits(0x40d55555), f32::from_bits(0x412aaaab), f32::from_bits(0x0), f32::from_bits(0x416aaaab), f32::from_bits(0x0), f32::from_bits(0x40f55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x40d55555), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0)];
 const BULLET_SPREAD: [f32; ItemKind::COUNT] = [f32::from_bits(0x3daaaaab), f32::from_bits(0x3daaaaab), f32::from_bits(0x0), f32::from_bits(0x3d4ccccd), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x3d4ccccd), f32::from_bits(0x0), f32::from_bits(0x3d088889), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0), f32::from_bits(0x0)];
 const GUN_HOLD_POS: [Vec3; ItemKind::COUNT] = {

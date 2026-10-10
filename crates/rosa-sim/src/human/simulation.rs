@@ -65,8 +65,6 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     if h.vehicle.is_some() {
         h.yaw_offset = h.look_yaw;
         h.pitch_offset = h.look_pitch;
-        h.unk_128 = h.look_yaw;
-        h.unk_12c = h.look_pitch;
     } else {
         turn_towards_view(h);
     }
@@ -300,8 +298,6 @@ fn turn_towards_view(h: &mut Human) {
     h.view_yaw = yaw;
     h.body_yaw = body;
     h.view_pitch = h.look_pitch;
-    h.unk_128 = 0.0;
-    h.unk_12c = 0.0;
 }
 
 /// How much of its strength a badly hurt human has left, wavering over time.

@@ -93,7 +93,6 @@ pub fn damage_human(h: &mut Human, bone: BoneId, damage: i32) {
         }
     }
 
-    // TODO: the binary uses glibc rand() here (seeded at startup), so which hits start bleeding differs
     if damage > 0 && ((rand() & 0x1f) as i32) < damage {
         h.bleeding = true;
     }

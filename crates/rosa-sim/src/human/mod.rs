@@ -34,8 +34,6 @@ pub struct Bone {
     pub inertia: Vec3,
     pub inv_inertia: Vec3,
     pub min_inertia: f32,
-    // TODO: name once its readers are ported (identity at spawn)
-    pub unk_rot: RotMatrix,
     pub angles: Vec3,
     pub networked_rot: RotMatrix,
     pub limit_angles: [f32; 3],
@@ -168,8 +166,6 @@ pub struct Human {
     pub body_yaw: f32,
     /// The pitch counterpart of `yaw_offset` (record 0x124): the seated human's look pitch.
     pub pitch_offset: f32,
-    pub unk_128: f32,
-    pub unk_12c: f32,
     /// Where the player looks (controls 4 and 5, record 0x160 and 0x164): the view's yaw from the body and its pitch,
     /// or the look around a seat.
     pub look_yaw: f32,

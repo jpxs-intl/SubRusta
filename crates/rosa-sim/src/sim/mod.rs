@@ -160,7 +160,7 @@ pub struct Sim {
     traffic: crate::traffic::Traffic,
     tick_stats: tps::TickStats,
     /// Each corporation's manager, applicants and account.
-    pub(crate) corp_state: [corporations::CorpState; corporations::CORPORATIONS],
+    pub(crate) corp_state: [corporations::CorpState; 6],
     /// The vehicles the corporations can buy in round mode.
     vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time

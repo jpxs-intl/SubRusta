@@ -18,7 +18,7 @@ use crate::{
 
 pub(super) const ENTER_KEY: u32 = 0x800;
 const LAST_VEHICLE_TICKS: i32 = 100;
-const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), pose_spin: [0.125; 3], spin_limit: [1.0 / 64.0; 3], flags: 0 };
+const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), spin_limit: [1.0 / 64.0; 3], flags: 0 };
 
 /// A vehicle's seat offset in the world, in the order human_action_simulation adds it.
 fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {
@@ -274,7 +274,6 @@ pub fn walk_simulation(h: &mut Human, bodies: &mut RigidBodies) {
     h.locomotion.feet[0].mode = FOOT_FREE;
     h.locomotion.feet[1].mode = FOOT_FREE;
     calculate_center_of_mass(h);
-    // TODO: an airborne human traces the level below the pelvis here, which nothing reads
     for k in 0..2 {
         let f = &mut h.locomotion.feet[k];
         f.prev_plant_pitch = f.plant_pitch;

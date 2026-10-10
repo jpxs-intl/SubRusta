@@ -613,9 +613,7 @@ pub fn step_wheel_constraints(vehicles: &mut Table<Vehicle>, bodies: &mut Table<
         if v.kind == VehicleKind::Helicopter || v.wheels.is_empty() {
             continue;
         }
-        v.unk_3894 = 0;
         for w in v.wheels.iter_mut() {
-            w.unk_3c = 0;
             w.prev_vel = w.vel;
         }
         for k in 0..v.wheels.len() {
@@ -760,7 +758,6 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
             }
         };
         let torque = torque * v.throttle;
-        v.unk_3894 = 0;
         let drive = (v.engine_power / 3600.0) * torque / (v.unk_38b8 * v.engine_inertia) * 0.03125 + 0.0;
         let q = es * 0.125 * 0.125 * 0.375;
         let loss = (q as f64 * q.abs() as f64) * (1.125 - v.throttle) as f64;

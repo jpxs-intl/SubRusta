@@ -315,7 +315,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
                 spin_limit[0] = v;
                 spin_limit[1] = v;
             }
-            let params = IkParams { length: 21.0 / 32.0, twist, max_turn, clamp_max: 16.875_f32.to_radians(), pose_spin: [0.875; 3], spin_limit, flags: 0x16 + (1.0 > hp) as u32 };
+            let params = IkParams { length: 21.0 / 32.0, twist, max_turn, clamp_max: 16.875_f32.to_radians(), spin_limit, flags: 0x16 + (1.0 > hp) as u32 };
             three_bone_ik(h, bodies, 2, first, target, &IDENTITY, Vec3::ZERO, &params, &mut end_rot);
             attach_item_to_bone(h, bodies, touch, first + 2, item, hand);
             if touch.types[kind as usize].is_gun && k == 1 && h.input_flags & 0x20 == 0 && h.action_type != 0 && h.vehicle.is_none() {
@@ -331,7 +331,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         }
         let airborne = !one_arm && h.vehicle.is_none() && ((state == 1 && h.input_flags & 8 == 0) || (state == 3 && !(0.125 + h.locomotion.feet[0].swing_phase < 1.0)));
         let params = if airborne {
-            IkParams { length: 21.0 / 32.0, twist: 0.0, max_turn, clamp_max: 4.21875_f32.to_radians(), pose_spin: [0.75; 3], spin_limit: [0.0625; 3], flags }
+            IkParams { length: 21.0 / 32.0, twist: 0.0, max_turn, clamp_max: 4.21875_f32.to_radians(), spin_limit: [0.0625; 3], flags }
         } else {
             flags |= 16;
             let twist = if k == 0 { -0.0 } else { 0.0 };
@@ -341,7 +341,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
                 spin_limit[0] = v;
                 spin_limit[1] = v;
             }
-            IkParams { length: 21.0 / 32.0, twist, max_turn, clamp_max: 16.875_f32.to_radians(), pose_spin: [0.875; 3], spin_limit, flags }
+            IkParams { length: 21.0 / 32.0, twist, max_turn, clamp_max: 16.875_f32.to_radians(), spin_limit, flags }
         };
         three_bone_ik(h, bodies, 2, first, target, &IDENTITY, Vec3::ZERO, &params, &mut end_rot);
         if state == 2 {

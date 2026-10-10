@@ -251,7 +251,6 @@ impl Sim {
         c.cursor = n as i32 + (c.current_line << 6);
         c.colors[cur][..COLUMNS - 1].fill(WHITE);
         self.register_line(id, c, c.current_line);
-        // TODO: item +0x340 is cleared here (no reader found)
     }
 
     /// computer_resolve_path: walks the path at `pos` (a drive letter, a leading '\', '.' and '..') from the drive's

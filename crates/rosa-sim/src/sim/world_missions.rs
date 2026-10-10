@@ -1,5 +1,5 @@
 use glam::Vec3;
-use rosa_protocol::GameMode;
+use rosa_protocol::{GameMode, Team};
 
 use super::Sim;
 use crate::computer::fs::COMPUTER_CAPACITY;
@@ -379,7 +379,6 @@ impl Sim {
     /// something to it, it is paid and the mission closes for everyone else; otherwise it holds the file for trade
     /// and each corporation the mission is worth something to is told, by status line and memo.
     pub(crate) fn file_trade(&mut self, m: usize, team: usize) {
-        use super::corporations::TEAM_NAMES;
         self.world_missions.missions[m].teams[team].uploaded = true;
         if self.world_missions.missions[m].state > 1 {
             return;
@@ -402,11 +401,11 @@ impl Sim {
                 if state == 0 {
                     ti.lines.clear();
                 }
-                ti.lines.push(format!("{} HAS THE FILE  VALUE: ${}", TEAM_NAMES[team], v));
+                ti.lines.push(format!("{} HAS THE FILE  VALUE: ${}", Team::CORPORATION_NAMES[team], v));
                 ti.word = "Trade".into();
                 let memo = format!("{} has obtained the file for the
-{} project", TEAM_NAMES[team], mission.names[3]);
-                mission.teams[team].lines.push(format!("{} WANTS THE FILE", TEAM_NAMES[i]));
+{} project", Team::CORPORATION_NAMES[team], mission.names[3]);
+                mission.teams[team].lines.push(format!("{} WANTS THE FILE", Team::CORPORATION_NAMES[i]));
                 self.place_corporation_memo(i, memo.as_bytes());
             }
             self.world_missions.missions[m].state = 1;
@@ -637,7 +636,6 @@ impl Sim {
         }
         if let Some(p) = self.players.get_mut(driver.idx()) {
             p.team = Team::Mission;
-            p.bot.unk_2d24 = 1;
             p.bot.waypoint = 0;
             p.bot.waypoint_count = 0;
         }

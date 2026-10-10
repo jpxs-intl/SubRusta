@@ -100,8 +100,6 @@ pub struct BotTarget {
 pub struct BotBrain {
     /// A zombie (+0x2d1c) walks at what it sees, through walls.
     pub is_zombie: bool,
-    // TODO: name once its readers are ported: player +0x2d24, set for a car chase's driver
-    pub unk_2d24: i32,
     /// The heading to face with nothing else to do (+0x2d28).
     pub idle_yaw: f32,
     /// The waypoint being walked to (+0x2d34), how many there are (+0x2d38) and the waypoints (+0x2d3c, 0x20 each).

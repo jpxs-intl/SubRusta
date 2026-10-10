@@ -204,23 +204,18 @@ fn point_impulse(bodies: &Table<RigidBody>, body_a: usize, body_b: usize, ra: Ve
     })
 }
 
-// TODO: name `params` once its readers are ported
 #[derive(Clone, Debug)]
 pub struct Joint {
     pub body_a: usize,
     pub body_b: usize,
     pub anchor_a: Vec3,
     pub anchor_b: Vec3,
-    pub params: [f32; 2],
     pub owner: i32,
     pub spin_limit: f32,
     pub spin_damping: f32,
     pub target_ang_vel: Vec3,
     pub limit_correction: Vec3,
     pub limit_active: bool,
-    // TODO: written by the pose IK (bond +0x8c and +0x78) but not read by the joint solver; find their readers
-    pub pose_spin: f32,
-    pub pose_limit: Vec3,
     solve: JointSolve,
 }
 
@@ -237,7 +232,7 @@ struct JointSolve {
 
 impl Joint {
     pub fn new(body_a: usize, body_b: usize, anchor_a: Vec3, anchor_b: Vec3, owner: i32) -> Self {
-        Self { body_a, body_b, anchor_a, anchor_b, params: [0.25, 0.375], owner, spin_limit: 0.0, spin_damping: 0.0, target_ang_vel: Vec3::ZERO, limit_correction: Vec3::ZERO, limit_active: false, pose_spin: 0.0, pose_limit: Vec3::ZERO, solve: JointSolve::default() }
+        Self { body_a, body_b, anchor_a, anchor_b, owner, spin_limit: 0.0, spin_damping: 0.0, target_ang_vel: Vec3::ZERO, limit_correction: Vec3::ZERO, limit_active: false, solve: JointSolve::default() }
     }
 
     pub(crate) fn prepare(&mut self, bodies: &Table<RigidBody>) {

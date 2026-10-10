@@ -1,8 +1,8 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
-use rosa_protocol::clientbound::game::ItemKind;
+use rosa_protocol::{Team, clientbound::game::ItemKind};
 
-use super::{Sim, corporations::TEAM_NAMES, item_state::ItemState};
+use super::{Sim, item_state::ItemState};
 use crate::computer::links::{ITEM_SLOTS, KIND_MEMO, Link};
 
 /// A memo holds up to 1023 characters (item +0x368), sent in 64 character blocks.
@@ -122,7 +122,7 @@ impl Sim {
     /// place_corporation_mission_memo: a memo headed with the corporation and the time, on the corporation's table.
     pub(crate) fn place_corporation_memo(&mut self, k: usize, text: &[u8]) {
         let (h, m, pm) = clock_time(self.world_time);
-        let mut memo = format!("\n{} Internal Memo\n{}:{:02} {}\n\n", TEAM_NAMES[k], h, m, if pm { "PM" } else { "AM" }).into_bytes();
+        let mut memo = format!("\n{} Internal Memo\n{}:{:02} {}\n\n", Team::CORPORATION_NAMES[k], h, m, if pm { "PM" } else { "AM" }).into_bytes();
         memo.extend_from_slice(&text[..text.iter().position(|&c| c == 0).unwrap_or(text.len())]);
         memo.truncate(0x7ff);
         let base = &self.world.map.level.bases[k];

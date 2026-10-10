@@ -459,10 +459,10 @@ pub struct OwnHumanData {
     pub body_yaw: f32,
     pub is_standing: bool,
     pub pain: i32,
-    pub unk_6e08: i32,
-    pub unk_6e10: i32,
-    pub unk_6e14: i32,
-    pub unk_6e18: i32,
+    pub action_type: i32,
+    pub action_duration: i32,
+    pub action_hand: i32,
+    pub action_slot: i32,
     pub progress_bar: i32,
     pub health: [i32; 7],
     pub stamina: i32,
@@ -575,10 +575,10 @@ impl WireWrite for ServerGamePacket {
                 }
                 w.bits(h.is_standing as i32, 1);
                 w.bits(h.pain, 8);
-                w.bits(h.unk_6e08, 8);
-                w.bits(h.unk_6e10, 7);
-                w.bits(h.unk_6e14, 4);
-                w.bits(h.unk_6e18, 4);
+                w.bits(h.action_type, 8);
+                w.bits(h.action_duration, 7);
+                w.bits(h.action_hand, 4);
+                w.bits(h.action_slot, 4);
                 w.bits(h.progress_bar, 8);
                 for hp in h.health {
                     w.bits(hp, 7);

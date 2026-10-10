@@ -14,7 +14,6 @@ use crate::{
     world::{area::MESH, city_objects::GARAGE_DOOR, trace::line_intersect_level},
 };
 
-pub const CORPORATIONS: usize = 6;
 /// A corporation takes up to 32 applications at once.
 const MAX_APPLICANTS: usize = 32;
 /// The team phones: the manager's at the table is numbered (team + 1) * 1111, and the one after it goes with it.
@@ -27,7 +26,6 @@ const PHONE_PRICE: i32 = 100;
 /// A requisitioned disk's volume.
 const REQUISITION_DISK_CAPACITY: i32 = 360;
 const REQUISITION_LIMIT: i32 = 9;
-pub(crate) const TEAM_NAMES: [&str; CORPORATIONS] = ["Goldmen Inc", "Monsota", "OXS International", "Nexaco", "Pentacom", "Prodocon"];
 
 /// The tab buttons carry this flag with the tab in the low byte; a button of the open tab is greyed out as -1.
 const TAB: i32 = 0x1000000;
@@ -79,9 +77,6 @@ pub struct CorpState {
     pub missions: [super::missions::Mission; super::missions::MISSION_SLOTS],
     /// Active players on the team (+0x54), counted every tick.
     pub player_count: i32,
-    // TODO: name once read: corporation +0x5c and +0x68, cleared by reset_game
-    pub unk_31c: i32,
-    pub unk_328: i32,
     /// Which of the base's car spaces hold a vehicle (+0x460 in each 0x34 byte space).
     pub car_space_taken: Vec<bool>,
     /// The accounts the round manager fired (+0xccc count, up to 128).
@@ -446,7 +441,7 @@ impl Sim {
         }
         self.corp_state[k].manager = Some(pid);
         let name = self.players.get(pid.idx()).map_or(String::new(), |p| p.username.clone());
-        self.send_chat(&format!("{name} is now manager of {}", TEAM_NAMES[k]), ChatType::Announce, -1, 0);
+        self.send_chat(&format!("{name} is now manager of {}", Team::CORPORATION_NAMES[k]), ChatType::Announce, -1, 0);
     }
 
     /// disconnect_phone: the team's two phones hang up on whoever they were talking to and despawn.

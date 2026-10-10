@@ -39,8 +39,6 @@ pub struct Wheel {
     pub mass: f32,
     pub radius: f32,
     pub spin_response: f32,
-    // TODO: name once its readers are ported (+0x3c, cleared every solver pass)
-    pub unk_3c: i32,
     /// The wheel body's spin about its axle (+0x40) and the angle it has turned through (+0x44).
     pub spin: f32,
     pub angle: f32,
@@ -104,8 +102,6 @@ pub struct Vehicle {
     /// Set when a player takes the driver's seat of a traffic car with free hands, for the traffic to hand it over
     /// (is_bot 2) on its next tick.
     pub traffic_taken: bool,
-    // TODO: name once its readers are ported (+0x3894, cleared by the drivetrain)
-    pub unk_3894: i32,
     /// The engine (+0x3898..+0x38b8): its speed, throttle and power, the gearbox speed and inertia, the engine's
     /// inertia and losses.
     pub engine_speed: f32,
@@ -143,8 +139,6 @@ pub struct Vehicle {
     pub track: f32,
     pub wheelbase: f32,
     pub seats: Vec<Vec3>,
-    // TODO: name once its readers are ported (+0x5164, -1 from spawn)
-    pub unk_5164: i32,
     /// A train's two bogies (+0x4fbc, 12 apart): each one's body and the angular bond turning it with the train.
     pub bogies: Vec<(usize, usize)>,
     /// The track piece a train's bogies last touched (+0x4fb0) and which train spawn it came from (+0x4fb8).
@@ -260,7 +254,6 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         occupants: [-1; MAX_SEATS],
         traffic_car: -1,
         traffic_taken: false,
-        unk_3894: 0,
         engine_speed: 0.0,
         throttle: 0.0,
         engine_power: ENGINE_POWER_SCALE * t.engine_power,
@@ -287,7 +280,6 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         track: t.track,
         wheelbase: t.wheelbase,
         seats: t.seats.clone(),
-        unk_5164: -1,
         bogies,
         train_segment: 0,
         train_index: 0,

@@ -21,17 +21,13 @@ pub struct Corporation {
     /// Shares held by players.
     pub shares: i32,
     pub price: f32,
-    // TODO: name once its readers are ported (the price a reset starts from)
-    pub base_price: f32,
-    // TODO: name once its readers are ported
-    pub unk_10: i32,
     /// Subtracted from each running project's spend when a share's sale price is worked out.
     pub unk_14: i32,
 }
 
 impl Default for Corporation {
     fn default() -> Self {
-        Self { shares: 100, price: 100.0, base_price: 100.0, unk_10: 100, unk_14: 0 }
+        Self { shares: 100, price: 100.0, unk_14: 0 }
     }
 }
 

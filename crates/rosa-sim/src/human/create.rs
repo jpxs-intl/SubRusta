@@ -1,5 +1,5 @@
 use glam::Vec3;
-use rosa_physics::{Bond, Joint as BondJoint, RigidBodies, RotMatrix, Table, body::RigidBodyType, rotation::IDENTITY};
+use rosa_physics::{Bond, Joint as BondJoint, RigidBodies, RotMatrix, Table, body::RigidBodyType};
 use rosa_protocol::CharacterCustomization;
 
 use super::{
@@ -52,7 +52,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
             inertia,
             inv_inertia,
             min_inertia,
-            unk_rot: IDENTITY,
             angles: Vec3::ZERO,
             networked_rot: [Vec3::ZERO; 3],
             limit_angles: [0.0; 3],
@@ -149,8 +148,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         view_turn: 0.0,
         body_yaw: 0.0,
         pitch_offset: 0.0,
-        unk_128: 0.0,
-        unk_12c: 0.0,
         look_yaw: 0.0,
         look_pitch: 0.0,
         client_body_yaw: 0.0,

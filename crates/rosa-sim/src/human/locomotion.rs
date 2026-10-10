@@ -46,8 +46,6 @@ pub struct Foot {
 #[derive(Clone, Debug)]
 pub struct Locomotion {
     pub jump_charge: i32,
-    // TODO: name once its readers are ported (zeroed while standing on the ground)
-    pub unk_04: f32,
     // TODO: name the step state copied from the human when a planted foot starts a step
     pub step_a: f32,
     pub step_b: f32,
@@ -78,7 +76,6 @@ impl Default for Locomotion {
     fn default() -> Self {
         Self {
             jump_charge: 0,
-            unk_04: 0.0,
             step_a: 0.0,
             step_b: 0.0,
             step_angle: 0.0,
@@ -284,7 +281,6 @@ pub fn update_movement_target(h: &mut Human, surface: &Surface, ticks: u32) {
     let target_stance = if h.input_flags & 8 != 0 { 0.625 } else { 1.0 };
     let jump_charge = h.locomotion.jump_charge;
     if jump_charge == 0 && h.is_on_ground {
-        h.locomotion.unk_04 = 0.0;
     }
     let step = if jump_charge > 0 { 0.125 } else { 0.03125 };
     let s = h.stance;
@@ -1019,7 +1015,6 @@ pub fn update_locomotion_constraints(h: &mut Human, bodies: &mut RigidBodies, su
     let side = clamp_lean(-(60.0 * (0.5 * h.lean_side)) * 0.25);
     let axis = lean[0];
     rotate_orientation(&mut lean, axis, side);
-    // TODO: the ground height probed below the pelvis here is not read afterwards
     let mtp = h.locomotion.move_target_pos;
     let l = &mut h.locomotion;
     l.move_target_vel.y = 0.0;
@@ -1175,13 +1170,12 @@ pub fn update_locomotion_constraints(h: &mut Human, bodies: &mut RigidBodies, su
             let l = if 0.875 > h.bones[0].rot[1].y { 1.0 / 128.0 } else { 0.0625 };
             ([l; 3], if 1.0 > hp { 0x13 } else { 3 })
         };
-        let pose_spin = if mode != FOOT_FREE { [0.0; 3] } else { [0.25; 3] };
         if h.pain > 0 {
             let d = h.pain as f32 / 30.0;
             let v = if d > 1.0 { 0.03125 } else { 0.125 - (d * 0.125) * 0.75 };
             spin_limit = [v; 3];
         }
-        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max, pose_spin, spin_limit, flags };
+        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max, spin_limit, flags };
         let frame = h.bones[0].rot;
         three_bone_ik(h, bodies, 0, 10 + 3 * k, d, &frame, ang[k], &params, &mut end_rot);
     }
@@ -1382,26 +1376,25 @@ pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Sur
         let m = multiply_matrixes(&m, &h.bones[0].rot);
         let mut end_rot = rot_matrix_to_quaternion(&m);
         let (ankle, hip) = (ankles[k], hips[k]);
-        let (target, mut clamp, mut pose, flags) = if planted {
+        let (target, mut clamp, flags) = if planted {
             let target = if contact {
                 ankle - push[k]
             } else {
                 torque[k] = Vec3::ZERO;
                 ankle - hip
             };
-            (target, 16.875_f32.to_radians(), 0.9375, 2)
+            (target, 16.875_f32.to_radians(), 2)
         } else {
             let s = h.locomotion.feet[k].swing_start;
             let pp = if 1.0 < phase { 1.0 } else { phase };
             let seg = Vec3::new(0.0 - s.x, -0.375 - s.y, 0.0 - s.z);
             torque[k] = Vec3::ZERO;
-            (Vec3::new(seg.x * pp + s.x, seg.y * pp + s.y, pp * seg.z + s.z), 67.5_f32.to_radians(), 0.75, 1)
+            (Vec3::new(seg.x * pp + s.x, seg.y * pp + s.y, pp * seg.z + s.z), 67.5_f32.to_radians(), 1)
         };
         if !(phase < 1.0) {
             clamp = 0.0;
-            pose = 1.0;
         }
-        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max: clamp, pose_spin: [pose; 3], spin_limit: [0.0625; 3], flags };
+        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max: clamp, spin_limit: [0.0625; 3], flags };
         three_bone_ik(h, bodies, 0, 10 + 3 * k, target, &frame, torque[k], &params, &mut end_rot);
     }
 
@@ -1480,7 +1473,6 @@ pub fn slide_simulation(h: &mut Human, bodies: &mut RigidBodies) {
     let hip = |j: Vec3| Vec3::new((j.x * r0.x + p.x) + j.y * r1.x, (j.x * r0.y + p.y) + j.y * r1.y, (j.x * r0.z + p.z) + j.y * r1.z);
     let hips = [hip(BONES[10].joint), hip(BONES[13].joint)];
     calculate_center_of_mass(h);
-    // TODO: when not on the ground the binary traces down from the pelvis here and ignores the result
 
     for k in 0..2 {
         let first = 10 + 3 * k;
@@ -1513,7 +1505,7 @@ pub fn slide_simulation(h: &mut Human, bodies: &mut RigidBodies) {
         }
         let target = Vec3::new(t.x - hipv.x, t.y - hipv.y, t.z - hipv.z);
         let mut end_rot = [0.0, 0.0, 0.0, 1.0];
-        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), pose_spin: [0.25; 3], spin_limit: [0.0625; 3], flags: 0x18 };
+        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 45.0_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), spin_limit: [0.0625; 3], flags: 0x18 };
         let frame = h.bones[0].rot;
         three_bone_ik(h, bodies, 0, first, target, &frame, Vec3::ZERO, &params, &mut end_rot);
         for (parent, child) in [(0, first), (first, first + 1)] {

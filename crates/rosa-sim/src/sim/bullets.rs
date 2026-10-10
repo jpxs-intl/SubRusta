@@ -57,7 +57,6 @@ pub struct Bullet {
 
 /// create_bullet: a bullet of `kind` leaving `pos` at `vel`, fired by `player`.
 pub fn create_bullet(bullets: &mut Vec<Bullet>, kind: i32, pos: Vec3, vel: Vec3, player: Option<PlayerId>, gravity_scale: f32) -> bool {
-    // TODO: create_bullet also keeps two axes across the flight direction (+0x38, +0x44) that nothing here reads
     if bullets.len() >= MAX_BULLETS {
         return false;
     }

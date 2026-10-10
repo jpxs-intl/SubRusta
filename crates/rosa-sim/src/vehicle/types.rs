@@ -17,8 +17,6 @@ const SBV_CAGE: [i32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 /// A point mass of the chassis (+0x44, 0x14 each): its rest position and share of the chassis mass.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChassisNode {
-    // TODO: name once its readers are ported (+0x00, never set by the type builders)
-    pub unk_00: i32,
     pub pos: Vec3,
     pub mass: f32,
 }
@@ -26,8 +24,6 @@ pub struct ChassisNode {
 /// A spring between two chassis nodes (+0x858, 0xc each).
 #[derive(Clone, Copy, Debug)]
 pub struct NodeEdge {
-    // TODO: name once its readers are ported (always 0 from the type builders)
-    pub kind: i32,
     pub a: i32,
     pub b: i32,
 }
@@ -41,9 +37,6 @@ pub struct Panel {
     /// The second node of each corner (+0x14), -1 for a corner on its node.
     pub towards: [i32; 4],
     pub weights: [f32; 4],
-    // TODO: name once the panel damage is ported (+0x34, +0x38)
-    pub unk_34: f32,
-    pub unk_38: f32,
     /// 1 for the windows (+0x3c), which are left out of the parts.
     pub window: i32,
 }
@@ -74,8 +67,6 @@ pub struct WheelDef {
     pub spring: f32,
     pub damping: f32,
     pub travel_damping: f32,
-    // TODO: name once its readers are ported (+0x3c)
-    pub unk_3c: u32,
     /// The wheel's drive configuration, the second argument of vehicletype_attach_wheels_sized (+0x40).
     pub drive: i32,
     /// Between its two nodes, around the centre of mass (+0x44).
@@ -259,11 +250,11 @@ pub fn mean_value_coordinates(verts: &[Vec3], q: Vec3) -> Vec<f32> {
 
 impl VehicleType {
     /// vehicletype_add_node_edge: a spring between `a` and `b`, once per pair.
-    fn add_node_edge(&mut self, kind: i32, a: i32, b: i32) {
+    fn add_node_edge(&mut self, a: i32, b: i32) {
         if self.edges.iter().any(|e| (e.a == a && e.b == b) || (e.a == b && e.b == a)) {
             return;
         }
-        self.edges.push(NodeEdge { kind, a, b });
+        self.edges.push(NodeEdge { a, b });
     }
 
     /// vehicle_type_add_wheel_definition: a wheel hung between nodes `a` and `b`.
@@ -340,9 +331,9 @@ impl VehicleType {
     /// first eight nodes as the cage, a wheel at each mount hung between its nearest node and the nearest node beyond
     /// it, then the track, wheelbase, centre of mass (nodes below the floor at mass 4) and inertia.
     fn attach_wheels(&mut self, body: &VehicleBody, kind: VehicleKind, drive: i32, radius: f32, mass: f32, mounts: usize) {
-        self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { unk_00: 0, pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
+        self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
         for e in &body.file.edges {
-            self.add_node_edge(0, e.a, e.b);
+            self.add_node_edge(e.a, e.b);
         }
         self.cage = SBV_CAGE.to_vec();
         self.hang_wheels(body, kind, drive, radius, mass, mounts);
@@ -495,12 +486,12 @@ impl VehicleType {
 
 /// A panel on four chassis nodes.
 fn panel(nodes: [i32; 4]) -> Panel {
-    Panel { count: 4, nodes, towards: [-1; 4], unk_34: 1.0, unk_38: 1.0, ..Default::default() }
+    Panel { count: 4, nodes, towards: [-1; 4], ..Default::default() }
 }
 
 /// A window panel, some of its corners part way to a second node.
-fn window(nodes: [i32; 4], towards: [i32; 4], weights: [f32; 4], unk_38: f32) -> Panel {
-    Panel { count: 4, nodes, towards, weights, unk_34: 1.0, unk_38, window: 1 }
+fn window(nodes: [i32; 4], towards: [i32; 4], weights: [f32; 4]) -> Panel {
+    Panel { count: 4, nodes, towards, weights, window: 1 }
 }
 
 impl VehicleType {
@@ -508,7 +499,7 @@ impl VehicleType {
     fn add_node_edges(&mut self, nodes: &[i32]) {
         for (i, &a) in nodes.iter().enumerate() {
             for &b in &nodes[i + 1..] {
-                self.add_node_edge(0, a, b);
+                self.add_node_edge(a, b);
             }
         }
     }
@@ -524,15 +515,15 @@ impl VehicleType {
                 4..=7 => (-0.4375, 1.0),
                 _ => (0.4375, 1.0),
             };
-            self.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, y, z[(i >> 1) & 3]), mass });
+            self.nodes.push(ChassisNode { pos: Vec3::new(x, y, z[(i >> 1) & 3]), mass });
         }
         for i in 0..4 {
             let x = if i & 1 != 0 { 0.875 } else { -0.875 };
-            self.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, roof_y, if i <= 1 { roof_z[0] } else { roof_z[1] }), mass: 0.5 });
+            self.nodes.push(ChassisNode { pos: Vec3::new(x, roof_y, if i <= 1 { roof_z[0] } else { roof_z[1] }), mass: 0.5 });
         }
         self.cage = vec![0; 16];
         if let Some(nose) = nose {
-            self.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(0.0, 0.0, nose), mass: 1.0 });
+            self.nodes.push(ChassisNode { pos: Vec3::new(0.0, 0.0, nose), mass: 1.0 });
         }
         let mut f = 1;
         for row in 0..3 {
@@ -542,7 +533,7 @@ impl VehicleType {
             self.add_node_edges(&ring);
             if row == 0 && nose.is_some() {
                 for &n in &ring {
-                    self.add_node_edge(0, n, 20);
+                    self.add_node_edge(n, 20);
                 }
             }
             self.panels.push(panel([e, h, g, f]));
@@ -575,12 +566,12 @@ impl VehicleType {
         let z = [-3.0625, -1.3125, 1.75, 2.625];
         t.saloon(z, 1.09375, [-0.4375, 1.3125], Some(-2.1875));
         t.panels.extend([
-            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.5, 0.4375, 0.0], 0.0),
-            window([16, 18, 12, 10], [18, -1, -1, 12], [0.5, 0.0, 0.0, 0.5625], 0.0),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4], 6.0),
-            window([19, 17, 11, 13], [17, -1, -1, 11], [0.5, 0.0, 0.0, 0.4375], 0.0),
-            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.5, 0.5625, 0.0], 0.0),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4], 0.0),
+            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.5, 0.4375, 0.0]),
+            window([16, 18, 12, 10], [18, -1, -1, 12], [0.5, 0.0, 0.0, 0.5625]),
+            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
+            window([19, 17, 11, 13], [17, -1, -1, 11], [0.5, 0.0, 0.0, 0.4375]),
+            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.5, 0.5625, 0.0]),
+            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
             panel([16, 17, 19, 18]),
         ]);
         t.saloon_wheels();
@@ -597,11 +588,11 @@ impl VehicleType {
         let z = [-2.40625, -1.3125, 1.3125, 2.1875];
         t.saloon(z, 1.09375, [-0.4375, 0.875], None);
         t.panels.extend([
-            window([16, 18, 12, 10], [-1; 4], [0.0; 4], 0.0),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4], 4.0),
-            window([19, 17, 11, 13], [-1; 4], [0.0; 4], 0.0),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4], 0.0),
-            Panel { unk_38: 0.0, ..panel([16, 17, 19, 18]) },
+            window([16, 18, 12, 10], [-1; 4], [0.0; 4]),
+            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
+            window([19, 17, 11, 13], [-1; 4], [0.0; 4]),
+            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
+            panel([16, 17, 19, 18]),
         ]);
         t.saloon_wheels();
         t.seats = vec![Vec3::new(-0.375, -0.375, 0.0), Vec3::new(0.375, -0.375, 0.0)];
@@ -617,14 +608,14 @@ impl VehicleType {
         let z = [-3.9375, -2.1875, 2.625, 3.5];
         t.saloon(z, 1.09375, [-1.3125, 2.1875], None);
         t.panels.extend([
-            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.75, 0.625, 0.0], 0.0),
-            window([16, 18, 12, 10], [18, 16, 10, 12], [0.25, 0.25, 0.25, 0.375], 6.0),
-            window([16, 18, 12, 10], [18, -1, -1, 12], [0.75, 0.0, 0.0, 0.75], 0.0),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4], 6.0),
-            window([19, 17, 11, 13], [17, -1, -1, 11], [0.75, 0.0, 0.0, 0.625], 0.0),
-            window([19, 17, 11, 13], [17, 19, 13, 11], [0.25, 0.25, 0.375, 0.25], 6.0),
-            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.75, 0.75, 0.0], 0.0),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4], 0.0),
+            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.75, 0.625, 0.0]),
+            window([16, 18, 12, 10], [18, 16, 10, 12], [0.25, 0.25, 0.25, 0.375]),
+            window([16, 18, 12, 10], [18, -1, -1, 12], [0.75, 0.0, 0.0, 0.75]),
+            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
+            window([19, 17, 11, 13], [17, -1, -1, 11], [0.75, 0.0, 0.0, 0.625]),
+            window([19, 17, 11, 13], [17, 19, 13, 11], [0.25, 0.25, 0.375, 0.25]),
+            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.75, 0.75, 0.0]),
+            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
             panel([16, 17, 19, 18]),
         ]);
         t.saloon_wheels();
@@ -647,16 +638,16 @@ impl VehicleType {
                 4..=5 => (-0.5, 2.0),
                 _ => (-0.125, 1.0),
             };
-            t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, y, z[(i >> 1) % 3]), mass });
+            t.nodes.push(ChassisNode { pos: Vec3::new(x, y, z[(i >> 1) % 3]), mass });
         }
         for i in 0..8 {
             let x = if i & 1 != 0 { 1.125 } else { -1.125 };
             let y = if i > 3 { 1.875 } else { 1.25 };
             let zc = if (i & 3) <= 1 { z[0] } else { z[1] };
-            t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, y, zc), mass: 0.5 });
+            t.nodes.push(ChassisNode { pos: Vec3::new(x, y, zc), mass: 0.5 });
         }
         t.cage = vec![0; 20];
-        t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(0.0, 0.125, 1.5), mass: 2.0 });
+        t.nodes.push(ChassisNode { pos: Vec3::new(0.0, 0.125, 1.5), mass: 2.0 });
         let mut f = 1;
         for row in 0..2 {
             let e = 2 * row;
@@ -665,7 +656,7 @@ impl VehicleType {
             t.add_node_edges(&ring);
             if row == 1 {
                 for &n in &ring {
-                    t.add_node_edge(0, n, 20);
+                    t.add_node_edge(n, 20);
                 }
             }
             t.panels.push(panel([e, h, g, f]));
@@ -685,14 +676,14 @@ impl VehicleType {
         t.add_node_edges(&[4, 5, 18, 19]);
         t.add_node_edges(&[12, 13, 15, 14, 16, 17, 19, 18]);
         t.panels.extend([
-            window([16, 18, 14, 12], [-1, 16, 12, -1], [0.0, 0.7, 0.625, 0.0], 0.0),
-            window([16, 18, 14, 12], [18, 16, 12, 14], [0.3, 0.25, 0.225, 0.375], 0.0),
-            window([16, 18, 14, 12], [18, -1, -1, 14], [0.75, 0.0, 0.0, 0.775], 0.0),
-            window([17, 16, 12, 13], [-1; 4], [0.0; 4], 6.0),
-            window([19, 17, 13, 15], [17, -1, -1, 13], [0.7, 0.0, 0.0, 0.625], 0.0),
-            window([19, 17, 13, 15], [17, 19, 15, 13], [0.25, 0.3, 0.375, 0.225], 0.0),
-            window([19, 17, 13, 15], [-1, 19, 15, -1], [0.0, 0.75, 0.775, 0.0], 0.0),
-            window([18, 19, 15, 14], [-1; 4], [0.0; 4], 0.0),
+            window([16, 18, 14, 12], [-1, 16, 12, -1], [0.0, 0.7, 0.625, 0.0]),
+            window([16, 18, 14, 12], [18, 16, 12, 14], [0.3, 0.25, 0.225, 0.375]),
+            window([16, 18, 14, 12], [18, -1, -1, 14], [0.75, 0.0, 0.0, 0.775]),
+            window([17, 16, 12, 13], [-1; 4], [0.0; 4]),
+            window([19, 17, 13, 15], [17, -1, -1, 13], [0.7, 0.0, 0.0, 0.625]),
+            window([19, 17, 13, 15], [17, 19, 15, 13], [0.25, 0.3, 0.375, 0.225]),
+            window([19, 17, 13, 15], [-1, 19, 15, -1], [0.0, 0.75, 0.775, 0.0]),
+            window([18, 19, 15, 14], [-1; 4], [0.0; 4]),
             panel([16, 17, 19, 18]),
         ]);
         for (a, b, weights) in [(0, 2, [0.75, 0.25]), (1, 3, [0.75, 0.25]), (2, 4, [0.25, 0.75]), (3, 5, [0.25, 0.75]), (2, 4, [0.5, 0.5]), (3, 5, [0.5, 0.5])] {
@@ -718,14 +709,14 @@ impl VehicleType {
                 4..=5 => (-0.125, 1.0),
                 _ => (3.0, 1.0),
             };
-            t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, y, z[(i >> 1) % 3]), mass });
+            t.nodes.push(ChassisNode { pos: Vec3::new(x, y, z[(i >> 1) % 3]), mass });
         }
         for i in 0..4 {
             let x = if i & 1 != 0 { 1.125 } else { -1.125 };
-            t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(x, -0.5, if i <= 1 { 6.0 } else { 8.0 }), mass: 1.0 });
+            t.nodes.push(ChassisNode { pos: Vec3::new(x, -0.5, if i <= 1 { 6.0 } else { 8.0 }), mass: 1.0 });
         }
         t.cage = vec![0; 16];
-        t.nodes.push(ChassisNode { unk_00: 0, pos: Vec3::new(0.0, 0.125, -7.0), mass: 2.0 });
+        t.nodes.push(ChassisNode { pos: Vec3::new(0.0, 0.125, -7.0), mass: 2.0 });
         let mut f = 1;
         for row in 0..2 {
             let e = 2 * row;
@@ -734,7 +725,7 @@ impl VehicleType {
             t.add_node_edges(&ring);
             if row == 0 {
                 for &n in &ring {
-                    t.add_node_edge(0, n, 16);
+                    t.add_node_edge(n, 16);
                 }
             }
             t.panels.push(panel([e, h, g, f]));
@@ -764,7 +755,7 @@ impl VehicleType {
     /// the floor) without its springs, the first eight as the cage, a wheel at each mount as the sized setup hangs
     /// them but placed at the mount itself, the inertia about the origin and no centre of mass.
     fn attach_wheels_unsized(&mut self, body: &VehicleBody, kind: VehicleKind, drive: i32, radius: f32, mass: f32) {
-        self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { unk_00: 0, pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
+        self.nodes.extend(body.file.nodes.iter().map(|n| ChassisNode { pos: n.pos.0, mass: if n.pos.0.y < 0.0 { 2.0 } else { 1.0 } }));
         self.cage = SBV_CAGE.to_vec();
         self.hang_wheels(body, kind, drive, radius, mass, body.file.wheels.len());
         for n in self.nodes.iter_mut() {

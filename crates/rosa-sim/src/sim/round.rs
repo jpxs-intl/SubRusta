@@ -538,20 +538,15 @@ impl Sim {
         for (k, c) in self.corp_state.iter_mut().enumerate() {
             c.funds = 0;
             c.player_count = 0;
-            c.unk_31c = 0;
             c.car_space_taken.clear();
             if first {
                 c.manager = None;
             }
-            c.unk_328 = 0;
             let team = Team::CORPORATIONS[k];
             let corp = &mut self.corporations[k];
             if first {
                 corp.price = 100.0;
             }
-            let tenths = (corp.price * 10.0) as i32;
-            corp.unk_10 = tenths / 10;
-            corp.base_price = tenths as f32 / 10.0;
             corp.shares = 100 + self.players.iter().filter(|(_, p)| p.team == team).map(|(_, p)| p.stocks).sum::<i32>();
         }
     }
