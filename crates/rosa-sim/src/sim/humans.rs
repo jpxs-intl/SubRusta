@@ -4,7 +4,7 @@ use rosa_physics::{
     RigidBodies, RotMatrix,
     rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
 };
-use rosa_protocol::clientbound::game::{ItemKind, OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hit::EventBulletHit, sound::EventSound, bullet_hole::EventBulletHole}};
+use rosa_protocol::{GameMode, clientbound::game::{ItemKind, OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hit::EventBulletHit, sound::EventSound, bullet_hole::EventBulletHole}}};
 
 use super::{Sim, economy, items::Touchables};
 use crate::{
@@ -19,6 +19,8 @@ use crate::{
 };
 
 const SPAWN_DISTANCE: f32 = 2.0;
+/// The versus start delay is configured in seconds.
+const TICKS_PER_SECOND: i32 = 60;
 pub const HUMAN_SLOTS: usize = crate::human::MAX_HUMANS;
 pub const OBJECT_SLOTS: usize = 1024;
 
@@ -37,6 +39,7 @@ impl Sim {
         };
         if let Some(player) = self.players.get_mut(player_id.idx()) {
             player.human = Some(id);
+            player.ghost_human = false;
             player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
             player.items_bought = 0;
             self.events.push(player.make_update_player_event(self.tick));
@@ -46,6 +49,7 @@ impl Sim {
 
     /// player_simulation: hands each player's latest controls to their human.
     pub(crate) fn player_simulation(&mut self) {
+        let held = self.gamemode == GameMode::Versus && self.round_elapsed < self.versus_cfg.movedelay * TICKS_PER_SECOND;
         for (_, player) in self.players.iter_mut() {
             if player.spawn_timer > 0 {
                 player.spawn_timer -= 1;
@@ -67,8 +71,8 @@ impl Sim {
                 }
             } else if player.control_mode == 1 {
                 let c = &player.controls;
-                // TODO: record 0x174, 0x178 and 0x17c..0x18c (controls 9, 10 and 11..15) and 0x198, 0x19c (extra
-                // controls 2 and 3) are not ported
+                // TODO: record 0x174..0x18c and 0x198, 0x19c take controls 9..15 and extra controls 2, 3, which no
+                // client or bot ever sets (always 0); port them with their first reader
                 h.gear_x_input = c[0];
                 h.gear_y_input = c[2];
                 h.strafe_input = c[1];
@@ -80,7 +84,10 @@ impl Sim {
                 h.client_body_yaw = c[8];
                 h.unk_190 = player.controls_extra[0];
                 h.unk_194 = player.controls_extra[1];
-                // TODO: in versus mode the human cannot move during the start delay
+                if held {
+                    h.strafe_input = 0.0;
+                    h.walk_input = 0.0;
+                }
             } else {
                 h.look_yaw = h.view_yaw;
                 h.look_pitch = h.view_pitch;
@@ -102,14 +109,16 @@ impl Sim {
         let mut out = Vec::new();
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         let mut deleted = Vec::new();
+        let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
         for id in self.humans.ids() {
             let others = later_humans(&self.humans, id);
             let h = self.humans.get_mut(id).unwrap();
-            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed) {
+            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed, keep_bodies) {
                 deleted.push(id);
             }
         }
         self.apply_human_outputs(out);
+        self.apply_team_doors();
         for id in deleted {
             self.delete_human(id);
         }
@@ -138,6 +147,10 @@ impl Sim {
                     self.score_run_over(driver, victim);
                     continue;
                 }
+                HumanOutput::DoorProbe { player, start, end, pos } => {
+                    self.team_door_probe(player, start, end, pos);
+                    continue;
+                }
                 HumanOutput::TaxAccount(account) => {
                     if let Some(a) = self.saved_accounts.get_player_data(account) {
                         economy::account_wealth_tax(a);
@@ -155,7 +168,8 @@ impl Sim {
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
         let others = later_humans(&self.humans, id);
         let Some(h) = self.humans.get_mut(id) else { return HumanTick::Keep };
-        let result = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, ticks, noise_seed);
+        let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
+        let result = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, ticks, noise_seed, keep_bodies);
         self.apply_human_outputs(out);
         result
     }
@@ -238,7 +252,7 @@ impl Sim {
                     vehicle: h.vehicle.map_or(-1, |v| v as i32),
                     vehicle_seat: h.seat as i32,
                     alive: h.old_health > 0,
-                    bleeding: false,
+                    bleeding: h.bleeding,
                     pos: Vector(root.pos),
                     rot: rot_matrix_to_quaternion(&root.rot),
                     bones: std::array::from_fn(|i| rot_matrix_to_quaternion(&h.bones[i + 1].networked_rot)),
@@ -261,8 +275,7 @@ impl Sim {
                         view_yaw: h.view_yaw,
                         view_pitch: h.view_pitch,
                         yaw_offset: h.yaw_offset,
-                        // TODO: human record 0x124 is not ported yet
-                        pitch_offset: 0.0,
+                        pitch_offset: h.pitch_offset,
                         body_yaw: h.body_yaw,
                         is_standing: h.is_standing,
                         pain: h.pain,

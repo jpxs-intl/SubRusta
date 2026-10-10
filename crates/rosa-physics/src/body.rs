@@ -2,7 +2,6 @@ use glam::Vec3;
 
 use crate::{
     Bond, Table,
-    bond::MAX_BONDS,
     rotation::{RotMatrix, angular_velocity, rk4_rotation},
 };
 
@@ -85,6 +84,9 @@ pub enum SolverStep {
 
 /// How much a free body's vertical speed drops each tick: 9.8 / 60².
 pub const GRAVITY: f32 = 9.8 / (60.0 * 60.0);
+/// A world contact's sliding speed that friction stops outright: 2.5 ticks of gravity, as the binary rounds it
+/// (0x3bdf0123; computing it in f32 gives one ulp more).
+const STATIC_SLIDE: f32 = f32::from_bits(0x3bdf_0123);
 
 pub struct RigidBodies {
     bodies: Table<RigidBody>,
@@ -95,7 +97,7 @@ pub struct RigidBodies {
 
 impl Default for RigidBodies {
     fn default() -> Self {
-        Self { bodies: Table::new(8192), bonds: Table::new(MAX_BONDS), gravity_scale: 1.0 }
+        Self { bodies: Table::unbounded(), bonds: Table::unbounded(), gravity_scale: 1.0 }
     }
 }
 
@@ -198,6 +200,11 @@ impl RigidBodies {
         self.bonds.insert(Bond::BodyContact(BodyContact { body_a, body_b, offset_a, offset_b, normal, bias: depth * depth_scale, softness, friction, weight_a, weight_b }));
     }
 
+    /// How many bonds and contacts are in the table.
+    pub fn bond_count(&self) -> usize {
+        self.bonds.iter().count()
+    }
+
     pub fn solve_bonds(&mut self) {
         self.solve_bonds_with(|_, _| {});
     }
@@ -276,7 +283,7 @@ fn solve_world_contact(b: &mut RigidBody, c: &Contact) {
         let (dx, dy, dz) = (tx * inv, ty * inv, tz * inv);
         let jlen = ((jx * jx + jy * jy) + jz * jz).sqrt();
         let limit = c.friction * jlen;
-        let k = 2.5 * (9.8 / (60.0 * 60.0));
+        let k = STATIC_SLIDE;
         let m = if tlen > limit {
             slide = (((tlen - limit) * jlen) * 60.0) * 8.0 + 0.0;
             if limit > k {

@@ -2,6 +2,7 @@ use glam::{IVec3, Vec3};
 
 use crate::world::{
     area::{AreaGrid, CUBE, FOOTPRINT, MESH, TYPE_MASK, cell_index},
+    city_objects::{capsule_intersect_object, object_pose},
     collide::{calculate_face_normal, segment_intersect_face},
     ground::{Ground, ORIGIN},
     mesh::{CUBE_CORNERS, CUBE_FACES},
@@ -211,15 +212,18 @@ fn cube_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) 
         let c = CUBE_CORNERS[i];
         Vec3::new(c.x * s + base.x, c.y * s + base.y, s * c.z + base.z)
     };
+    
     let mut best = Best::new();
-    for r in 0..6 {
+    for (r, item) in CUBE_FACES.iter().enumerate() {
         if v & (1 << r) == 0 || v & (64 << r) == 0 {
             continue;
         }
-        let [a, b, c, d] = CUBE_FACES[r].map(corner);
+
+        let [a, b, c ,d] = item.map(corner);
         best.take(capsule_intersect_triangle(start, end, a, b, c, radius));
         best.take(capsule_intersect_triangle(start, end, a, c, d, radius));
     }
+
     (NO_HIT > best.dist).then_some((best.pos, best.normal, best.dist))
 }
 
@@ -285,7 +289,14 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
                 let Some(rec) = area.record(x, y, z) else { continue };
                 let cell = IVec3::new(x, y, z);
                 let idx = cell_index(x, y, z);
-                // TODO: item-set objects (+0x1400, skipping taken ones in +0x1600) and area objects (+0x1200) are tested first
+                // TODO: item-set objects (+0x1400, skipping taken ones in +0x1600) are tested first
+                let object = rec.object[idx];
+                if object as i32 > 0 {
+                    let (kind, pos, rot) = object_pose(object, cell, f.size);
+                    if let Some((p, n, d)) = capsule_intersect_object(kind, pos, &rot, ls, le, radius) {
+                        return Some((p, n, d, IVec3::new(-1, block.y, block.z), word));
+                    }
+                }
                 for layer in 0..2 {
                     let v = if layer == 0 { rec.layer0[idx] } else { rec.layer1[idx] };
                     let shape = |at: IVec3, w: u32| {

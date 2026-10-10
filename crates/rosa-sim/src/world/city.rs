@@ -33,6 +33,7 @@ pub fn resolve_block_types(city: &CityFileSBC, block_names: &[String]) -> Vec<Bl
 pub fn place_sector_block(grid: &mut AreaGrid, types: &[BlockType], dims: &dyn BlockDims, x: i32, y: i32, z: i32, packed: u32) {
     let r = (packed >> 24) & 3;
     let Some(bt) = types.get((packed & 4095) as usize) else { return };
+    
     if bt.value & TYPE_MASK == CUBE {
         grid.create_block(x, y, z, CUBE, ALL_FACES, dims);
     } else {

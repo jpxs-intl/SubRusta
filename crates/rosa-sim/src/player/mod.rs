@@ -1,9 +1,14 @@
-use rosa_protocol::{CharacterCustomization, Team, clientbound::game::{MenuType, events::{Event, ServerEvent, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound}}, serverbound::game::{ClientGamePacket, InputFlags}};
+use rosa_protocol::{CharacterCustomization, Team, clientbound::game::{MenuButton, MenuType, events::{Event, ServerEvent, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound}}, serverbound::game::{ClientGamePacket, InputFlags}};
+
+use glam::Vec3;
 
 use crate::{PlayerId, SimJoinMsg, player::{actions::ActionQueue, voice::PlayerVoice}};
 
 pub mod actions;
 pub mod voice;
+
+/// create_player's starting money.
+const BOT_MONEY: i32 = 50000;
 
 pub struct Player {
     pub player_id: PlayerId,
@@ -16,8 +21,30 @@ pub struct Player {
     pub menu_tab: i32,
     /// How many things the player has bought from gun stores and burger shops (player +0x68), cleared when they get a
     /// new human, at reset_game, and every 3600 ticks in round mode.
-    // TODO: the round mode clear every 3600 ticks of the round timer (logic_round), once round mode is ported
     pub items_bought: i32,
+    /// The buttons of the open menu, rebuilt every tick (player +0x1b14).
+    pub menu_buttons: Vec<MenuButton>,
+    /// The extra value of each button slot, which stays from the last button that set one (+0x1b5c in each).
+    pub button_extras: Vec<i32>,
+    /// Whether the player sees the round manager page (player +0x90), given to each corporation's richest member at the
+    /// end of a round.
+    pub manager_tab: bool,
+    /// A player fired with their human: the binary keeps the deleted human's id until they get a new one, so
+    /// logic_player keeps closing their menu (they are out of every corporation) and the buy pages still take tab
+    /// buttons.
+    pub ghost_human: bool,
+    /// What the binary still has of that deleted human (its record stays behind): purchases go into it.
+    pub ghost: Option<crate::sim::round_menus::GhostHuman>,
+    /// Ticks before the player can change team in the lobby again (player +0x88).
+    pub team_switch_timer: i32,
+    /// Vehicles bought this round day (player +0x6c) and a third daily counter cleared with it (+0x70).
+    pub vehicles_bought: i32,
+    pub daily_counter: i32,
+    /// What the player's human held at the end of the last round, slot by slot.
+    pub saved_inventory: [Vec<crate::sim::round::SavedItem>; 7],
+    /// The money and credit of the player's corporation, copied every tick (player +0x50 and +0x54).
+    pub corp_money: i32,
+    pub corp_credit: i32,
     pub account_id: u32,
     pub input: InputFlags,
     pub money: i32,
@@ -41,6 +68,60 @@ pub struct Player {
     pub input_bits: u32,
     pub control_mode: u32,
     pub zoom_level: u32,
+    /// A player the server drives (+0x2d18): the crews of round car chases.
+    pub is_bot: bool,
+    /// God mode (+0x60), toggled by /godmode: bullets pass through the player and team damage is not punished.
+    pub god_mode: bool,
+    /// A mission bot's deadline on the world clock (+0x36e4) and the deal it belongs to (+0x36e8).
+    pub bot_deadline: i32,
+    pub bot_mission: i32,
+    /// The bot AI's state (player_ai): see [`BotBrain`].
+    pub bot: BotBrain,
+}
+
+/// An enemy a bot has seen (player +0x3564, 0x18 each): the human, where the bot thinks it is, how sure it is (0 to 16)
+/// and a timer set to 600 when first seen.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BotTarget {
+    pub human: i32,
+    pub pos: Vec3,
+    pub awareness: f32,
+    pub timer: i32,
+}
+
+/// What player_ai keeps for a bot.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BotBrain {
+    /// A zombie (+0x2d1c) walks at what it sees, through walls.
+    pub is_zombie: bool,
+    // TODO: name once its readers are ported: player +0x2d24, set for a car chase's driver
+    pub unk_2d24: i32,
+    /// The heading to face with nothing else to do (+0x2d28).
+    pub idle_yaw: f32,
+    /// The waypoint being walked to (+0x2d34), how many there are (+0x2d38) and the waypoints (+0x2d3c, 0x20 each).
+    pub waypoint: i32,
+    pub waypoint_count: i32,
+    pub waypoints: Vec<Vec3>,
+    /// Ticks the bot does nothing for (+0x3550).
+    pub delay: i32,
+    /// Ticks the bot's vehicle has been wrecked (+0x3558); past 179 it gets out.
+    pub wrecked_ticks: i32,
+    /// The enemies seen (+0x355c count, up to 16) and the one aimed at (+0x3560).
+    pub targets: Vec<BotTarget>,
+    pub target: i32,
+}
+
+impl BotBrain {
+    pub fn waypoint_pos(&self, i: i32) -> Vec3 {
+        usize::try_from(i).ok().and_then(|i| self.waypoints.get(i)).copied().unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn set_waypoint(&mut self, i: usize, p: Vec3) {
+        if self.waypoints.len() <= i {
+            self.waypoints.resize(i + 1, Vec3::ZERO);
+        }
+        self.waypoints[i] = p;
+    }
 }
 
 impl Player {
@@ -55,6 +136,17 @@ impl Player {
             menu: MenuType::Empty,
             menu_tab: 0,
             items_bought: 0,
+            menu_buttons: Vec::new(),
+            button_extras: Vec::new(),
+            manager_tab: false,
+            ghost_human: false,
+            ghost: None,
+            team_switch_timer: 0,
+            vehicles_bought: 0,
+            daily_counter: 0,
+            saved_inventory: Default::default(),
+            corp_money: 0,
+            corp_credit: 0,
             input: InputFlags::empty(),
             team: Team::Spectator,
             username: j.join_packet.player_name,
@@ -87,7 +179,76 @@ impl Player {
             input_bits: 0,
             control_mode: 0,
             zoom_level: 0,
+            is_bot: false,
+            god_mode: false,
+            bot_deadline: 0,
+            bot_mission: 0,
+            bot: BotBrain::default(),
         }
+    }
+
+    /// create_player: an empty player with 50000 money, no account and a random look (head, skin, hair, eyes).
+    pub fn new_bot(player_id: PlayerId, customization: CharacterCustomization, menu: MenuType) -> Self {
+        // TODO: the aim and reaction floats create_player sets (player +0x140 and +0x36ec..+0x3718) for the bot AI
+        Self {
+            player_id,
+            steam_id: 0,
+            actions: ActionQueue::default(),
+            account_id: u32::MAX,
+            menu,
+            menu_tab: 0,
+            items_bought: 0,
+            menu_buttons: Vec::new(),
+            button_extras: Vec::new(),
+            manager_tab: false,
+            ghost_human: false,
+            ghost: None,
+            team_switch_timer: 0,
+            vehicles_bought: 0,
+            daily_counter: 0,
+            saved_inventory: Default::default(),
+            corp_money: 0,
+            corp_credit: 0,
+            input: InputFlags::empty(),
+            team: Team::Spectator,
+            username: String::new(),
+            money: BOT_MONEY,
+            stocks: 0,
+            corp_rating: 0,
+            crim_rating: 0,
+            spawn_timer: 0,
+            phone_number: 0,
+            is_ready: false,
+            voice: PlayerVoice::new(),
+            customization,
+            camera_pos: Default::default(),
+            view_yaw: 0.0,
+            view_pitch: 0.0,
+            human: None,
+            controls: [0.0; 16],
+            controls_extra: [0.0; 4],
+            input_bits: 0,
+            control_mode: 0,
+            zoom_level: 0,
+            is_bot: true,
+            god_mode: false,
+            bot_deadline: 0,
+            bot_mission: 0,
+            bot: BotBrain::default(),
+        }
+    }
+
+    /// Adds a menu button; without an extra value it shows whatever its slot last held.
+    pub fn push_button(&mut self, id: i32, text: &str, extra: Option<i32>) {
+        let k = self.menu_buttons.len();
+        if self.button_extras.len() <= k {
+            self.button_extras.resize(k + 1, 0);
+        }
+        if let Some(e) = extra {
+            self.button_extras[k] = e;
+        }
+        let extra = self.button_extras[k];
+        self.menu_buttons.push(MenuButton { id, text: text.to_string(), extra });
     }
 
     pub fn process_game_packet(&mut self, msg: Box<ClientGamePacket>) {
@@ -115,7 +276,7 @@ impl Player {
                 client_id: self.player_id.0,
                 customization: self.customization,
                 human_id: self.human.map_or(-1, |h| h as i32),
-                is_bot: false,
+                is_bot: self.is_bot,
                 team: self.team,
                 name: self.username.clone()
             })

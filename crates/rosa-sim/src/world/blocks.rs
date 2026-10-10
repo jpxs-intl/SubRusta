@@ -23,6 +23,9 @@ pub fn slope_id(width: i32, boxes: bool, row: i32, col: i32) -> Option<u32> {
 pub struct BlockTable {
     custom_count: u32,
     garage_door: Option<u32>,
+    /// A corporation base's table and safe blocks, which mark where the table and vault are.
+    base_table: Option<u32>,
+    safe: Option<u32>,
     next_id: u32,
 }
 
@@ -32,6 +35,8 @@ impl BlockTable {
         Self {
             custom_count,
             garage_door: custom_names.iter().rposition(|n| *n == "garagedoor").map(Self::custom),
+            base_table: custom_names.iter().rposition(|n| *n == "basetable").map(Self::custom),
+            safe: custom_names.iter().rposition(|n| *n == "bc-safe01").map(Self::custom),
             next_id: CUSTOM_BASE + 4 * custom_count + 4,
         }
     }
@@ -46,6 +51,15 @@ impl BlockTable {
 
     pub fn edge_cap(&self, i: u32) -> u32 {
         self.custom_end() + i
+    }
+
+    /// Whether `id` is one of the four turns of the base table or the safe.
+    pub fn is_base_table(&self, id: u32) -> bool {
+        self.base_table.is_some_and(|b| (b..=b + 3).contains(&id))
+    }
+
+    pub fn is_safe(&self, id: u32) -> bool {
+        self.safe.is_some_and(|b| (b..=b + 3).contains(&id))
     }
 
     pub fn garage_door(&self) -> [u32; 4] {

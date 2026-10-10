@@ -15,7 +15,8 @@ const CRIME_TEAM_TEAM_IN_BASE: i32 = 100;
 const CRIME_KICK: i32 = 1000;
 const MAX_CRIMINAL_RATING: i32 = 1023;
 /// The share of team damage turned back on the attacker in round and versus modes (both settings default to 50).
-const TEAM_DAMAGE: i32 = 50;
+/// The versus team damage share until its config is ported.
+pub(crate) const VERSUS_TEAM_DAMAGE: i32 = 50;
 const HEAD: usize = 3;
 /// The damage a run-over kill scores.
 const RUN_OVER_SCORE: i32 = 100;
@@ -82,26 +83,33 @@ impl Sim {
     }
 
     /// Whether `pos` is inside the interior of corporation `team`'s base.
-    fn in_base(&self, _team: i32, _pos: Vec3) -> bool {
-        // TODO: the corporations' interior cuboids (game_mode_state.corporations[team] +0x2c0..+0x2d4) are not loaded
-        false
+    fn in_base(&self, team: i32, pos: Vec3) -> bool {
+        usize::try_from(team).ok().and_then(|t| self.world.map.level.bases.get(t)).is_some_and(|b| b.contains(pos))
     }
 
     /// punish_team_kill: outside world and eliminator modes, a player who hurt a teammate takes a share of the damage
     /// to their own head.
     pub(crate) fn punish_team_kill(&mut self, player: PlayerId, damage: i32) {
-        // TODO: players in god mode are spared
-        if self.players.get(player.idx()).is_none() || damage <= 0 || matches!(self.gamemode, GameMode::World | GameMode::Eliminator) {
+        if self.players.get(player.idx()).is_none_or(|p| p.god_mode) || damage <= 0 || matches!(self.gamemode, GameMode::World | GameMode::Eliminator) {
             return;
         }
         self.handle_team_kill(player, damage);
+    }
+
+    /// The /godmode chat command: the player's god mode on or off, announced to admins.
+    pub(crate) fn godmode_command(&mut self, pid: PlayerId) {
+        // TODO: the binary takes this command from admins only, and sends chat type 4 only to admin connections
+        let Some(p) = self.players.get_mut(pid.idx()) else { return };
+        p.god_mode = !p.god_mode;
+        let line = if p.god_mode { "godmode on" } else { "godmode off" };
+        self.send_chat(line, rosa_protocol::clientbound::game::events::chat::ChatType::AdminChat, -1, 0);
     }
 
     /// handle_team_kill: the team damage is logged and dealt to the player's head, and the player's details resent.
     fn handle_team_kill(&mut self, player: PlayerId, damage: i32) {
         let Some(p) = self.players.get(player.idx()) else { return };
         println!("[Sim] {}({}) team damage: {damage}", p.username, p.phone_number);
-        let share = if matches!(self.gamemode, GameMode::Round | GameMode::Versus) { TEAM_DAMAGE } else { 0 };
+        let share = self.team_damage;
         if let Some(h) = p.human.and_then(|h| self.humans.get_mut(h)) {
             damage_human(h, HEAD, damage * share / 100);
         }

@@ -33,7 +33,7 @@ const EXIT_LEFT_THIGH: f64 = 0.5890486225481251;
 const EXIT_RIGHT_THIGH: f64 = 0.196349540849375;
 const HIP_SPACING: f32 = 0.3125;
 const KNEE_FORWARD: f32 = -0.125;
-const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 0.7853982, clamp_max: 0.018407769, pose_spin: [0.125; 3], spin_limit: [0.015625; 3], flags: 0 };
+const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 0.7853982, clamp_max: 0.018_407_77, pose_spin: [0.125; 3], spin_limit: [0.015625; 3], flags: 0 };
 
 /// A vehicle's seat offset in the world, in the order human_action_simulation adds it.
 fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {

@@ -422,6 +422,9 @@ pub enum HumanOutput {
     Sound { sound: rosa_protocol::clientbound::game::events::sound::Sound, pos: Vec3, volume: f32, pitch: f32 },
     /// A vehicle's last driver killed the human by running it over.
     RunOver { driver: crate::PlayerId, victim: Option<crate::PlayerId> },
+    /// A player let go of the mouse with a hand free: the head's look ahead (start to end) may open or close their
+    /// corporation's garage door, if the human (at `pos`) is at its base.
+    DoorProbe { player: Option<crate::PlayerId>, start: Vec3, end: Vec3, pos: Vec3 },
 }
 
 /// A breakable face of a level cell that broke this tick, for the bullet-hole event.

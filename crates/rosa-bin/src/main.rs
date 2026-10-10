@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_listing = ServerListing {
         build: 0x26,
         address: [4, 43, 217, 32],
-        gamemode: config.gamemode,
+        gamemode: config.gamemode.client_mode(),
         max_players: config.max_players,
         password_protected: !config.server_password.is_empty(),
         server_password: config.server_password.clone(),

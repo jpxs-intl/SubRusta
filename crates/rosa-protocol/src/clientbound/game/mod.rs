@@ -102,6 +102,7 @@ pub enum MenuType {
     RoundCorpStock = 18,
     WorldEmptyCorp = 19,
     WorldCorpApplication = 20,
+    WorldCorpTabs = 21,
     WorldCorpHiring = 22,
     WorldCorpFiring = 23,
     WorldCorpTeam = 24,
@@ -386,6 +387,14 @@ pub struct OwnHumanData {
     pub inventory: [Vec<i32>; 7],
 }
 
+/// A menu button (player +0x1b18, 0x48 each): what pressing it sends back, its label and a value shown with it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MenuButton {
+    pub id: i32,
+    pub text: String,
+    pub extra: i32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerGamePacket {
     pub client_id: u32,
@@ -398,7 +407,16 @@ pub struct ServerGamePacket {
     pub menu_tab: i32,
     pub shop: Vec<(i32, i32, i32)>,
     pub money: i32,
+    /// The money and credit of the player's corporation (player +0x50 and +0x54).
+    pub corp_money: i32,
+    pub corp_credit: i32,
+    pub menu_buttons: Vec<MenuButton>,
     pub gamestate: GameState,
+    /// The game timer, and per round corporation its round funds and a second value shown between rounds.
+    pub game_timer: i32,
+    pub corp_round: [(i32, i32); 3],
+    /// Players on each of the first five corporation teams.
+    pub team_counts: [i32; 5],
     pub ready_states: Option<[bool; 32]>,
     pub voice: [Option<ServerVoiceData>; 8],
 
@@ -440,18 +458,19 @@ impl WireWrite for ServerGamePacket {
         }
 
         if self.gamestate == GameState::Intermission || self.gamestate == GameState::Restarting {
-            for i in 0..3 {
-                w.bits(10 * i, 16);
-                w.bits(10 * i, 16);
+            for (funds, other) in self.corp_round {
+                w.bits(funds, 16);
+                w.bits(other, 16);
             }
         }
 
-        w.bits(7200, 24);
-        w.bits(9, 16);
+        w.bits(self.game_timer, 24);
+        // TODO: the racing value at 0x45384fa4 (0 outside racing)
+        w.bits(0, 16);
         w.bits(get_sun_time(12, 60), 30);
 
-        for _ in 0..5 {
-            w.bits(0, 6);
+        for n in self.team_counts {
+            w.bits(n, 6);
         }
 
         w.bits(self.client_id as i32, 8);
@@ -495,8 +514,8 @@ impl WireWrite for ServerGamePacket {
         }
 
         w.i32(self.money);
-        w.u32(0);
-        w.u32(0);
+        w.i32(self.corp_money);
+        w.i32(self.corp_credit);
         w.u32(0);
         w.u32(24);
 
@@ -515,7 +534,14 @@ impl WireWrite for ServerGamePacket {
             }
         }
 
-        w.bits(0, 8);
+        w.bits(self.menu_buttons.len() as i32, 8);
+        for b in &self.menu_buttons {
+            let text = &b.text.as_bytes()[..b.text.len().min(63)];
+            w.i32(b.id);
+            w.bits(text.len() as i32, 6);
+            w.bytes(text);
+            w.i32(b.extra);
+        }
         w.bits(0, 8);
         w.bits(4, 4);
         w.bits(8, 4);

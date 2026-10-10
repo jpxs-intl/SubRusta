@@ -1,13 +1,15 @@
-use crate::{clientbound::game::events::{bullet::EventBullet, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, explosion::EventExplosion, phone_sound::EventPhoneSound, sound::EventSound, team_door::EventTeamDoor, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_stock::EventUpdateStock, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
+use crate::{clientbound::game::events::{bullet::EventBullet, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, explosion::EventExplosion, mission::EventMission, phone_sound::EventPhoneSound, sound::EventSound, team_door::EventTeamDoor, update_corporation::EventUpdateCorporation, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_stock::EventUpdateStock, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
 
 pub mod bullet;
 pub mod bullet_hit;
 pub mod bullet_hole;
 pub mod chat;
 pub mod explosion;
+pub mod mission;
 pub mod phone_sound;
 pub mod sound;
 pub mod team_door;
+pub mod update_corporation;
 pub mod update_phone;
 pub mod update_player_round;
 pub mod update_player;
@@ -28,9 +30,11 @@ pub enum ServerEvent {
     BulletHole(EventBulletHole),
     Chat(EventChat),
     Explosion(EventExplosion),
+    Mission(EventMission),
     PhoneSound(EventPhoneSound),
     Sound(EventSound),
     TeamDoor(EventTeamDoor),
+    UpdateCorporation(EventUpdateCorporation),
     UpdatePhone(EventUpdatePhone),
     UpdatePlayerRound(EventUpdatePlayerRound),
     UpdatePlayer(EventUpdatePlayer),
@@ -58,10 +62,12 @@ impl WireWrite for Event {
             ServerEvent::UpdatePlayerRound(e) => (8, e),
             ServerEvent::Sound(e) => (9, e),
             ServerEvent::TeamDoor(e) => (10, e),
+            ServerEvent::UpdateCorporation(e) => (0xc, e),
             ServerEvent::UpdateStock(e) => (0xd, e),
             ServerEvent::BulletHole(e) => (0x10, e),
             ServerEvent::PhoneSound(e) => (0x13, e),
             ServerEvent::Explosion(e) => (0x14, e),
+            ServerEvent::Mission(e) => (0x15, e),
             ServerEvent::Empty => {
                 w.bits(0x17, 6);
 

@@ -160,8 +160,6 @@ pub struct Human {
     pub unk_2c: i32,
     /// Ticks until the human can eat again (record 0x40).
     pub eat_cooldown: i32,
-    // TODO: name once its readers are ported (record 0x3c, starts at 105, a burger adds 8 up to 105)
-    pub unk_3c: i32,
     /// The progress bar shown to the player (record 0x6e04), e.g. while bandaging.
     pub progress_bar: i32,
     /// Ticks an immortal human knocked below 50 health is kept from being shot (record 0x6c, 1800 when knocked down).

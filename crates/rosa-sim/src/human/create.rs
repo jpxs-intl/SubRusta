@@ -144,7 +144,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         strength: 0.0,
         unk_2c: 0,
         eat_cooldown: 0,
-        unk_3c: 105,
         progress_bar: 0,
         down_timer: 0,
         view_turn: 0.0,

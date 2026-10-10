@@ -43,6 +43,9 @@ pub struct Client {
     player_id: PlayerId,
     addr: SocketAddr,
     event_cursor: u16,
+    /// The round the client last said it is in (-1 on join): until it is the current one the
+    /// client gets the initial sync each tick instead of game packets, and what it sends is ignored.
+    round_number: u32,
     last_sdl_tick: u32,
     earshots: [Option<sim::Earshot>; 8],
     /// The client's object slot ring (2048 entries): what was queued, how far, and how far the client has
@@ -56,4 +59,18 @@ pub struct Client {
     /// next (connection +0x54).
     traffic_priority: Vec<i32>,
     signal_cursor: i32,
+}
+
+impl Client {
+    /// The connection part of reset_game: the event and object packet state start over with the new round.
+    fn reset_for_round(&mut self) {
+        self.event_cursor = 0;
+        self.pack_ring.clear();
+        self.pack_count = 0;
+        self.pack_ack = 0;
+        self.packed.clear();
+        self.traffic_priority.clear();
+        self.signal_cursor = 0;
+        self.earshots = [None; 8];
+    }
 }

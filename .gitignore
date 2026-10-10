@@ -2,3 +2,5 @@ target/
 data/
 Cargo.lock
 map.ppm
+server.srk
+stats.txt

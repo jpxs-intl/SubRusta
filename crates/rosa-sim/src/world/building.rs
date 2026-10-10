@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
 use glam::{IVec3, Vec3};
+use rosa_physics::{
+    RotMatrix,
+    rotation::{IDENTITY, rotate_orientation},
+};
 use rosa_protocol::Team;
 use rosa_map::file_types::{
     csx::CityFileCSX,
@@ -109,6 +113,91 @@ fn record_kind(building_type: i32) -> Option<i32> {
     }
 }
 
+/// The quarter turn the table turns by with each turn of its base building.
+const CORPORATIONS: usize = 6;
+/// The base's car spaces: a row of four 16 back and 16 across from the interior's middle, 4 apart, then the row
+/// facing the other way 24 further across.
+const CAR_ROW_START: f32 = 16.0;
+const CAR_STEP: f32 = 4.0;
+const CAR_ROW_GAP: f32 = 24.0;
+const CAR_SPACES: usize = 8;
+/// The table sits 4 along and 17.5 across from the middle (Round City places it so; elsewhere the base table block
+/// does), and players spawn 12 along and 6 across from it.
+const TABLE_ALONG: f32 = 4.0;
+const TABLE_ACROSS: f32 = 17.5;
+const SPAWN_ALONG: f32 = 12.0;
+const SPAWN_ACROSS: f32 = 6.0;
+/// In versus, players spawn in the middle of the base, 13.5 up.
+const VERSUS_SPAWN_LIFT: f32 = 12.0;
+const VERSUS_SPAWN_LIFT2: f32 = 1.5;
+const VERSUS: u32 = 7;
+
+/// A corporation's base (game_mode_state.corporations, 0x5bc4 each): the box inside it (one floor high), its vault,
+/// the table, where players spawn and the spaces its cars appear in.
+#[derive(Clone, Debug)]
+pub struct CorporationBase {
+    pub interior_min: Vec3,
+    pub interior_max: Vec3,
+    pub vault_min: Vec3,
+    pub vault_max: Vec3,
+    /// The way the table faces (+0x30): a half turn plus a quarter turn per turn of the base building.
+    pub table_orientation: f32,
+    pub table: Vec3,
+    pub spawn: Vec3,
+    pub car_spaces: Vec<(Vec3, RotMatrix)>,
+    /// The two cells of the garage door (the last one placed) and the way it faces (+0x43c).
+    pub door: Option<([IVec3; 2], u32)>,
+}
+
+impl Default for CorporationBase {
+    fn default() -> Self {
+        CorporationBase {
+            interior_min: Vec3::ZERO,
+            interior_max: Vec3::ZERO,
+            vault_min: Vec3::ZERO,
+            vault_max: Vec3::ZERO,
+            table_orientation: std::f32::consts::PI,
+            table: Vec3::ZERO,
+            spawn: Vec3::ZERO,
+            car_spaces: Vec::new(),
+            door: None,
+        }
+    }
+}
+
+impl CorporationBase {
+    /// Whether `pos` is inside the base (x and z only).
+    pub fn contains(&self, pos: Vec3) -> bool {
+        !(pos.x < self.interior_min.x) && !(self.interior_max.x + 0.0 <= pos.x) && !(pos.z < self.interior_min.z) && self.interior_max.z + 0.0 > pos.z
+    }
+
+    /// is_position_in_vault: whether `pos` is inside the vault grown by `tolerance` on every side.
+    pub fn in_vault(&self, pos: Vec3, tolerance: f32) -> bool {
+        let (a, b) = (self.vault_min, self.vault_max);
+        !(pos.x < a.x - tolerance)
+            && !(b.x + tolerance <= pos.x)
+            && !(pos.y < a.y - tolerance)
+            && !(b.y + tolerance <= pos.y)
+            && !(pos.z < a.z - tolerance)
+            && tolerance + b.z > pos.z
+    }
+
+    /// The table's frame: turned to the table's way, then half around.
+    pub(crate) fn frame(&self) -> RotMatrix {
+        let mut m = IDENTITY;
+        let axis = m[1];
+        rotate_orientation(&mut m, axis, self.table_orientation);
+        let axis = m[1];
+        rotate_orientation(&mut m, axis, std::f32::consts::PI);
+        m
+    }
+
+    fn middle(&self) -> Vec3 {
+        let (a, b) = (self.interior_min, self.interior_max);
+        Vec3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+    }
+}
+
 pub struct Buildings<'a> {
     csx: &'a CityFileCSX,
     custom_names: Vec<&'a str>,
@@ -118,6 +207,7 @@ pub struct Buildings<'a> {
     mesh_cache: HashMap<u32, u32>,
     pub generated: Vec<(u32, u32)>,
     pub records: Vec<BuildingRecord>,
+    pub bases: Vec<CorporationBase>,
     game_type: u32,
 }
 
@@ -132,6 +222,7 @@ impl<'a> Buildings<'a> {
             mesh_cache: HashMap::new(),
             generated: Vec::new(),
             records: Vec::new(),
+            bases: vec![CorporationBase::default(); CORPORATIONS],
             game_type,
         }
     }
@@ -161,12 +252,73 @@ impl<'a> Buildings<'a> {
         let ty = building_type(name, roundcity);
         let corp = usize::try_from(ty).ok().and_then(|i| Team::CORPORATIONS.get(i).copied());
         let o = pos - off;
+        let base = usize::try_from(ty).ok().filter(|&i| i < CORPORATIONS);
+        if let Some(k) = base {
+            let b = &mut self.bases[k];
+            for _ in 0..(rot & 3) {
+                b.table_orientation = (b.table_orientation as f64 + (std::f64::consts::PI / 2.0)) as f32;
+            }
+        }
 
-        self.instantiate(area, ground, tables, dims, o, w, l, h, off_y, rot, corp);
+        self.instantiate(area, ground, tables, dims, o, w, l, h, off_y, rot, corp, base);
         if let Some(kind) = record_kind(ty) {
             self.records.push(building_record(kind, &raw, o, rot));
         }
+        if let Some(k) = base {
+            self.place_base(k, &raw, o, rot, roundcity);
+        }
     }
+
+    /// The corporation part of area_instantiate_building_blocks: the base's interior (one floor high), its car spaces
+    /// and its spawn point.
+    fn place_base(&mut self, k: usize, raw: &BuildingFile, o: IVec3, rot: u32, roundcity: bool) {
+        let (x, z) = interior_span(raw, rot);
+        let cell = |v: i32| v as f32 * 4.0;
+        let versus = self.game_type == VERSUS;
+        let b = &mut self.bases[k];
+        b.interior_min = Vec3::new(cell(o.x + x.0), cell(o.y), cell(o.z + z.0));
+        b.interior_max = Vec3::new(cell(o.x + x.1), cell(o.y + 1), cell(o.z + z.1));
+        let c = b.middle();
+        let mut m = b.frame();
+        let [r0, _, r2] = m;
+        let mut p = Vec3::new(
+            (r0.x * -CAR_ROW_START + c.x) + r2.x * CAR_ROW_START,
+            (r0.y * -CAR_ROW_START + c.y) + r2.y * CAR_ROW_START,
+            (-CAR_ROW_START * r0.z + c.z) + CAR_ROW_START * r2.z,
+        );
+        for n in 1..=CAR_SPACES {
+            b.car_spaces.push((p, m));
+            if n == 4 {
+                let axis = m[1];
+                rotate_orientation(&mut m, axis, std::f32::consts::PI);
+                let r2 = m[2];
+                p = Vec3::new(p.x + r2.x * CAR_ROW_GAP, p.y + r2.y * CAR_ROW_GAP, p.z + r2.z * CAR_ROW_GAP);
+            } else if n != CAR_SPACES {
+                let r0 = m[0];
+                p = Vec3::new(p.x + r0.x * CAR_STEP, p.y + r0.y * CAR_STEP, p.z + r0.z * CAR_STEP);
+            }
+        }
+        let c = b.middle();
+        let [r0, _, r2] = b.frame();
+        let t = Vec3::new(
+            (r0.x * TABLE_ALONG + c.x) + r2.x * TABLE_ACROSS,
+            (r0.y * TABLE_ALONG + c.y) + r2.y * TABLE_ACROSS,
+            (TABLE_ALONG * r0.z + c.z) + TABLE_ACROSS * r2.z,
+        );
+        if roundcity {
+            b.table = t;
+        }
+        b.spawn = Vec3::new(
+            (r0.x * SPAWN_ALONG + t.x) + r2.x * SPAWN_ACROSS,
+            (r0.y * SPAWN_ALONG + t.y) + r2.y * SPAWN_ACROSS,
+            (r0.z * SPAWN_ALONG + t.z) + r2.z * SPAWN_ACROSS,
+        );
+        if versus {
+            let (a, bb) = (b.interior_min, b.interior_max);
+            b.spawn = Vec3::new((a.x + bb.x) * 0.5, (a.y + VERSUS_SPAWN_LIFT) + VERSUS_SPAWN_LIFT2, (a.z + bb.z) * 0.5);
+        }
+    }
+
 
     fn setup(&self, b: &BuildingFile) -> Vec<Tile> {
         let mut special = [0u32; 1024];
@@ -300,6 +452,7 @@ impl<'a> Buildings<'a> {
         off_y: i32,
         rot: u32,
         corp: Option<Team>,
+        base: Option<usize>,
     ) {
         let flags = rot << 24;
         for y in 0..h {
@@ -378,6 +531,18 @@ impl<'a> Buildings<'a> {
                         }
                     } else if (v as i32) < 0 {
                         area.place_with_footprint(p.x, p.y, p.z, flags | v, dims);
+                        if let Some(k) = base {
+                            let id = v & 65535;
+                            let c = |n: i32| n as f32 * 4.0;
+                            if tables.is_safe(id) {
+                                let b = &mut self.bases[k];
+                                b.vault_min = Vec3::new(c(p.x) + 0.25, c(p.y) + 0.125, c(p.z) + 0.25);
+                                b.vault_max = Vec3::new(c(p.x + 1) - 0.25, c(p.y + 1) - 0.125, c(p.z + 1) - 0.25);
+                            }
+                            if tables.is_base_table(id) {
+                                self.bases[k].table = Vec3::new(c(p.x) + 2.0, c(p.y) + 2.0, c(p.z) + 2.0);
+                            }
+                        }
                     }
 
                     if corp.is_some() && self.game_type != 7 {
@@ -393,6 +558,9 @@ impl<'a> Buildings<'a> {
 
                             for d in [p, second] {
                                 area.set_object(d.x, d.y, d.z, dir << 10 | 6);
+                            }
+                            if let Some(k) = base {
+                                self.bases[k].door = Some(([p, second], dir));
                             }
                         }
                     }
@@ -454,15 +622,22 @@ pub fn clear_collision_cell(area: &mut AreaGrid, x: i32, y: i32, z: i32) {
 
 /// The record area_instantiate_building_blocks makes: the interior is the building past its offset margin, turned with
 /// the building, from `o` (the building's lowest corner).
-fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32) -> BuildingRecord {
+/// The interior's x and z extent from the building's lowest corner: past its offset margin, turned with the building.
+fn interior_span(raw: &BuildingFile, rot: u32) -> ((i32, i32), (i32, i32)) {
     let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
-    let (w, l, h) = (raw.width as i32, raw.length as i32, raw.height as i32);
-    let (x, z) = match rot & 3 {
+    let (w, l) = (raw.width as i32, raw.length as i32);
+    match rot & 3 {
         0 => ((off.x, w), (off.z, l)),
         1 => ((0, l - off.z), (off.x, w)),
         2 => ((0, w - off.x), (0, l - off.z)),
         _ => ((off.z, l), (0, w - off.x)),
-    };
+    }
+}
+
+fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32) -> BuildingRecord {
+    let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
+    let h = raw.height as i32;
+    let (x, z) = interior_span(raw, rot);
     let cell = |v: i32| v as f32 * 4.0;
     let shop = match kind {
         CLOTHING_STORE => CLOTHING_STOCK.iter().map(|&(k, price)| ShopEntry { kind: k, price, extra: 0 }).collect(),

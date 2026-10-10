@@ -131,7 +131,7 @@ fn crash_and_drag(id: usize, v: &mut Vehicle, bodies: &mut RigidBodies, out: &mu
             out.push(VehicleOutput::Damage { vehicle: id, amount: (dv * TICKS_PER_SECOND + 10.0) as i32 });
         }
         if dv > CRASH_SPEED {
-            v.crash = dv * TICKS_PER_SECOND * 0.125 + v.crash;
+            v.crash += dv * TICKS_PER_SECOND * 0.125;
             if v.crash > 2.0 {
                 crash_sound(v, out);
                 v.crash -= 2.0;
@@ -372,8 +372,8 @@ fn step_wheels(map: &Map, bodies: &mut RigidBodies, v: &mut Vehicle) {
         let proj = (d.y * r1.y + d.x * r1.x) + r1.z * d.z;
         let slide = wb.slide;
         let w = &mut v.wheels[k];
-        w.visual_height = if -1.0 > proj { -1.0 } else if 1.0 < proj { 1.0 } else { proj };
-        w.skid = if 0.0 > slide { 0.0 } else if 1.0 < slide { 1.0 } else { slide };
+        w.visual_height = proj.clamp(-1.0, 1.0);
+        w.skid = slide.clamp(0.0, 1.0);
         w.angle += w.spin;
         wheel_collision(map, bodies, v, k);
         if let Some(wb) = bodies.get(v.wheels[k].body) {
@@ -652,7 +652,7 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
                 wb.ang_impulse = Vec3::new(axle.x * imp2 + i.x, axle.y * imp2 + i.y, imp2 * axle.z + i.z);
             }
         }
-        v.gearbox_speed = accum + v.gearbox_speed;
+        v.gearbox_speed += accum;
         let es = v.engine_speed.abs();
         if es > 0.0 && TINY > es {
             v.engine_speed = 0.0;

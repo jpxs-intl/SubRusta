@@ -111,7 +111,8 @@ pub(crate) fn detach_item(h: &mut Human, bodies: &mut RigidBodies, touch: &mut T
 
 /// The hand part of human_update_hand_grab_and_inventory: a hand lets go of an item that is too far away, or when
 /// the human is badly hurt, and everything carried is kept awake.
-pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables) {
+pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables, out: &mut Vec<HumanOutput>) {
+    let mut probed = false;
     for (slot, hand) in [(0, 9), (1, 6)] {
         while h.inventory[slot].count > 0 {
             let item_id = h.inventory[slot].items[0] as usize;
@@ -127,7 +128,14 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             }
             break;
         }
-        // TODO: grabbing other humans, doors and vehicles with an empty hand; disks, doors, ropes and computers in hand
+        // TODO: grabbing other humans, items and vehicles with an empty hand; disks, doors, ropes and computers in hand
+        let released = h.input_flags & 1 == 0 && h.last_input_flags & 1 != 0;
+        if !probed && released && h.inventory[slot].count == 0 && h.input_flags & 0x7c0 == 0 {
+            probed = true;
+            let (head, [_, _, ahead]) = (h.bones[3].pos, h.bones[3].rot);
+            let end = Vec3::new(ahead.x * -2.5 + head.x, ahead.y * -2.5 + head.y, ahead.z * -2.5 + head.z);
+            out.push(HumanOutput::DoorProbe { player: h.player, start: head, end, pos: h.pos });
+        }
         if h.inventory[slot].count > 0
             && let Some(item) = touch.items.get_mut(h.inventory[slot].items[0] as usize)
         {
@@ -265,7 +273,7 @@ fn dismount(touch: &mut Touchables, item: usize) {
 /// a loaded gun. A loaded gun drops its old magazine at 87.5% and the loading starts over. Returns whether the
 /// action is finished.
 fn mount(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables, f: usize, out: &mut Vec<HumanOutput>) -> bool {
-    const STEP: f32 = 0.0333333351;
+    const STEP: f32 = 0.033_333_335;
     const EJECT_AT: f32 = 0.875;
     const UNLOAD_PITCH: f32 = 0.875;
     let mut hand = h.actions[f].slot;

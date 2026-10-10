@@ -1,7 +1,7 @@
 use glam::Vec3;
 
 use super::{
-    LOOP_STREET, LOOP_STREET_2, PI, TWO_PI, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, rand_bit, rand_mod, random_street,
+    LOOP_STREET, LOOP_STREET_2, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, rand_bit, rand_mod, random_street,
     route::plan_route,
 };
 use crate::world::streets::{Lane, MapStreet, StreetMap};
@@ -40,7 +40,7 @@ const QUEUE_REACH: f32 = 12.0;
 const SCAN_AHEAD: f32 = 12.0;
 const AMBER: i32 = 1;
 const LEFT_LIGHTS: i32 = 4;
-const BEZIER_EPSILON: f32 = 1.52587890625e-05;
+const BEZIER_EPSILON: f32 = 1.525_878_9e-5;
 const CORNER_BIAS: f32 = 0.125;
 const NEXT_LOOK: f32 = 4.0;
 const SHARP: f32 = 0.5;
@@ -61,12 +61,12 @@ fn sincos(yaw: f32) -> (f32, f32) {
 /// The steering angle that turns from `yaw` towards `target`, wrapped the short way and clamped.
 fn steer_toward(yaw: f32, target: f32, limit: f64, max: f32) -> f32 {
     let mut a = target;
-    if ((yaw - a) as f64) >= PI {
-        a = (a as f64 + TWO_PI) as f32;
+    if ((yaw - a) as f64) >= std::f64::consts::PI {
+        a = (a as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     let mut diff = a - yaw;
-    if (diff as f64) >= PI {
-        diff = a - (yaw as f64 + TWO_PI) as f32;
+    if (diff as f64) >= std::f64::consts::PI {
+        diff = a - (yaw as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     let d = diff as f64;
     if -limit > d {
@@ -256,12 +256,8 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     let target_yaw = (aim_z as f64).atan2(aim_x as f64) as f32;
     let want = steer_toward(c.yaw, target_yaw, STREET_STEER, STREET_STEER_MAX);
     let mut ds = want - c.steer;
-    if -STEER_RATE > ds {
-        ds = -STEER_RATE;
-    } else if ds > STEER_RATE {
-        ds = STEER_RATE;
-    }
-    c.steer = ds + c.steer;
+    ds = ds.clamp(-STEER_RATE, STEER_RATE);
+    c.steer += ds;
     let next_street = c.step(c.route_index + 1).street;
     c.target_lane = c.lane;
     let r = rand_bit();
@@ -489,7 +485,7 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         }
     }
     let c = &mut traffic.cars[id];
-    c.steer = dsteer + c.steer;
+    c.steer += dsteer;
     c.target_speed = (factor * base) as f32;
     let dn2 = if c.step(ri + 1).end != 0 { neg(dn) } else { dn };
     let qx = (p1.x - (dn2.x * NEXT_LOOK + pos.x)) * dn2.x;

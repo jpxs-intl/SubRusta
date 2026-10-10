@@ -27,7 +27,9 @@ pub mod mesh;
 pub mod meshes;
 pub mod trace;
 pub mod capsule;
+pub mod city_objects;
 pub mod sphere;
+pub mod sphere_cast;
 
 pub struct World {
     sun_angle: u16,
@@ -48,4 +50,19 @@ impl World {
 
     pub fn sun_angle(&self) -> u16 { self.sun_angle }
     pub fn sun_axial_tilt(&self) -> u16 { self.sun_axial_tilt }
+
+    /// The sun's angle and axial tilt (game_mode_state +0x2b4, +0x2b8), as the initial sync sends them: 16-bit angles,
+    /// the top bit for negative.
+    pub fn set_sun(&mut self, angle: f32, tilt: f32) {
+        self.sun_angle = encode_angle(angle);
+        self.sun_axial_tilt = encode_angle(tilt);
+    }
+}
+
+/// The 16-bit angle encoding of server_send (0x426580): the size as a share of the turn, the top bit for negative.
+fn encode_angle(v: f32) -> u16 {
+    const HALF: i64 = 1 << 15;
+    let turn = f64::from_bits(0x401921fb54442eea);
+    let n = ((HALF as f64 / turn) * v.abs() as f64) as i64 & (HALF - 1);
+    (if 0.0 > v { HALF | n } else { n }) as u16
 }

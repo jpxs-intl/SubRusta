@@ -23,14 +23,12 @@ const SECONDARY: u32 = 2;
 const PHONE_BUSY_TICKS: i32 = 359;
 const PHONE_RING_TICKS: i32 = 767;
 const PHONE_DIAL_COOLDOWN: i32 = 180;
-const GRENADE_HELD_FUSE: i32 = 240;
 const GRENADE_KILL_RANGE: f32 = 4.0;
 const GRENADE_PUSH_RANGE: f32 = 8.0;
 /// The damage a grenade kill scores for the primer's criminal rating and team kill punishment.
 const GRENADE_SCORE: i32 = 100;
 const BANDAGE_RANGE: f32 = 2.0;
 const BANDAGE_TICKS: i32 = 255;
-const BURGER_COOLDOWN: i32 = 300;
 
 /// What the use key did on a phone, decided before any other phone is touched.
 enum PhoneCall {
@@ -125,7 +123,7 @@ impl Sim {
         if *rounds == 0 && chamber(&mut self.items) && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
                 *rounds = 1;
         }
-        
+
         let item = self.items.get_mut(id).unwrap();
         let ItemState::Gun { rounds, cooldown, trigger_ticks } = &mut item.state else { return };
         if *cooldown > 0 || *trigger_ticks != fire_tick || *rounds <= 0 {
@@ -139,7 +137,9 @@ impl Sim {
         vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
         let muzzle = Vec3::new(r2.x * 0.0 + p.x, r2.y * 0.0 + p.y, 0.0 * r2.z + p.z);
         let shooter = self.humans.get(holder as usize).and_then(|h| h.player);
-        create_bullet(&mut self.bullets, bullet_type, muzzle, vel, shooter, self.bodies.gravity_scale);
+        if create_bullet(&mut self.bullets, bullet_type, muzzle, vel, shooter, self.bodies.gravity_scale) {
+            self.stats.bullets += 1;
+        }
         let shown = Vec3::new(p.x - bv.x, p.y - bv.y, p.z - bv.z);
         let e = EventBullet { bullet_type, item_id: id as i32, pos: Vector(shown), vel: Vector(vel) };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Bullet(e) });
@@ -156,10 +156,8 @@ impl Sim {
         }
         *rounds -= 1;
         *cooldown = fire_rate;
-        if *rounds == 1 && chamber(&mut self.items) {
-            if let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
-                *rounds = 1;
-            }
+        if *rounds == 1 && chamber(&mut self.items) && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
+            *rounds = 1;
         }
     }
 
@@ -219,7 +217,7 @@ impl Sim {
         let kind = item.item_type;
         if !pressed {
             if kind == ItemKind::Burger && last & USE != 0 {
-                self.eat(id);
+                self.eat_burger(id);
             } else if let Some(ItemState::Bandage { progress, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
                 *progress = 0;
             }
@@ -241,18 +239,22 @@ impl Sim {
         }
     }
 
-    fn eat(&mut self, id: usize) {
+    fn eat_burger(&mut self, id: usize) {
         let item = self.items.get(id).unwrap();
+
         let Some(h) = (item.parent_human != -1).then(|| self.humans.get_mut(item.parent_human as usize)).flatten() else { return };
+
         if h.eat_cooldown != 0 {
             return;
         }
-        h.eat_cooldown = BURGER_COOLDOWN;
+
+        h.eat_cooldown = 300;
         h.max_stamina = (h.max_stamina + 16).min(255);
-        h.unk_3c = (h.unk_3c + 8).min(105);
+
         let item = self.items.get_mut(id).unwrap();
-        if let ItemState::Burger { left } = &mut item.state {
+        if let ItemState::Burger { bites_left: left } = &mut item.state {
             *left -= 1;
+
             if *left <= 0 {
                 item.despawn_time = 0;
             }
@@ -260,39 +262,50 @@ impl Sim {
     }
 
     fn bandage(&mut self, id: usize) {
-        let item = self.items.get(id).unwrap();
+        let item = self.items.get_mut(id).unwrap();
+
         let (pos, holder) = (self.bodies.get(item.body).map_or(item.pos2, |b| b.pos), item.parent_human);
+
         let mut nearest = (BANDAGE_RANGE, None);
+
         for (k, h) in self.humans.iter() {
             if !(h.old_health > 0 && (h.bleeding || h.old_health <= 9)) {
                 continue;
             }
+
             let d = Vec3::new(h.pos.x - pos.x, h.pos.y - pos.y, h.pos.z - pos.z);
             let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+
             if nearest.0 > dist {
                 nearest = (dist, Some(k));
             }
         }
+
         let Some(target) = nearest.1 else { return };
-        let item = self.items.get_mut(id).unwrap();
-        let ItemState::Bandage { left, progress } = &mut item.state else { return };
+
+        let ItemState::Bandage { usage_left: left, progress } = &mut item.state else { return };
         *progress += 1;
+
         let p = *progress;
-        if holder != -1
-            && let Some(h) = self.humans.get_mut(holder as usize)
+        if holder != -1 && let Some(h) = self.humans.get_mut(holder as usize)
         {
             h.progress_bar = p;
         }
+
         if p <= BANDAGE_TICKS {
             return;
         }
+
         *progress = 0;
         *left -= 1;
+
         if *left <= 0 {
             item.despawn_time = 0;
         }
+
         if let Some(t) = self.humans.get_mut(target) {
             t.bleeding = false;
+
             if t.old_health <= 9 {
                 t.old_health = 10;
             }
@@ -302,39 +315,48 @@ impl Sim {
     /// A grenade: the secondary key pulls the pin (or puts it back while still held); thrown, it counts down from
     /// 239 and blows up.
     fn grenade_logic(&mut self, id: usize) {
-        let item = self.items.get(id).unwrap();
-        let (input, last, holder) = (item.input_flags, item.last_input_flags, item.parent_human);
-        let rising = input & SECONDARY != 0 && last & SECONDARY == 0;
-        let holder_player = (holder != -1).then(|| self.humans.get(holder as usize)).flatten().and_then(|h| h.player);
         let item = self.items.get_mut(id).unwrap();
+        let (input, last, holder) = (item.input_flags, item.last_input_flags, item.parent_human);
+
+        let rising = input & SECONDARY != 0 && last & SECONDARY == 0;
+
+        let holder_player = (holder != -1).then(|| self.humans.get(holder as usize)).flatten().and_then(|h| h.player);
+
         let ItemState::Grenade { pin, fuse, primer } = &mut item.state else { return };
+
         if *pin > 0 {
             if rising {
-                *fuse = GRENADE_HELD_FUSE;
+                *fuse = 240;
                 *pin = 0;
                 if holder != -1 {
                     *primer = holder_player;
                 }
             }
+
             return;
         }
+
         let c = *fuse;
+
         if c <= 0 {
             return;
         }
-        if c == GRENADE_HELD_FUSE {
+
+        if c == 240 {
             if rising {
                 *pin = 1;
                 *primer = None;
             } else if holder == -1 {
-                *fuse = GRENADE_HELD_FUSE - 1;
+                *fuse = 240 - 1;
             }
             return;
         }
+
         *fuse = c - 1;
         if c - 1 != 1 {
             return;
         }
+
         item.despawn_time = 0;
         let pos = self.bodies.get(item.body).map_or(item.pos2, |b| b.pos);
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Explosion(EventExplosion { size: 0, pos: Vector(pos) }) });
@@ -381,7 +403,7 @@ impl Sim {
         }
     }
 
-    fn phone_update(&mut self, id: usize) {
+    pub(super) fn phone_update(&mut self, id: usize) {
         let Some(p) = self.items.get(id).and_then(|i| i.state.phone()) else { return };
         let e = EventUpdatePhone { item_id: id as i32, phone_status: p.status as i32, display_phone_number: p.display_number, phone_texture: p.texture };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdatePhone(e) });

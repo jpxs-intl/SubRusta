@@ -29,22 +29,81 @@ const REVERSE_PULL: f32 = 1.0;
 const STUCK_TICKS: i32 = 179;
 const STUCK_REVERSE: i32 = 279;
 
+/// Where a traffic car's vehicle goes: its type's chassis centred on the car, 1.5 back from its position.
+pub(crate) fn vehicle_pos(c: &crate::traffic::TrafficCar, types: &[crate::vehicle::types::VehicleType]) -> Vec3 {
+    let [r0, r1, r2] = c.rot;
+    let k = types.get(c.kind).map_or(Vec3::ZERO, |t| t.centroid);
+    let (nx, ny, nz) = (-k.x, -k.y, -k.z);
+    let back = -BODY_OFFSET;
+    let p = c.pos;
+    Vec3::new(
+        (((back * r2.x + p.x) + nx * r0.x) + ny * r1.x) + r2.x * nz,
+        r2.y * nz + (((r2.y * back + p.y) + r0.y * nx) + r1.y * ny),
+        nz * r2.z + (((r2.z * back + p.z) + r0.z * nx) + r1.z * ny),
+    )
+}
+
 impl Sim {
     /// The shop and traffic part of reset_game: srand(time), the dealerships and gun stores restocked, and 128 cars when
     /// the map has streets (none for races).
     pub(crate) fn reset_game(&mut self) {
         for (_, p) in self.players.iter_mut() {
             p.items_bought = 0;
+            p.actions.reset();
         }
         let map = &self.world.map;
         self.traffic = Traffic::new(&map.streets, map.map_name == "round");
+        self.missions.counter = 0;
+        // TODO: versus reads its share from config_versus.txt (0x4538562c)
+        self.team_damage = match self.gamemode {
+            GameMode::Round => self.round_cfg.teamdamage,
+            GameMode::Versus => crate::sim::crime::VERSUS_TEAM_DAMAGE,
+            _ => 0,
+        };
+        for c in &mut self.corp_state {
+            for m in &mut c.missions {
+                m.active = false;
+                m.unk_5c = 0;
+            }
+        }
+        if self.gamemode == GameMode::Round {
+            self.reset_round();
+        }
+        if self.gamemode == GameMode::Eliminator {
+            self.reset_eliminator();
+        }
+        if self.gamemode == GameMode::Sandbox {
+            self.gamestate = rosa_protocol::clientbound::game::GameState::InGame;
+        }
         self.traffic.coop = self.gamemode == GameMode::CoOp;
+        if self.gamemode != GameMode::World {
+            self.roll_weather();
+        }
         crate::rng::srand(crate::rng::time_seed());
         self.restock_dealerships();
         self.stock_gun_stores();
         let map = &self.world.map;
-        if self.gamemode != GameMode::Racing && !map.streets.streets.is_empty() {
+        if !matches!(self.gamemode, GameMode::Racing | GameMode::Round | GameMode::Eliminator) && !map.streets.streets.is_empty() {
             create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
+        }
+        // TODO: round and eliminator modes work the doors from logic_round and logic_eliminator once those are ported
+        if self.gamemode == GameMode::World {
+            for k in 0..crate::sim::corporations::CORPORATIONS {
+                self.set_team_door(k, true);
+            }
+            self.apply_team_doors();
+        }
+        self.announce_players();
+    }
+
+    /// The end of reset_game: the share prices and every player again, since the event list starts over.
+    fn announce_players(&mut self) {
+        let e = crate::sim::economy::stock_event(&self.corporations, self.tick);
+        self.events.push(e);
+        let tick = self.tick;
+        let es: Vec<_> = self.players.iter().flat_map(|(_, p)| [p.make_update_player_event(tick), p.make_update_round_event(tick)]).collect();
+        for e in es {
+            self.events.push(e);
         }
     }
 
@@ -121,16 +180,7 @@ impl Sim {
                 if c.vehicle != -1 {
                     continue;
                 }
-                let [r0, r1, r2] = c.rot;
-                let k = self.vehicle_types.get(c.kind).map_or(Vec3::ZERO, |t| t.centroid);
-                let (nx, ny, nz) = (-k.x, -k.y, -k.z);
-                let back = -BODY_OFFSET;
-                let p = c.pos;
-                let pos = Vec3::new(
-                    (((back * r2.x + p.x) + nx * r0.x) + ny * r1.x) + r2.x * nz,
-                    r2.y * nz + (((r2.y * back + p.y) + r0.y * nx) + r1.y * ny),
-                    nz * r2.z + (((r2.z * back + p.z) + r0.z * nx) + r1.z * ny),
-                );
+                let pos = vehicle_pos(c, &self.vehicle_types);
                 let (vel, rot, kind, color) = (c.vel, c.rot, c.kind, c.color);
                 let vid = spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, Some(vel));
                 self.traffic.cars[id].vehicle = vid.map_or(-1, |v| v as i32);

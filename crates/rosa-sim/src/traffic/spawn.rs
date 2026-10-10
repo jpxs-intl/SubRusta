@@ -2,9 +2,13 @@ use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::GameMode;
 
-use super::{DRIVEN, HALF_PI, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, PI, RouteStep, Traffic, TrafficCar, maxss, rand_bit, rand_mod, route::plan_route};
+use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, rand_bit, rand_mod, route::plan_route};
 use crate::{vehicle::types::VehicleType, world::map::Map};
 
+/// The rounded pi the binary turns a new car with: std's pi gives a different last bit (checked by the traffic
+/// dumps).
+const SPAWN_PI: f64 = 3.14159265359;
+const SPAWN_HALF_PI: f64 = 1.570796326795;
 const TOWN_CAR: usize = 0;
 const VAN: usize = 7;
 const MINIVAN: usize = 9;
@@ -88,7 +92,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
     let p = progress * len;
     let mut yaw = if st.north_south != 0 { -std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::PI };
     if slot == 0 {
-        yaw = (yaw as f64 + PI) as f32;
+        yaw = (yaw as f64 + SPAWN_PI) as f32;
     }
     let pos = Vec3::new(dir.x * p + from.x, dir.y * p + from.y, dir.z * p + from.z);
     let ends = st.intersections.map(|i| streets.intersections[i].world_pos.y);
@@ -144,7 +148,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
     plan_route(&mut car, streets, street, slot, to, to_slot);
     let mut rot = IDENTITY;
     let axis = rot[1];
-        rotate_orientation(&mut rot, axis, (yaw as f64 + HALF_PI) as f32);
+    rotate_orientation(&mut rot, axis, (yaw as f64 + SPAWN_HALF_PI) as f32);
     car.rot = rot;
     traffic.cars.push(car);
     if traffic.generations.len() <= id {

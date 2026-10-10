@@ -6,7 +6,6 @@ use crate::{
     body::{BodyContact, Contact, GroundContact},
 };
 
-pub const MAX_BONDS: usize = 16384;
 pub const NEVER_DESPAWN: i32 = 65536;
 
 const JOINT_STIFFNESS: f32 = 0.1875;

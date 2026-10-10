@@ -1,7 +1,7 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 
-use super::{DRIVEN, PI, TWO_PI, Traffic};
+use super::{DRIVEN, Traffic};
 use crate::{
     vehicle::types::VehicleType,
     world::{map::Map, streets::StreetMap, trace::line_intersect_level},
@@ -79,10 +79,10 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     }
     let y = turn + c.yaw;
     let yd = y as f64;
-    c.yaw = if -PI > yd {
-        (yd + TWO_PI) as f32
-    } else if yd > PI {
-        (yd - TWO_PI) as f32
+    c.yaw = if -std::f64::consts::PI > yd {
+        (yd + (std::f64::consts::PI * 2.0)) as f32
+    } else if yd > std::f64::consts::PI {
+        (yd - (std::f64::consts::PI * 2.0)) as f32
     } else {
         y
     };
@@ -100,7 +100,7 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
         };
         vx += co * a;
         vy += lift;
-        vz = a * s + vz;
+        vz += a * s;
     } else {
         let d = (along - target) * BRAKE_GAIN;
         let a = if d > BRAKE_LIMIT { BRAKE_MAX } else {
@@ -109,7 +109,7 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
             a
         };
         vx += co * a;
-        vz = s * a + vz;
+        vz += s * a;
         if PARK_TARGET > target && PARK_SPEED > ((vx * vx + vy * vy) + vz * vz).sqrt() {
             (vx, vy, vz) = (0.0, 0.0, 0.0);
         }

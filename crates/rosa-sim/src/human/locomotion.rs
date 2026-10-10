@@ -1513,7 +1513,7 @@ pub fn slide_simulation(h: &mut Human, bodies: &mut RigidBodies) {
         }
         let target = Vec3::new(t.x - hipv.x, t.y - hipv.y, t.z - hipv.z);
         let mut end_rot = [0.0, 0.0, 0.0, 1.0];
-        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 0.7853982, clamp_max: 0.018407769, pose_spin: [0.25; 3], spin_limit: [0.0625; 3], flags: 0x18 };
+        let params = IkParams { length: 1.0, twist: 0.0, max_turn: 0.7853982, clamp_max: 0.018_407_77, pose_spin: [0.25; 3], spin_limit: [0.0625; 3], flags: 0x18 };
         let frame = h.bones[0].rot;
         three_bone_ik(h, bodies, 0, first, target, &frame, Vec3::ZERO, &params, &mut end_rot);
         for (parent, child) in [(0, first), (first, first + 1)] {

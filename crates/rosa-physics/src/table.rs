@@ -1,15 +1,24 @@
+use std::{cmp::Reverse, collections::BinaryHeap};
+
+/// Slots handed out lowest free index first, like the game's fixed arrays, up to `capacity` of them.
 pub struct Table<T> {
     slots: Vec<Option<T>>,
+    free: BinaryHeap<Reverse<usize>>,
     capacity: usize,
 }
 
 impl<T> Table<T> {
     pub fn new(capacity: usize) -> Self {
-        Self { slots: Vec::new(), capacity }
+        Self { slots: Vec::new(), free: BinaryHeap::new(), capacity }
+    }
+
+    /// A table that grows as far as it is filled.
+    pub fn unbounded() -> Self {
+        Self::new(usize::MAX)
     }
 
     pub fn insert(&mut self, value: T) -> Option<usize> {
-        if let Some(i) = self.slots.iter().position(Option::is_none) {
+        if let Some(Reverse(i)) = self.free.pop() {
             self.slots[i] = Some(value);
             return Some(i);
         }
@@ -21,15 +30,17 @@ impl<T> Table<T> {
     }
 
     pub fn vacant(&self) -> Option<usize> {
-        match self.slots.iter().position(Option::is_none) {
-            Some(i) => Some(i),
+        match self.free.peek() {
+            Some(&Reverse(i)) => Some(i),
             None if self.slots.len() < self.capacity => Some(self.slots.len()),
             None => None,
         }
     }
 
     pub fn remove(&mut self, i: usize) -> Option<T> {
-        self.slots.get_mut(i)?.take()
+        let value = self.slots.get_mut(i)?.take()?;
+        self.free.push(Reverse(i));
+        Some(value)
     }
 
     pub fn get(&self, i: usize) -> Option<&T> {

@@ -1,7 +1,7 @@
 use rosa_map::file_types::srk::SrkPlayerData;
 use rosa_protocol::{
     GameMode, Team,
-    clientbound::game::events::{Event, ServerEvent, update_stock::EventUpdateStock},
+    clientbound::game::events::{Event, ServerEvent, chat::ChatType, update_stock::EventUpdateStock},
 };
 
 use super::Sim;
@@ -139,6 +139,9 @@ const WORLD_MISSIONS_TIME: i32 = 1728060;
 const WORLD_SAVE_PERIOD: i32 = 18000;
 const WORLD_RESPAWN_BASE: i32 = 1200;
 const WORLD_RESPAWN_PER_CRIME: i32 = 30;
+/// An eliminator death adds 18000 ticks split between a third of the starting players, up to 50400.
+const DEATH_CUT_TIME: i32 = 18000;
+const DEATH_CUT_CAP: i32 = 50400;
 const PLAY_TIME_STEP: u32 = 5;
 
 impl Sim {
@@ -162,11 +165,11 @@ impl Sim {
         self.save_accounts();
         for (_, p) in self.players.iter() {
             if let Some(a) = self.saved_accounts.get_player_data(p.account_id) {
-                // TODO: name the fourth saved field (srk.rs calls it spawn_timer); the binary adds 5 to it at every save
-                a.spawn_timer += PLAY_TIME_STEP;
+                a.play_time += PLAY_TIME_STEP;
             }
         }
-        // TODO: the account countdown at record +0x38 (not saved), save_stats
+        // TODO: the account countdown at record +0x38 (not saved)
+        self.save_stats();
         self.events.push(stock_event(&self.corporations, self.tick));
     }
 
@@ -177,7 +180,9 @@ impl Sim {
         if player.team == team {
             return;
         }
-        // TODO: a corporation's manager leaving it stops managing (and in world mode update_corp_player_ratings)
+        let old = player.team;
+        self.leave_corp_management(pid, old);
+        let Some(player) = self.players.get_mut(pid.idx()) else { return };
         player.team = team;
         let look = &mut player.customization;
         if let Some(c) = corporation_of(team) {
@@ -208,6 +213,34 @@ impl Sim {
         }
     }
 
+    /// save_stats: writes stats.txt, the deals made and bullets fired since the server started, the accounts and their
+    /// play time (in tens), and a line per account.
+    pub(crate) fn save_stats(&self) {
+        let accounts = &self.saved_accounts.players;
+        let total = accounts.iter().fold(0u32, |t, a| t.wrapping_add(a.play_time / 10));
+        let average = if accounts.is_empty() { 0 } else { total / accounts.len() as u32 };
+        let mut out = format!(
+            "numofmissions={}\r\nnumofbullets={}\r\nusers={}\r\ntotaltime={}\r\naveragetime={}\r\n\r\n",
+            self.stats.missions as i32,
+            self.stats.bullets as i32,
+            accounts.len(),
+            total as i32,
+            average as i32
+        );
+        for (i, a) in accounts.iter().enumerate() {
+            let name = String::from_utf8_lossy(a.player_name.split(|&b| b == 0).next().unwrap_or(&[])).into_owned();
+            let line = format!("{i}:{name}:{} ({})", (a.play_time / 10) as i32, a.account_id as i32);
+            out += &line;
+            if a.ban_time != 0 {
+                out += &format!(" BANNED {}", a.ban_time as i32);
+            }
+            out += "\r\n";
+        }
+        if let Err(e) = std::fs::write("stats.txt", out) {
+            println!("[Sim] Could not save stats: {e:?}");
+        }
+    }
+
     /// The death bookkeeping of human_simulation for a dead human's player: world mode sells their shares and sets
     /// the respawn wait, every mode taxes their wealth, then the player loses the human.
     pub(crate) fn settle_death(&mut self, pid: PlayerId) {
@@ -223,7 +256,10 @@ impl Sim {
             wealth_tax(player, &mut self.corporations);
             self.events.push(player.make_update_round_event(tick));
         }
-        // TODO: eliminator's death cut (broadcast_death_cut_time) and versus clearing the player's saved slots
+        if mode == GameMode::Eliminator && real {
+            self.broadcast_death_cut_time(pid);
+        }
+        // TODO: versus clears the player's seven saved slots (+0x17f4, 0x64 apart)
         if mode == GameMode::World {
             // TODO: the setting at 0x45385614 (off by default) keeps the dead player in their corporation
             self.set_player_team(pid, Team::Spectator);
@@ -233,6 +269,18 @@ impl Sim {
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         player.human = None;
         self.events.push(player.make_update_player_event(tick));
+    }
+
+    /// broadcast_death_cut_time: everyone hears of the death, and before the last 50400 ticks the clock gains 18000
+    /// ticks shared between a third of the players who started.
+    fn broadcast_death_cut_time(&mut self, pid: PlayerId) {
+        let Some(name) = self.players.get(pid.idx()).map(|p| p.username.clone()) else { return };
+        self.send_chat(&format!("{name} has died"), ChatType::EliminatorAnnouncement, -1, 0);
+        let timer = self.game_timer;
+        let thirds = self.eliminator.ready / 3;
+        if timer <= DEATH_CUT_CAP && thirds > 0 {
+            self.game_timer = (DEATH_CUT_TIME / thirds + timer).min(DEATH_CUT_CAP);
+        }
     }
 
     /// The account part of server_recv_and_dispatch's join and restore_account_data: round and world mode players
@@ -269,6 +317,7 @@ impl Sim {
             }
             h.player = Some(pid);
             player.human = Some(id);
+            player.ghost_human = false;
             player.team = h.team.unwrap_or(Team::Spectator);
             if mode == GameMode::World {
                 let stocks = h.stocks;
@@ -285,14 +334,19 @@ impl Sim {
     /// human remembers the account.
     pub(crate) fn settle_leave(&mut self, pid: PlayerId) {
         let mode = self.gamemode;
+        self.remove_player_from_corps(pid);
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        // TODO: bots skip all of this; remove_player_form_corp and clearing the corporations they manage
+        // TODO: bots skip all of this
         let held = player.stocks;
         sell_stocks(player, &mut self.corporations, held, mode);
         if pid.idx() <= 0xff {
             let held = player.stocks;
             sell_stocks(player, &mut self.corporations, held, mode);
         }
+        let team = player.team;
+        self.leave_corp_management(pid, team);
+        // TODO: delete_player also clears 4 bytes of each corporation the player managed (near corporation +0x328)
+        let Some(player) = self.players.get_mut(pid.idx()) else { return };
         if let Some(a) = self.saved_accounts.get_player_data(player.account_id) {
             a.money = player.money as u32;
             a.corp_rating = player.corp_rating as u32;
@@ -324,5 +378,21 @@ impl Sim {
             _ => {}
         }
         self.events.push(player.make_update_round_event(tick));
+    }
+}
+
+/// Hooks for checking stats.txt against the original server.
+impl Sim {
+    pub fn set_stats(&mut self, missions: u32, bullets: u32) {
+        self.stats.missions = missions;
+        self.stats.bullets = bullets;
+    }
+
+    pub fn set_accounts(&mut self, accounts: Vec<rosa_map::file_types::srk::SrkPlayerData>) {
+        self.saved_accounts.players = accounts;
+    }
+
+    pub fn write_stats(&self) {
+        self.save_stats();
     }
 }

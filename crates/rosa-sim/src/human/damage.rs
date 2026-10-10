@@ -62,7 +62,7 @@ pub fn damage_human(h: &mut Human, bone: usize, damage: i32) {
         0..=2 => {
             h.chest_hp -= damage;
             h.pain += damage;
-            if h.blood_level <= FULL_BLOOD - 1 {
+            if h.blood_level < FULL_BLOOD {
                 let scale = (1.0f32).min((FULL_BLOOD - h.blood_level) as f32 / BLOOD_LOSS_SCALE);
                 h.health = (h.health as f32 - scale * damage as f32) as i32;
             }
@@ -75,24 +75,29 @@ pub fn damage_human(h: &mut Human, bone: usize, damage: i32) {
         7..=9 => h.right_arm_hp += damage - damage * 4,
         10..=12 => {
             h.left_leg_hp -= damage * 2;
-            if h.blood_level <= FULL_BLOOD - 1 {
+
+            if h.blood_level < FULL_BLOOD {
                 h.health = blood_health(h.health, h.blood_level);
             }
         }
         _ => {
             h.right_leg_hp -= damage * 2;
-            if h.blood_level <= FULL_BLOOD - 1 {
+
+            if h.blood_level < FULL_BLOOD {
                 h.health = blood_health(h.health, h.blood_level);
             }
         }
     }
+
     // TODO: the binary uses glibc rand() here (seeded at startup), so which hits start bleeding differs
     if damage > 0 && ((rand() & 0x1f) as i32) < damage {
         h.bleeding = true;
     }
+
     if h.pain > PAIN_CAP {
         h.pain = PAIN_CAP;
     }
+
     if h.health < 0 {
         h.health = 0;
     }

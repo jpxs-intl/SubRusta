@@ -274,7 +274,7 @@ impl VehicleType {
     fn add_wheel(&mut self, state: i32, a: i32, b: i32, weights: [f32; 2], radius: f32, mass: f32, spin_response: f32, vertical_offset: f32, tuning: [f32; 3]) {
         let (pa, pb) = (self.nodes[a as usize].pos, self.nodes[b as usize].pos);
         let mut local_pos = lerp(pa, pb, weights[1]);
-        local_pos.y = vertical_offset + local_pos.y;
+        local_pos.y += vertical_offset;
         self.wheels.push(WheelDef {
             state,
             node_a: a,

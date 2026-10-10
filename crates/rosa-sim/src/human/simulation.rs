@@ -15,9 +15,6 @@ use super::{
 };
 use crate::{sim::items::Touchables, world::map::Map};
 
-const PI: f64 = 3.14159265359;
-const TWO_PI: f64 = 6.28318530718;
-const HALF_PI: f64 = 1.570796326795;
 const TURN_STEP: f32 = 0.046875;
 const DESPAWN_TICKS: i32 = 3600;
 const DEAD_PLAYER_TICKS: i32 = 3480;
@@ -29,9 +26,10 @@ pub enum HumanTick {
 }
 
 /// human_simulation for one human: health, turning towards the view, balance and walking for the conscious, the
-/// ragdoll for the dead, and the contacts holding the bones against the world.
+/// ragdoll for the dead, and the contacts holding the bones against the world. Round and eliminator mode keep dead
+/// bodies (`keep_bodies`).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], out: &mut Vec<HumanOutput>, ticks: u32, noise_seed: &mut i32) -> HumanTick {
+pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], out: &mut Vec<HumanOutput>, ticks: u32, noise_seed: &mut i32, keep_bodies: bool) -> HumanTick {
     find_nearby_vehicles(h, touch);
     let nearby = h.nearby_vehicles.clone();
     let seated = h.vehicle;
@@ -110,7 +108,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         let mut pitch = 0.0;
         if 0.0 > s {
             pitch = s * 3.0;
-            if -HALF_PI > pitch as f64 {
+            if -(std::f64::consts::PI / 2.0) > pitch as f64 {
                 pitch = -1.5707964;
             }
         }
@@ -129,7 +127,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         walk_and_collide(h, bodies, map, touch, &nearby, out);
     }
     if h.old_health > 0 {
-        hand_grab_and_inventory(h, id, bodies, touch);
+        hand_grab_and_inventory(h, id, bodies, touch, out);
         action_simulation(h, id, bodies, touch, out);
     } else {
         drop_everything(h, bodies, touch, noise_seed);
@@ -158,7 +156,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         human_contacts(h, bodies, others);
     }
 
-    let result = despawn_timer(h, out);
+    let result = despawn_timer(h, out, keep_bodies);
     h.last_input_flags = h.input_flags;
     update_networked_bones(h);
     result
@@ -219,7 +217,11 @@ fn drop_everything(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchabl
     }
 }
 
-fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
+/// A dead body's timer is held at 4 in round and eliminator mode, so it never despawns.
+const KEPT_BODY_TICKS: i32 = 4;
+
+fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>, keep_bodies: bool) -> HumanTick {
+    let alive = h.old_health > 0;
     if h.old_health > 0 {
         if h.player.is_some() {
             h.despawn_ticks = DESPAWN_TICKS;
@@ -228,8 +230,7 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
     } else if h.despawn_ticks < DEAD_PLAYER_TICKS
         && let Some(player) = h.player
     {
-        // TODO: the game mode bookkeeping on death (world mode stocks, eliminator and versus scores, saved
-        // inventories, account cash) and versus's other limit
+        // TODO: versus releases at 3300 with its setting at 0x44f85618 on
         out.push(HumanOutput::ReleasePlayer(player));
         h.player = None;
         h.account = None;
@@ -238,7 +239,10 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
     {
         out.push(HumanOutput::TaxAccount(account));
     }
-    // TODO: in game modes 3 and 5 a dead human's timer stops at 3
+    if keep_bodies && !alive && h.despawn_ticks - 1 < KEPT_BODY_TICKS {
+        h.despawn_ticks = KEPT_BODY_TICKS;
+        return HumanTick::Keep;
+    }
     h.despawn_ticks -= 1;
     if h.despawn_ticks > 0 { HumanTick::Keep } else { HumanTick::Delete }
 }
@@ -246,27 +250,27 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>) -> HumanTick {
 fn turn_towards_view(h: &mut Human) {
     let (a, b) = (h.client_body_yaw, h.body_yaw);
     let mut b2 = b;
-    if ((a - b) as f64) >= PI {
-        b2 = (b as f64 + TWO_PI) as f32;
+    if ((a - b) as f64) >= std::f64::consts::PI {
+        b2 = (b as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     let mut d = b2 - a;
-    if (d as f64) >= PI {
-        d = b2 - (a as f64 + TWO_PI) as f32;
+    if (d as f64) >= std::f64::consts::PI {
+        d = b2 - (a as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     let mut c = h.look_yaw;
-    if ((d - c) as f64) >= PI {
-        c = (c as f64 + TWO_PI) as f32;
+    if ((d - c) as f64) >= std::f64::consts::PI {
+        c = (c as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     let mut e = c - d;
-    if (e as f64) >= PI {
-        e = c - (d as f64 + TWO_PI) as f32;
+    if (e as f64) >= std::f64::consts::PI {
+        e = c - (d as f64 + (std::f64::consts::PI * 2.0)) as f32;
     }
     h.view_turn = e;
     let step = e.clamp(-TURN_STEP, TURN_STEP);
     let (step, rest) = if h.is_standing { (step, e - step) } else { (0.0, e) };
-    h.yaw_offset = if -HALF_PI > rest as f64 {
+    h.yaw_offset = if -(std::f64::consts::PI / 2.0) > rest as f64 {
         -1.5707964
-    } else if rest as f64 > HALF_PI {
+    } else if rest as f64 > (std::f64::consts::PI / 2.0) {
         1.5707964
     } else {
         rest
@@ -284,16 +288,16 @@ fn turn_towards_view(h: &mut Human) {
         if tiny > body.abs() {
             body = 0.0;
         }
-        if -PI > yaw as f64 {
-            yaw = (yaw as f64 + TWO_PI) as f32;
-        } else if yaw as f64 > PI {
-            yaw = (yaw as f64 - TWO_PI) as f32;
+        if -std::f64::consts::PI > yaw as f64 {
+            yaw = (yaw as f64 + (std::f64::consts::PI * 2.0)) as f32;
+        } else if yaw as f64 > std::f64::consts::PI {
+            yaw = (yaw as f64 - (std::f64::consts::PI * 2.0)) as f32;
         }
     }
-    if -PI > body as f64 {
-        body = (body as f64 + TWO_PI) as f32;
-    } else if body as f64 > PI {
-        body = (body as f64 - TWO_PI) as f32;
+    if -std::f64::consts::PI > body as f64 {
+        body = (body as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    } else if body as f64 > std::f64::consts::PI {
+        body = (body as f64 - (std::f64::consts::PI * 2.0)) as f32;
     }
     h.view_yaw = yaw;
     h.body_yaw = body;
@@ -307,7 +311,7 @@ fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
     let id = id as i32;
     let t = (id.wrapping_mul(id).wrapping_mul(id).wrapping_add(ticks as i32)) & 0x1ff;
     let x = t as f32 * 0.001953125;
-    let s = ((x as f64 * TWO_PI) as f32 as f64).sin();
+    let s = ((x as f64 * (std::f64::consts::PI * 2.0)) as f32 as f64).sin();
     let hp = old_health as f32;
     let a = hp / 25.0;
     let mut r = (s * 0.25 * (base - a) as f64 + (a * 0.5 + 0.375) as f64) as f32;
@@ -318,6 +322,11 @@ fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
 }
 
 /// human_health_sim: bleeding, regeneration and death from wounds.
+///
+/// Health, blood and the body parts each heal by one point (up to 100) on their own schedule:
+/// - immortal: health every 8 ticks, parts every 16, blood every 256;
+/// - mortal and bleeding: health every 64 ticks, nothing else;
+/// - mortal: health every 32 ticks, parts every 64, blood every 256.
 fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     // TODO: game mode 6 and the owning player's flag (player +0x2d18) kill humans below 50 health here
     if h.is_immortal {
@@ -328,88 +337,70 @@ fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) 
             h.down_timer = 1800;
         }
     } else if h.health <= 74 {
-        let p = (75 - h.health) * 2;
-        let p = if p > 60 { 60 } else { p };
-        if h.pain < p {
-            h.pain = p;
-        }
+        h.pain = h.pain.max(((75 - h.health) * 2).min(60));
     }
+
     if h.old_health <= 0 {
         h.bleeding = false;
         h.health = 0;
         return;
     }
-    if h.health < 0 {
-        h.health = 0;
+
+    h.health = h.health.max(0);
+    for hp in parts(h) {
+        *hp = (*hp).max(0);
     }
-    for hp in [&mut h.chest_hp, &mut h.head_hp, &mut h.left_arm_hp, &mut h.right_arm_hp, &mut h.left_leg_hp, &mut h.right_leg_hp] {
-        if *hp < 0 {
-            *hp = 0;
+
+    let every = |n: u32| ticks.is_multiple_of(n);
+    if h.is_immortal {
+        if every(8) {
+            heal(&mut h.health);
         }
-    }
-    let bleeding = h.bleeding;
-    let immortal = h.is_immortal;
-    let (mut stage, mut fast) = (0, false);
-    if immortal {
-        if ticks & 7 == 0 {
-            if h.health <= 99 {
-                h.health += 1;
-            }
-            fast = true;
-        } else if ticks as u8 == 0 && h.blood_level <= 99 {
-            h.blood_level += 1;
-            (stage, fast) = (1, true);
-        } else {
-            if ticks & 0xf == 0 {
-                regen_parts(h);
-            }
-            stage = 2;
+        if every(16) {
+            parts(h).into_iter().for_each(heal);
+        }
+        if every(256) {
+            heal(&mut h.blood_level);
         }
     } else {
-        if h.chest_hp <= 0 {
+        if h.chest_hp <= 0 || h.head_hp <= 0 {
             h.old_health = 0;
         }
-        if h.head_hp <= 0 {
-            h.old_health = 0;
-        }
-        let due = if bleeding { ticks & 0x3f == 0 } else { ticks & 0x1f == 0 };
-        if due && h.health <= 99 {
-            h.health += 1;
-        }
-        if bleeding {
-            stage = 3;
+        if h.bleeding {
+            if every(64) {
+                heal(&mut h.health);
+            }
+        } else {
+            if every(32) {
+                heal(&mut h.health);
+            }
+            if every(64) {
+                parts(h).into_iter().for_each(heal);
+            }
+            if every(256) {
+                heal(&mut h.blood_level);
+            }
         }
     }
-    if stage == 0 {
-        if ticks as u8 == 0 && h.blood_level <= 99 {
-            h.blood_level += 1;
-        }
-        stage = 1;
-    }
-    if stage == 1 {
-        let mask = if fast { 0xf } else { 0x3f };
-        if ticks & mask == 0 {
-            regen_parts(h);
-        }
-        stage = 2;
-    }
-    if stage == 2 && bleeding {
-        stage = 3;
-    }
-    if stage == 3 {
+
+    if h.bleeding {
         bleed(id, h, ticks, out);
     }
+
     if !h.is_immortal && h.blood_level <= 10 {
         h.old_health = 0;
     }
 }
 
-fn regen_parts(h: &mut Human) {
-    for hp in [&mut h.chest_hp, &mut h.head_hp, &mut h.left_arm_hp, &mut h.right_arm_hp, &mut h.left_leg_hp, &mut h.right_leg_hp] {
-        if *hp <= 99 {
-            *hp += 1;
-        }
+/// One point back, up to 100.
+fn heal(v: &mut i32) {
+    if *v <= 99 {
+        *v += 1;
     }
+}
+
+fn parts(h: &mut Human) -> [&mut i32; 6] {
+    [&mut h.chest_hp, &mut h.head_hp, &mut h.left_arm_hp, &mut h.right_arm_hp, &mut h.left_leg_hp, &mut h.right_leg_hp]
 }
 
 fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {

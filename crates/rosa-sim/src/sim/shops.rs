@@ -58,35 +58,72 @@ impl Sim {
         }
     }
 
-    /// The shop part of logic_player: standing in a dealership opens its front page (menu 9), in a store, clothing
+    /// The menu part of logic_player: standing in a dealership opens its front page (menu 9), in a store, clothing
     /// store or burger shop its list (menu 10), in a bank the bank (menu 13); leaving the building closes menus 9 to 11.
+    /// In world mode a human in none of them gets the corporation base menus, and every player's buttons are rebuilt.
     pub(crate) fn update_shop_menus(&mut self) {
-        // TODO: the corporation menus (buy menus 14 to 19 in round modes, applying and managing in world mode)
-        let buildings = &self.world.map.level.buildings;
-        let restarting = self.gamestate == rosa_protocol::clientbound::game::GameState::Restarting;
-        for (_, p) in self.players.iter_mut() {
-            if restarting && p.human.is_some() {
-                p.menu = MenuType::Empty;
-                continue;
-            }
-            let Some(pos) = p.human.and_then(|h| self.humans.get(h)).map(|h| h.pos) else { continue };
-            let id = p.menu as u8;
-            if (9..=11).contains(&id) && !usize::try_from(p.menu_tab).ok().and_then(|k| buildings.get(k)).is_some_and(|b| b.contains(pos, 0.0)) {
-                p.menu = MenuType::Empty;
-            }
-            let shop = buildings.iter().enumerate().find_map(|(k, b)| match b.kind {
-                CAR_DEALER if b.contains(pos, 0.0) => Some((k, 9)),
-                GUN_STORE | BURGER_SHOP | CLOTHING_STORE if b.contains(pos, 0.0) => Some((k, 10)),
-                _ => None,
-            });
-            let found = shop.or_else(|| buildings.iter().position(|b| b.kind == crate::world::building::BANK && b.contains(pos, 0.0)).map(|k| (k, 13)));
-            if let Some((k, m)) = found
-                && p.menu == MenuType::Empty
-            {
-                p.menu = menu(m);
-                p.menu_tab = k as i32;
+        let world = self.gamemode == rosa_protocol::GameMode::World;
+        for pid in self.players.iter().map(|(_, p)| p.player_id).collect::<Vec<_>>() {
+            let outside = self.shop_menu(pid);
+            if world {
+                if let Some(pos) = outside.flatten() {
+                    self.corp_base_menu(pid, pos);
+                }
+                self.corp_tab_menu(pid);
+            } else {
+                if let Some(pos) = outside.flatten() {
+                    self.round_base_menu(pid, pos);
+                }
+                self.round_menu_buttons(pid);
             }
         }
+        if world {
+            self.copy_corp_money();
+        }
+    }
+
+    /// One player's shop menu. Returns None for a player without a human, and the human's position when it is in no
+    /// shop or bank.
+    fn shop_menu(&mut self, pid: PlayerId) -> Option<Option<glam::Vec3>> {
+        let buildings = &self.world.map.level.buildings;
+        let restarting = self.gamestate == rosa_protocol::clientbound::game::GameState::Restarting;
+        let p = self.players.get_mut(pid.idx())?;
+        p.menu_buttons.clear();
+        if p.ghost_human && p.human.is_none() {
+            p.menu = MenuType::Empty;
+            return None;
+        }
+        if p.human.is_none() {
+            use rosa_protocol::GameMode as M;
+            if matches!(self.gamemode, M::Racing | M::Round | M::Eliminator | M::CoOp | M::Versus) {
+                p.menu = if self.gamestate == rosa_protocol::clientbound::game::GameState::Intermission { MenuType::Lobby } else { MenuType::Empty };
+            }
+            return None;
+        }
+        let pos = p.human.and_then(|h| self.humans.get(h)).map(|h| h.pos)?;
+        if restarting {
+            p.menu = MenuType::Empty;
+            return Some(None);
+        }
+        let id = p.menu as u8;
+        if (9..=11).contains(&id) && !usize::try_from(p.menu_tab).ok().and_then(|k| buildings.get(k)).is_some_and(|b| b.contains(pos, 0.0)) {
+            p.menu = MenuType::Empty;
+        }
+        let shop = buildings.iter().enumerate().find_map(|(k, b)| match b.kind {
+            CAR_DEALER if b.contains(pos, 0.0) => Some((k, 9)),
+            GUN_STORE | BURGER_SHOP | CLOTHING_STORE if b.contains(pos, 0.0) => Some((k, 10)),
+            _ => None,
+        });
+        let found = shop.or_else(|| buildings.iter().position(|b| b.kind == crate::world::building::BANK && b.contains(pos, 0.0)).map(|k| (k, 13)));
+        let Some((k, m)) = found else {
+            // TODO: the binary closes every menu here in world mode; the /stocks test menu is kept open
+            return Some((p.menu != MenuType::RoundCorpStock).then_some(pos));
+        };
+        if p.menu == MenuType::Empty {
+            p.menu = menu(m);
+            p.menu_tab = k as i32;
+        }
+        Some(None)
     }
 
     /// The shop menus of logic_playerinteractions: the front page picks buying (1) or selling (2); a list buys its entry
@@ -142,19 +179,23 @@ impl Sim {
         b.shop.get((button as usize).checked_sub(1)?).copied()
     }
 
-    /// An item at the human, put into the first of `slots` that takes it.
-    fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>) {
-        let Ok(kind) = ItemKind::try_from(kind) else { return };
-        let Some(pos) = self.humans.get(human).map(|h| h.pos) else { return };
-        let Some(item) = self.create_item(kind, pos, None, IDENTITY) else { return };
+    /// An item at the human, set up by `init` and put into the first of `slots` that takes it. Returns the item.
+    pub(super) fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>, init: impl FnOnce(&mut super::item_state::ItemState)) -> Option<usize> {
+        let kind = ItemKind::try_from(kind).ok()?;
+        let pos = self.humans.get(human).map(|h| h.pos)?;
+        let item = self.create_item(kind, pos, None, IDENTITY)?;
+        if let Some(i) = self.items.get_mut(item) {
+            init(&mut i.state);
+        }
         let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
-        let Some(h) = humans.get_mut(human) else { return };
+        let Some(h) = humans.get_mut(human) else { return Some(item) };
         let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
         for slot in slots {
             if crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, item, slot) {
                 break;
             }
         }
+        Some(item)
     }
 
     /// buy_shop_item: the entry's item into the first free pocket, paid for.
@@ -165,7 +206,7 @@ impl Sim {
             return;
         }
         if let Some(h) = p.human {
-            self.give_item(h, entry.kind as u8, POCKETS);
+            self.give_item(h, entry.kind as u8, POCKETS, |_| {});
         }
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.money -= entry.price;
@@ -186,7 +227,7 @@ impl Sim {
         if let Some(h) = p.human
             && button == 1
         {
-            self.give_item(h, ItemKind::Burger as u8, ANY_SLOT);
+            self.give_item(h, ItemKind::Burger as u8, ANY_SLOT, |_| {});
         }
     }
 

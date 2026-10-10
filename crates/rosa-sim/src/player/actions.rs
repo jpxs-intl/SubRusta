@@ -13,24 +13,42 @@ impl Default for ActionQueue {
 }
 
 impl ActionQueue {
+    /// A client game packet: its count (player +0x1b4) becomes the base, and its actions go in from there.
     pub fn ingest(&mut self, start: u8, actions: Vec<GameAction>) {
-        let mut idx = start % 64;
+        self.write = start % 64;
         for action in actions {
-            self.ring[idx as usize] = Some(action);
-            idx = (idx + 1) % 64;
-        }
-
-        if (idx.wrapping_sub(self.applied) % 64) > (self.write.wrapping_sub(self.applied) % 64) {
-            self.write = idx;
+            self.ring[self.write as usize] = Some(action);
+            self.write = (self.write + 1) % 64;
         }
     }
 
+    /// reset_game: both counts back to 0.
+    pub fn reset(&mut self) {
+        self.write = 0;
+        self.applied = 0;
+    }
+
+    /// An action the server makes for a bot, queued after the others.
+    pub fn push(&mut self, action: GameAction) {
+        self.ring[self.write as usize] = Some(action);
+        self.write = (self.write + 1) % 64;
+    }
+
+    pub fn get(&self, i: u8) -> Option<&GameAction> {
+        self.ring[(i % 64) as usize].as_ref()
+    }
+
+    /// logic_playerinteractions: every slot from the last handled one (+0x1b8) up to the count.
     pub fn drain(&mut self) -> impl Iterator<Item = GameAction> + '_ {
         std::iter::from_fn(|| {
-            if self.applied == self.write { return None; }
-            let a = self.ring[self.applied as usize].take();
-            self.applied = self.applied.wrapping_add(1) % 64;
-            a
+            while self.applied != self.write {
+                let a = self.ring[self.applied as usize].take();
+                self.applied = (self.applied + 1) % 64;
+                if a.is_some() {
+                    return a;
+                }
+            }
+            None
         })
     }
 }

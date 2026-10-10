@@ -30,7 +30,6 @@ const ITEM_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const ITEM_SOFTNESS: f32 = 1.0 / 32.0;
 const NETWORKED_WHEELS: usize = 4;
 const BYTE: f64 = 255.0;
-const HALF_TURN: f64 = 3.1415926535900001;
 
 fn to_byte(v: f32, min: i32) -> i32 {
     ((v * 255.0) as i32).clamp(min, 255)
@@ -76,7 +75,7 @@ impl Sim {
             .iter()
             .filter(|(id, v)| *id < NETWORKED_VEHICLES && v.controllable_state != HIDDEN_STATE)
             .map(|(id, v)| {
-                let steer = ((v.steer as f64 / HALF_TURN * BYTE) as i32).clamp(-255, 255);
+                let steer = ((v.steer as f64 / std::f64::consts::PI * BYTE) as i32).clamp(-255, 255);
                 let wheels = std::array::from_fn(|k| v.wheels.get(k).filter(|_| k < NETWORKED_WHEELS).map_or([0; 3], |w| [to_byte(w.visual_height, 0), to_byte(w.spin, -255), to_byte(w.skid, 0)]));
                 ServerVehicleObject {
                     vehicle_id: id as u16,
@@ -233,6 +232,10 @@ impl Sim {
 }
 
 impl Sim {
+    pub fn bond_count(&self) -> usize {
+        self.bodies.bond_count()
+    }
+
     pub fn vehicle(&self, id: usize) -> Option<&crate::vehicle::Vehicle> {
         self.vehicles.get(id)
     }

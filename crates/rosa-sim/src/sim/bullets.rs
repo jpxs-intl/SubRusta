@@ -62,19 +62,22 @@ pub struct Bullet {
 }
 
 /// create_bullet: a bullet of `kind` leaving `pos` at `vel`, fired by `player`.
-pub fn create_bullet(bullets: &mut Vec<Bullet>, kind: i32, pos: Vec3, vel: Vec3, player: Option<PlayerId>, gravity_scale: f32) {
+pub fn create_bullet(bullets: &mut Vec<Bullet>, kind: i32, pos: Vec3, vel: Vec3, player: Option<PlayerId>, gravity_scale: f32) -> bool {
     // TODO: create_bullet also keeps two axes across the flight direction (+0x38, +0x44) that nothing here reads
     if bullets.len() >= MAX_BULLETS {
-        return;
+        return false;
     }
     let mass = BULLET_DATA.get(kind as usize).map_or(0.0, |d| d.0);
     bullets.push(Bullet { kind, time: LIFETIME, player, mass, gravity: BULLET_GRAVITY * gravity_scale, prev: pos, pos, vel });
+    true
 }
 
 impl Sim {
     /// create_bullet for a bullet nobody fired.
     pub fn spawn_bullet(&mut self, kind: i32, pos: Vec3, vel: Vec3) {
-        create_bullet(&mut self.bullets, kind, pos, vel, None, self.bodies.gravity_scale);
+        if create_bullet(&mut self.bullets, kind, pos, vel, None, self.bodies.gravity_scale) {
+            self.stats.bullets += 1;
+        }
     }
 
     /// A bullet stopped by a vehicle: a tyre loses health and bursts, a window breaks, or the vehicle is hurt.
@@ -152,7 +155,9 @@ impl Sim {
                 if h.player == shooter && matches!(hit.bone, 5 | 6 | 8 | 9) {
                     continue;
                 }
-                // TODO: players in god mode are not hit
+                if h.player.and_then(|p| self.players.get(p.idx())).is_some_and(|p| p.god_mode) {
+                    continue;
+                }
                 best = hit.fraction;
                 human_hit = Some((id, hit));
             }

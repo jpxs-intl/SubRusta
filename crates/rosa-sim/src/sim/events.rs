@@ -35,6 +35,7 @@ impl Sim {
             Client {
                 addr: src,
                 event_cursor: 0,
+                round_number: u32::MAX,
                 last_sdl_tick: 0,
                 earshots: [None; 8],
                 pack_ring: Vec::new(),
@@ -82,12 +83,18 @@ impl Sim {
     }
 
     pub(crate) fn on_menu_action(&mut self, player_id: PlayerId, action: MenuAction) {
-        if self.players.get(player_id.idx()).is_some_and(|p| p.menu == MenuType::RoundCorpStock) {
-            return self.stock_menu_selection(player_id, action.button);
-        }
         let id = match action.menu { Menu::Lobby => 2, Menu::Other(m) => m };
+        if self.players.get(player_id.idx()).is_some_and(|p| p.menu as u8 == id && (p.human.is_some() || p.ghost_human) && matches!(id, 14..=19)) {
+            return self.round_buy_menu(player_id, action.button);
+        }
         if self.players.get(player_id.idx()).is_some_and(|p| p.menu as u8 == id && matches!(id, 9..=11)) {
             return self.shop_menu_action(player_id, action.button);
+        }
+        if self.gamemode == rosa_protocol::GameMode::World && self.players.get(player_id.idx()).is_some_and(|p| p.menu as u8 == id && p.human.is_some() && matches!(id, 20..=26)) {
+            return self.corp_menu_action(player_id, id, action.button as i32);
+        }
+        if matches!(self.gamemode, rosa_protocol::GameMode::Round | rosa_protocol::GameMode::Eliminator) && matches!(action.menu, Menu::Lobby) {
+            return self.round_lobby(player_id, action.button);
         }
         let player = self.players.get_mut(player_id.idx()).unwrap();
 
@@ -163,12 +170,19 @@ impl Sim {
 
     pub(crate) fn on_chat_action(&mut self, player_id: PlayerId, action: ChatAction) {
         match action.message.trim() {
+            "/tps" => return self.tps_command(),
+            "/godmode" => return self.godmode_command(player_id),
+            _ => {}
+        }
+
+        let sandbox = self.gamemode == rosa_protocol::GameMode::Sandbox;
+        match action.message.trim() {
+            _ if !sandbox => {}
             "/watermelon" => return self.spawn_watermelon_for(player_id),
             "/human" => return self.spawn_human_for(player_id),
             "/kill" => return self.kill_human_for(player_id),
             "/guns" => return self.spawn_guns_for(player_id),
             "/clear" => return self.clear_command(),
-            "/tps" => return self.tps_command(),
             m if m.starts_with("/car") => return self.car_command(player_id, m),
             m if m.starts_with("/item") => return self.item_command(player_id, m),
             m if m.starts_with("/phone") => return self.phone_command(player_id, m),

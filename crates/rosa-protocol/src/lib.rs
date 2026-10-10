@@ -17,7 +17,20 @@ pub enum GameMode {
     Eliminator = 5,
     CoOp = 6,
     Versus = 7,
-    None = 8
+    None = 8,
+    /// Our own mode: no game mode logic, always in game, with the test commands (/human, /guns, ...). Clients are
+    /// told it is round mode.
+    Sandbox = 9,
+}
+
+impl GameMode {
+    /// The mode clients and the server list are told.
+    pub fn client_mode(self) -> GameMode {
+        match self {
+            GameMode::Sandbox => GameMode::Round,
+            m => m,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +42,8 @@ pub enum Team {
     Nexaco = 3,
     Pentacom = 4,
     Prodocon = 5,
+    /// The crews of round car chases.
+    Mission = 7,
 
     Spectator = 17
 }

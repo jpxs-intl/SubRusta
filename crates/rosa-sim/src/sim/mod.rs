@@ -25,6 +25,12 @@ use self::traffic::traffic_section;
 use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
 
 pub mod bullets;
+pub mod corporations;
+pub mod bots;
+pub mod eliminator;
+pub mod missions;
+pub mod round;
+pub mod round_menus;
 pub mod crime;
 pub mod economy;
 pub mod events;
@@ -50,7 +56,7 @@ pub struct Earshot {
 }
 
 /// server_events: every event ever announced, in a ring of 65536 slots that a client walks with its own count.
-pub struct EventRing {
+pub(crate) struct EventRing {
     slots: Vec<Option<Event>>,
     count: u16,
 }
@@ -90,6 +96,10 @@ struct TickCtx<'a> {
     gamestate: GameState,
     ready_states: Option<[bool; 32]>,
     traffic: &'a crate::traffic::Traffic,
+    game_timer: i32,
+    round_number: u32,
+    corp_round: [(i32, i32); 3],
+    team_counts: [i32; 5],
     /// The items no client is sent (in a pocket or closed briefcase).
     pocketed: std::collections::HashSet<u16>,
 }
@@ -126,6 +136,33 @@ pub struct Sim {
     account_spawn_timers: HashMap<u32, i32>,
     traffic: crate::traffic::Traffic,
     tick_stats: tps::TickStats,
+    /// Each corporation's manager, applicants and account.
+    corp_state: [corporations::CorpState; corporations::CORPORATIONS],
+    /// The vehicles the corporations can buy in round mode.
+    vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
+    /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
+    /// (+0x23c).
+    game_timer: i32,
+    round_elapsed: i32,
+    round_max_time: i32,
+    round_cfg: round::RoundConfig,
+    versus_cfg: round::VersusConfig,
+    /// The round mode weekday (rounds since the weekly reset).
+    weekday: i32,
+    missions: missions::MissionGlobals,
+    /// The percent of team damage dealt back to the attacker's head (game_mode_state +0x248), set at reset_game.
+    team_damage: i32,
+    /// Whether people (not bots) were on the server at the last check of the main loop.
+    occupied: bool,
+    stats: ServerStats,
+    eliminator: eliminator::EliminatorState,
+}
+
+/// What stats.txt counts since the server started: mission deals (0x7d078a4) and bullets (0x7d078a0).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ServerStats {
+    pub missions: u32,
+    pub bullets: u32,
 }
 
 impl Sim {
@@ -169,6 +206,19 @@ impl Sim {
             account_spawn_timers: HashMap::new(),
             traffic: crate::traffic::Traffic::default(),
             tick_stats: tps::TickStats::default(),
+            corp_state: Default::default(),
+            vehicle_stock: Default::default(),
+            game_timer: round::ROUND_MAX_TIME,
+            round_elapsed: 0,
+            round_max_time: round::ROUND_MAX_TIME,
+            round_cfg: round::RoundConfig::load(Path::new("config_round.txt")),
+            versus_cfg: round::VersusConfig::load(Path::new("config_versus.txt")),
+            weekday: 0,
+            missions: Default::default(),
+            team_damage: 0,
+            occupied: false,
+            stats: ServerStats::default(),
+            eliminator: Default::default(),
         };
         sim.reset_game();
         sim
@@ -179,6 +229,10 @@ impl Sim {
             SimMsg::Join(msg) => self.on_join(input.conn, input.src, msg),
             SimMsg::Game(g) => {
                 let client = self.clients.get_mut(&input.conn).unwrap();
+                client.round_number = g.round_num;
+                if g.round_num != self.round_number {
+                    return;
+                }
                 let player = self.players.get_mut(client.player_id.idx()).unwrap();
 
                 client.last_sdl_tick = g.sdl_tick;
@@ -192,18 +246,21 @@ impl Sim {
     }
 
     fn send_initial_sync(&mut self, to: SocketAddr) {
-        let packet = InitialSync {
+        let packet = self.initial_sync();
+        let _ = self.out_tx.send((rosa_protocol::frame_packet(packet), to));
+    }
+
+    fn initial_sync(&self) -> InitialSync {
+        InitialSync {
             round_number: self.round_number,
-            weekly_enabled: false,
-            weekday: self.world.weekday as u8,
+            weekly_enabled: self.gamemode == GameMode::Round && self.round_cfg.weekly,
+            weekday: if self.gamemode == GameMode::Round { self.weekday as u8 } else { self.world.weekday as u8 },
             sun_angle: self.world.sun_angle(),
             sun_axial_tilt: self.world.sun_axial_tilt(),
-            versus_movedelay: None,
-            gamemode: self.gamemode,
+            versus_movedelay: (self.gamemode == GameMode::Versus).then_some(self.versus_cfg.movedelay as u8),
+            gamemode: self.gamemode.client_mode(),
             map_name: self.world.map.map_name.clone(),
-        };
-
-        let _ = self.out_tx.send((rosa_protocol::frame_packet(packet), to));
+        }
     }
 
     fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
@@ -253,6 +310,7 @@ impl Sim {
         let mut last_tick = Instant::now();
 
         loop {
+            self.check_occupied();
             std::thread::sleep(Duration::from_millis(1));
             let mut burst = 0;
             while last_tick.elapsed() > Duration::from_millis(15) {
@@ -263,40 +321,60 @@ impl Sim {
                     last_tick = Instant::now();
                 }
                 let started = Instant::now();
-                while let Ok(inp) = self.in_rx.try_recv() {
-                    self.apply(inp);
-                }
-                let mut pending= HashMap::new();
-                for (_, player) in self.players.iter_mut() {
-                    pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
-                }
-
-                self.process_actions(pending);
-                self.start_round_if_all_ready();
-                self.update_shop_menus();
-                if self.gamestate == GameState::InGame {
-                    self.simulate_traffic();
-                }
-                if self.gamemode == GameMode::World {
-                    self.logic_world();
-                }
-                self.player_simulation();
-                self.physics_tick();
-                self.broadcast_tick();
-
-                for player in self.saved_accounts.players.iter_mut() {
-                    if player.ban_time > 0 {
-                        player.ban_time -= 1;
-                    }
-                }
-
-                self.tick += 1;
-                if self.gamestate as u8 <= GameState::InGame as u8 {
-                    self.bullet_simulation();
-                    self.bullet_ttl();
-                }
+                self.server_tick();
                 self.tick_stats.record(started, started.elapsed());
             }
+        }
+    }
+
+    /// One server tick: the inbound packets, the players' actions, the game mode, the world and the broadcast.
+    pub fn server_tick(&mut self) {
+        while let Ok(inp) = self.in_rx.try_recv() {
+            self.apply(inp);
+        }
+        let mut pending= HashMap::new();
+        for (_, player) in self.players.iter_mut() {
+            pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
+        }
+
+        self.process_actions(pending);
+        if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator) {
+            self.start_round_if_all_ready();
+        }
+        self.update_shop_menus();
+        self.count_corp_players();
+        if self.gamemode == GameMode::Round {
+            self.logic_round();
+        }
+        if self.gamemode == GameMode::Eliminator {
+            self.logic_eliminator();
+        }
+        if self.gamestate == GameState::InGame {
+            self.simulate_traffic();
+        }
+        if self.gamemode == GameMode::World {
+            self.logic_world();
+        }
+        self.player_simulation();
+        if self.gamemode == GameMode::Round {
+            self.round_account_sync();
+        }
+        self.physics_tick();
+        self.broadcast_tick();
+
+        for player in self.saved_accounts.players.iter_mut() {
+            if player.ban_time > 0 {
+                player.ban_time -= 1;
+            }
+        }
+
+        self.tick += 1;
+        if self.gamestate as u8 <= GameState::InGame as u8 {
+            self.bullet_simulation();
+            self.bullet_ttl();
+        }
+        if self.gamestate == GameState::InGame {
+            self.run_bots();
         }
     }
 
@@ -328,6 +406,10 @@ impl Sim {
             println!("[Sim] Everyone is ready, starting the round");
 
             self.gamestate = GameState::InGame;
+            // TODO: logic_round restocks the vehicles when the intermission timer reaches 5400, with the rest of the round start
+            if self.gamemode == GameMode::Round {
+                self.randomize_corp_vehicle_stock();
+            }
 
             for (_, p) in &mut self.players {
                 p.menu = MenuType::Empty;
@@ -352,6 +434,11 @@ impl Sim {
         let items = self.item_objects();
         let vehicles = self.vehicle_objects();
         let pocketed = self.items.iter().filter(|(_, i)| i.in_pocket).map(|(id, _)| id as u16).collect();
+        // TODO: the second value per corporation (0x45385e34 + 4 * k) is written only by do_versus_payouts, so 0 outside versus
+        let corp_round = std::array::from_fn(|k| (self.corp_state[k].funds, 0));
+        let team_counts = std::array::from_fn(|k| self.corp_state[k].player_count);
+        let (game_timer, round_number) = (self.game_timer, self.round_number);
+        let sync = self.initial_sync();
         let Sim {
             clients,
             players,
@@ -383,6 +470,10 @@ impl Sim {
             gamestate: *gamestate,
             ready_states,
             traffic,
+            game_timer,
+            round_number,
+            corp_round,
+            team_counts,
             pocketed,
         };
 
@@ -391,6 +482,10 @@ impl Sim {
                 continue;
             };
 
+            if client.round_number != round_number {
+                let _ = out_tx.send((frame_packet(sync.clone()), client.addr));
+                continue;
+            }
             let packet = Sim::build_game_packet(client, &ctx, player.player_id);
 
             let _ = out_tx.send((frame_packet(packet), client.addr));
@@ -403,9 +498,9 @@ impl Sim {
         player_id: PlayerId
     ) -> ServerGamePacket {
         let first_event = client.event_cursor as u32;
-        let (global_event_count, events) = Self::collect_events(client, ctx);
-        let earshots = Self::calculate_earshot(client, player_id, ctx);
         let player = ctx.players.get(player_id.idx()).unwrap();
+        let (global_event_count, events) = Self::collect_events(client, ctx, player.team as i32, player_id.0 as i32);
+        let earshots = Self::calculate_earshot(client, player_id, ctx);
         let (object_packs, pack_offset, packed_items) = Self::object_packs(client, ctx, player.camera_pos.0);
         let (traffic, signal) = traffic_section(client, ctx.traffic, &ctx.world.map.streets, player.camera_pos.0);
 
@@ -428,7 +523,7 @@ impl Sim {
         ServerGamePacket {
             client_id: client.player_id.0,
             received_actions: player.actions.write as u32,
-            round_number: 0,
+            round_number: ctx.round_number,
             network_tick: ctx.tick,
             last_sdl_tick: client.last_sdl_tick,
             menu_type: player.menu,
@@ -440,7 +535,13 @@ impl Sim {
             },
             // TODO: the store menu (10) sends something else here
             money: player.money,
+            corp_money: player.corp_money,
+            corp_credit: player.corp_credit,
+            menu_buttons: player.menu_buttons.clone(),
             gamestate: ctx.gamestate,
+            game_timer: ctx.game_timer,
+            corp_round: ctx.corp_round,
+            team_counts: ctx.team_counts,
             ready_states: ctx.ready_states,
             follow_pos: Vector::new(0.0, 0.0, 0.0),
             own_human: ctx.own_humans.get(&player_id.idx()).cloned(),
@@ -515,9 +616,13 @@ impl Sim {
         (packs, client.pack_ack, items)
     }
 
+    /// add_events_to_packet: the events the client has not had, up to 63, with old sounds and other teams' corporation
+    /// updates sent empty.
     fn collect_events(
         client: &mut Client,
-        ctx: &TickCtx
+        ctx: &TickCtx,
+        team: i32,
+        player_id: i32
     ) -> (u32, Vec<(u32, Event)>) {
         let total = ctx.events.count;
         let pending = total.wrapping_sub(client.event_cursor);
@@ -533,7 +638,12 @@ impl Sim {
 
             let expired = ctx.tick.wrapping_sub(ev.tick_created) > 600;
             let ephemeral = matches!(ev.kind, ServerEvent::Sound(_) | ServerEvent::PhoneSound(_));
-            let kind = if expired && ephemeral {
+            let foreign = match &ev.kind {
+                ServerEvent::UpdateCorporation(e) => e.corporation() != team,
+                ServerEvent::Mission(e) => e.player != player_id,
+                _ => false,
+            };
+            let kind = if (expired && ephemeral) || foreign {
                 ServerEvent::Empty
             } else {
                 ev.kind.clone()

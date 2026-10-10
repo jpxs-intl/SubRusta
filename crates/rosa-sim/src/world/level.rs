@@ -20,6 +20,8 @@ pub struct Level {
     pub meshes: BlockMeshes,
     /// The building records (bases, shops, banks, labs) in placement order.
     pub buildings: Vec<crate::world::building::BuildingRecord>,
+    /// Each corporation's base.
+    pub bases: Vec<crate::world::building::CorporationBase>,
 }
 
 fn list_names(dir: &Path, ext: &str) -> Vec<String> {
@@ -160,6 +162,7 @@ pub fn build_level(
 
     instantiate_sectors(city, &types, &mut area, ground, &dims);
 
+    let bases = std::mem::take(&mut buildings.bases);
     let buildings = buildings.records;
-    Level { area, tables, dims, meshes, buildings }
+    Level { area, tables, dims, meshes, buildings, bases }
 }

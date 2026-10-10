@@ -18,11 +18,6 @@ pub const HIDDEN_STREET: i32 = 0x17;
 /// Each street lists at most this many of the cars on it (+0x22c count, +0x230).
 pub const MAX_STREET_CARS: usize = 256;
 
-/// The double precision pi the traffic code wraps angles with.
-pub(crate) const PI: f64 = 3.14159265359;
-pub(crate) const TWO_PI: f64 = 6.28318530718;
-pub(crate) const HALF_PI: f64 = 1.570796326795;
-
 /// is_bot: driven by the traffic, parked, or taken over by a player.
 pub const PARKED: i32 = 0;
 pub const DRIVEN: i32 = 1;

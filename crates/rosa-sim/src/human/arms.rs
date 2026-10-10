@@ -31,7 +31,7 @@ const ARM_LENGTH: f32 = 0.65625;
 const SEATED_REACH_Y: f64 = 2.868559968872221e-08;
 const SEATED_REACH_Z: f64 = -0.6562499999999993;
 const ZOOM_TILT: f32 = 0.19634954;
-const GUN_PITCH_OFFSET: f64 = 0.036815538909257817;
+const GUN_PITCH_OFFSET: f64 = 0.036_815_538_909_257_82;
 const GUN_CONTACT_RADIUS: f32 = 0.125;
 const GUN_FRICTION: f32 = 0.4;
 const GUN_DEPTH_SCALE: f32 = 0.03125;
@@ -237,6 +237,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     let mut pose = add_turn(identity, &mut frame, 1, 0.5 * h.free_look_yaw - aim);
     if h.movement_mode == 2 && has_gun {
         pose = quaternion_multiply(pose, [0.0, 0.0, f32::from_bits(0xbdc8bd36), f32::from_bits(0x3f7ec46d)]);
+
         let axis = frame[2];
         rotate_orientation(&mut frame, axis, ZOOM_TILT);
     }

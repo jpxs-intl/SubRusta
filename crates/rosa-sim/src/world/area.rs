@@ -98,6 +98,15 @@ impl AreaGrid {
         self.record(x, y, z).map_or(0, |r| r.layer1[cell_index(x, y, z)])
     }
 
+    /// area_get_collision_cell_resolved: the layer 1 word of a cell, a footprint's resolved to its origin cell.
+    pub fn collision_cell_resolved(&self, x: i32, y: i32, z: i32) -> u32 {
+        let v = self.layer1(x, y, z);
+        if v & TYPE_MASK != FOOTPRINT {
+            return v;
+        }
+        self.layer1(x - (v & 255) as i32, y - ((v >> 16) & 255) as i32, z - ((v >> 8) & 255) as i32)
+    }
+
     pub fn set_layer0(&mut self, x: i32, y: i32, z: i32, v: u32) {
         if let Some(r) = self.record_mut(x, y, z) {
             r.layer0[cell_index(x, y, z)] = v;

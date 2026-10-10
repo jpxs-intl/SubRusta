@@ -27,6 +27,15 @@ const CONTACT_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const ITEM_HEALTH: i32 = 100;
 const ITEM_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
 const CONTACT_SOFTNESS: f32 = 1.0 / 32.0;
+/// The soccer ball: a sphere of 0.11 kicked by any bone but the arms' within 0.36 of it, and slowed spinning while it
+/// touches the level.
+const BALL_RADIUS: f32 = 0.11;
+const KICK_REACH: f32 = 0.36;
+const KICK_SKIPPED_BONES: [usize; 4] = [5, 6, 8, 9];
+const KICK_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const KICK_DEPTH_SCALE: f32 = 1.0 / 32.0;
+const KICK_SOFTNESS: f32 = 1.0 / 16.0;
+const BALL_SPIN_DAMPING: f32 = 0.9375;
 const SPAWN_IMPULSE: f32 = 0.05;
 const SPAWN_SPIN_OFFSET: f32 = 0.1;
 const SPAWN_DISTANCE: f32 = 1.5;
@@ -67,6 +76,8 @@ pub struct Item {
     pub pocket_pose: Option<(Vec3, RotMatrix)>,
     /// Items mounted on this one (+0x34 count, +0x38 ids), e.g. a gun's magazine; up to eight.
     pub children: Vec<usize>,
+    /// The id in the first child slot (+0x38), which stays when the last child comes off (0 for a new item).
+    pub first_child: usize,
     /// Where a mounted item was last placed on its parent by logic_item; its body takes this place next tick.
     pub mount_pose: Option<(Vec3, RotMatrix)>,
     /// What only items of this type have.
@@ -114,6 +125,7 @@ impl Sim {
             parent_slot: 0,
             pocket_pose: None,
             children: Vec::new(),
+            first_child: 0,
             mount_pose: None,
             state: ItemState::new(item_type, ty),
             input_flags: 0,
@@ -382,7 +394,9 @@ impl Sim {
                 if self.item_types[item_type as usize].can_collide {
                     self.item_update_collision_state(id);
                 }
-                if !seated {
+                if item_type == ItemKind::SoccerBall {
+                    self.soccer_ball(id, body_id);
+                } else if !seated {
                     self.bounding_box_contacts(body_id, item_type);
                 }
                 continue;
@@ -402,7 +416,11 @@ impl Sim {
                 if self.item_types[item_type as usize].can_collide {
                     self.item_update_collision_state(id);
                 }
-                self.bounding_box_contacts(body_id, item_type);
+                if item_type == ItemKind::SoccerBall {
+                    self.soccer_ball(id, body_id);
+                } else {
+                    self.bounding_box_contacts(body_id, item_type);
+                }
                 let Some(body) = self.bodies.get(body_id) else { continue };
                 let (v, w) = (body.vel, body.ang_vel);
                 let item = self.items.get_mut(id).unwrap();
@@ -536,6 +554,54 @@ impl Sim {
         }
     }
 
+    /// The soccer ball's part of item_simulation: item_soccerball_kick, then the ball against the level
+    /// (sphere_cast_level) with its spin damped while it touches.
+    fn soccer_ball(&mut self, id: usize, body_id: usize) {
+        self.soccerball_kick(id, body_id);
+        let Some(center) = self.bodies.get(body_id).map(|b| b.pos) else { return };
+        let level = &self.world.map.level;
+        let Some((p, n, dist)) = crate::world::sphere_cast::sphere_cast_level(&level.area, &level.meshes, center, BALL_RADIUS) else { return };
+        let offset = Vec3::new(p.x - center.x, p.y - center.y, p.z - center.z);
+        self.bodies.add_world_contact(body_id, offset, n, BALL_RADIUS - dist, CONTACT_FRICTION, CONTACT_DEPTH_SCALE, CONTACT_SOFTNESS);
+        if let Some(b) = self.bodies.get_mut(body_id) {
+            let l = b.ang_momentum;
+            b.ang_momentum = Vec3::new(l.x * BALL_SPIN_DAMPING, l.y * BALL_SPIN_DAMPING, l.z * BALL_SPIN_DAMPING);
+        }
+    }
+
+    /// item_soccerball_kick: every bone but the arms' within reach of the ball pushes it away from the bone, with a
+    /// contact on the ball's surface facing the bone.
+    fn soccerball_kick(&mut self, id: usize, ball_body: usize) {
+        let Some(ball) = self.items.get(id).map(|i| i.pos2) else { return };
+        let mut contacts = Vec::new();
+        for (_, h) in self.humans.iter() {
+            for (k, bone) in h.bones.iter().enumerate() {
+                if KICK_SKIPPED_BONES.contains(&k) {
+                    continue;
+                }
+                let d = Vec3::new(ball.x - bone.pos.x, ball.y - bone.pos.y, ball.z - bone.pos.z);
+                let len = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
+                if !(KICK_REACH > len) {
+                    continue;
+                }
+                let (off, n) = if len != 0.0 {
+                    let inv = 1.0 / len;
+                    let u = Vec3::new(d.x * inv, d.y * inv, inv * d.z);
+                    (Vec3::new(u.x * -BALL_RADIUS, u.y * -BALL_RADIUS, u.z * -BALL_RADIUS), Vec3::new(-u.x, -u.y, -u.z))
+                } else {
+                    (Vec3::splat(-0.0), Vec3::splat(-0.0))
+                };
+                let p = Vec3::new(off.x + ball.x, off.y + ball.y, off.z + ball.z);
+                contacts.push((bone.body, p, n, KICK_REACH - len));
+            }
+        }
+        for (bone_body, p, n, depth) in contacts {
+            let (Some(a), Some(b)) = (self.bodies.get(bone_body).map(|b| b.pos), self.bodies.get(ball_body).map(|b| b.pos)) else { continue };
+            let (off_a, off_b) = (Vec3::new(p.x - a.x, p.y - a.y, p.z - a.z), Vec3::new(p.x - b.x, p.y - b.y, p.z - b.z));
+            self.bodies.add_body_contact(bone_body, ball_body, off_a, off_b, n, depth, KICK_FRICTION, KICK_DEPTH_SCALE, KICK_SOFTNESS);
+        }
+    }
+
     fn bounding_box_contacts(&mut self, body_id: usize, item_type: ItemKind) {
         let bounds = self.item_types[item_type as usize].bounds;
         let Some(body) = self.bodies.get(body_id) else { return };
@@ -609,7 +675,9 @@ pub fn attach_child(items: &mut Table<Item>, types: &[ItemType], parent: usize, 
     if !room {
         return false;
     }
-    items.get_mut(parent).unwrap().children.push(child);
+    let p = items.get_mut(parent).unwrap();
+    p.children.push(child);
+    p.first_child = p.children[0];
     let c = items.get_mut(child).unwrap();
     c.parent_item = parent as i32;
     c.parent_slot = n as i32;
@@ -621,6 +689,9 @@ pub fn remove_link(items: &mut Table<Item>, item: usize, parent: usize) {
     if let Some(p) = items.get_mut(parent) {
         while let Some(i) = p.children.iter().position(|&c| c == item) {
             p.children.swap_remove(i);
+            if let Some(&c) = p.children.first() {
+                p.first_child = c;
+            }
         }
     }
     if let Some(c) = items.get_mut(item) {

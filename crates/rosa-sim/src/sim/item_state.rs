@@ -16,9 +16,9 @@ pub enum ItemState {
     /// magazine), ticks until it can fire again (+0x13c) and how long the trigger has been held (+0x14c).
     Gun { rounds: i32, cooldown: i32, trigger_ticks: i32 },
     /// Uses left (+0x144) and how far the current patching has got (+0x13c, done past 255).
-    Bandage { left: i32, progress: i32 },
+    Bandage { usage_left: i32, progress: i32 },
     /// Bites left (+0x144).
-    Burger { left: i32 },
+    Burger { bites_left: i32 },
     /// The pin (+0x144, 1 while in), the fuse (+0x13c: 240 while held unpinned, counting down once thrown) and the
     /// player who pulled the pin (+0x20).
     Grenade { pin: i32, fuse: i32, primer: Option<PlayerId> },
@@ -67,7 +67,7 @@ impl Cash {
         }
         self.bills = c + 1;
         let mut v = self.codes;
-        let pos = if c + 1 <= index {
+        let pos = if c < index {
             3 * (c + 1)
         } else {
             let mut k = 3 * c;
@@ -91,17 +91,23 @@ impl Cash {
     /// bill, which leaves the stack to despawn.
     pub fn remove(&mut self, index: i32) -> bool {
         let c = self.bills;
+
         if c == 0 {
             return false;
         }
+
         if c < 0 {
             return true;
         }
+
         self.bills = c - 1;
+
         if c - 1 < index {
             return true;
         }
+
         let (mut v, mut k) = (self.codes, 3 * index);
+
         loop {
             let mask = !(7u32 << (k & 31)) & v;
             v = (((mask >> ((k + 3) & 31)) & 7) << (k & 31)) | mask;
@@ -110,7 +116,9 @@ impl Cash {
                 break;
             }
         }
+
         self.codes = v;
+
         true
     }
 }
@@ -130,11 +138,8 @@ pub enum PhoneStatus {
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Phone {
-    /// +0x160
     pub number: i32,
-    /// +0x27c
     pub status: PhoneStatus,
-    /// The phone this one called or is talking to (+0x15c).
     pub connected: Option<usize>,
     /// Ticks spent ringing or busy (+0x164).
     pub ring_timer: i32,
@@ -153,8 +158,8 @@ impl ItemState {
     pub fn new(kind: ItemKind, ty: &ItemType) -> Self {
         let left = ty.magazine_ammo;
         match kind {
-            ItemKind::Bandage => Self::Bandage { left, progress: 0 },
-            ItemKind::Burger => Self::Burger { left },
+            ItemKind::Bandage => Self::Bandage { usage_left: left, progress: 0 },
+            ItemKind::Burger => Self::Burger { bites_left: left },
             ItemKind::Grenade => Self::Grenade { pin: left, fuse: 0, primer: None },
             ItemKind::Phone | ItemKind::PhonePay => Self::Phone(Phone::default()),
             ItemKind::Radio => Self::Radio { channel: 0, transmitting: false },
@@ -170,10 +175,20 @@ impl ItemState {
     /// Item +0x144: what is left of a used-up item, 0 for the rest.
     pub fn left(&self) -> i32 {
         match self {
-            Self::Stock { left } | Self::Bandage { left, .. } | Self::Burger { left } => *left,
+            Self::Stock { left } | Self::Bandage { usage_left: left, .. } | Self::Burger { bites_left: left } => *left,
             Self::Gun { rounds, .. } => *rounds,
             Self::Grenade { pin, .. } => *pin,
             _ => 0,
+        }
+    }
+
+    /// Sets item +0x144 (what is left), for the states that keep it.
+    pub fn set_left(&mut self, v: i32) {
+        match self {
+            Self::Stock { left } | Self::Bandage { usage_left: left, .. } | Self::Burger { bites_left: left } => *left = v,
+            Self::Gun { rounds, .. } => *rounds = v,
+            Self::Grenade { pin, .. } => *pin = v,
+            _ => {}
         }
     }
 
