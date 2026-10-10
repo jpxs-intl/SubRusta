@@ -8,9 +8,7 @@ use rosa_protocol::clientbound::game::{
 
 use super::Sim;
 use crate::{
-    PlayerId,
-    vehicle::{NETWORKED_VEHICLES, spawn_vehicle},
-    world::trace::line_intersect_level,
+    PlayerId, items::state::ItemState, vehicle::{NETWORKED_VEHICLES, spawn_vehicle}, world::trace::line_intersect_level,
 };
 
 const SPAWN_DISTANCE: f32 = 6.0;
@@ -247,7 +245,7 @@ impl Sim {
             }
         }
         for (_, item) in self.items.iter_mut() {
-            if let super::item_state::ItemState::Key { vehicle } = &mut item.state
+            if let ItemState::Key { vehicle } = &mut item.state
                 && *vehicle == Some(id)
             {
                 item.despawn_time = 0;

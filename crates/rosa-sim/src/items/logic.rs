@@ -10,13 +10,8 @@ use rosa_protocol::{
     },
 };
 
-use super::{
-    Sim,
-    bullets::{BULLET_DATA, create_bullet},
-    item_state::{Cash, ItemState, PhoneStatus},
-    items::touchables,
-};
-use crate::PlayerId;
+use super::Sim;
+use crate::{PlayerId, items::{Item, state::{Cash, ItemState, PhoneStatus}, touchables}, sim::bullets::{BULLET_DATA, create_bullet}};
 use crate::human::arms::calculate_spread_vector;
 use crate::input::{ITEM_SECONDARY, ITEM_USE};
 use crate::time::TICKS_PER_MINUTE;
@@ -135,7 +130,7 @@ impl Sim {
                 *cooldown = 0;
             }
         }
-        let chamber = |items: &mut rosa_physics::Table<super::items::Item>| {
+        let chamber = |items: &mut rosa_physics::Table<Item>| {
             let Some(m) = mag.and_then(|m| items.get_mut(m)) else { return false };
             if let ItemState::Stock { left } = &mut m.state
                 && *left > 0
@@ -449,7 +444,7 @@ impl Sim {
         }
     }
 
-    pub(super) fn phone_update(&mut self, id: usize) {
+    pub fn phone_update(&mut self, id: usize) {
         let Some(p) = self.items.get(id).and_then(|i| i.state.phone()) else { return };
         let e = EventUpdatePhone { item_id: id as i32, phone_status: p.status as i32, display_phone_number: p.display_number, phone_texture: p.texture };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdatePhone(e) });

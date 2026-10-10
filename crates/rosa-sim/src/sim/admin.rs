@@ -11,8 +11,7 @@ use rosa_protocol::{
 };
 
 use super::Sim;
-use super::item_state::PhoneStatus;
-use crate::time::TICKS_PER_SECOND;
+use crate::{items::state::PhoneStatus, time::TICKS_PER_SECOND};
 use crate::{ConnId, PlayerId};
 
 /// handle_player_message keeps the first 63 bytes of a message.

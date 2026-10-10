@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use glam::IVec3;
 
+use crate::items::MAX_ITEMS;
+
 const GRID_BLOCKS: IVec3 = IVec3::new(64 * 64, 8 * 64, 64 * 64);
 /// The broadphase of collidable items, keyed by 4-unit block (rebuild_item_collision_grid / check_object_collisions).
 /// The game keeps 32 items a block and returns 256 a query; this grid has no limit, so a pile of items stays solid.
@@ -36,7 +38,7 @@ impl ItemGrid {
     /// Every item touching the blocks `min..=max`, in first-seen order.
     pub fn query(&self, min: IVec3, max: IVec3) -> Vec<usize> {
         let mut out = Vec::new();
-        let mut seen = [0u64; super::items::MAX_ITEMS / 64];
+        let mut seen = [0u64; MAX_ITEMS / 64];
         for y in min.y..=max.y {
             for z in min.z..=max.z {
                 for x in min.x..=max.x {

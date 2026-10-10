@@ -10,9 +10,8 @@ use super::{
     ik::{IkParams, three_bone_ik},
     locomotion::{FOOT_FREE, calculate_center_of_mass},
 };
-use crate::input::GRAB;
+use crate::{input::GRAB, items::Touchables};
 use crate::{
-    sim::items::Touchables,
     vehicle::{HANDBRAKE, Vehicle},
     world::{map::Map, trace::line_intersect_level},
 };

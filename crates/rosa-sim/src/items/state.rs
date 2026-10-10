@@ -1,7 +1,6 @@
 use rosa_protocol::clientbound::game::ItemKind;
 
-use super::item_types::ItemType;
-use crate::PlayerId;
+use crate::{PlayerId, items::types::ItemType, sim::memos};
 
 /// The part of an item record that depends on its type. The binary keeps all of these in one record and reuses
 /// fields across types (a radio's channel sits in the computer's line fields); here each type carries only its own.
@@ -35,7 +34,7 @@ pub enum ItemState {
     /// A computer's screen, shell and programs.
     Computer(Box<crate::computer::Computer>),
     /// A memo's text (item +0x368).
-    Memo(Box<[u8; super::memos::MEMO_LEN]>),
+    Memo(Box<[u8; memos::MEMO_LEN]>),
     /// A door on its hinges: its axis (+0x2e8) and the two points it hangs from (+0x300, +0x30c).
     Door { axis: glam::Vec3, hinges: [glam::Vec3; 2] },
 }
@@ -173,7 +172,7 @@ impl ItemState {
             ItemKind::Arcade => Self::Arcade { frame: 0, top_line: 0 },
             ItemKind::Key => Self::Key { vehicle: None },
             ItemKind::CashWorld => Self::Cash(Cash::default()),
-            ItemKind::Paper | ItemKind::PaperWorld => Self::Memo(Box::new([0; super::memos::MEMO_LEN])),
+            ItemKind::Paper | ItemKind::PaperWorld => Self::Memo(Box::new([0; memos::MEMO_LEN])),
             _ if ty.is_gun => Self::Gun { rounds: left, cooldown: 0, trigger_ticks: 0 },
             _ if left > 0 => Self::Stock { left },
             _ => Self::Plain,

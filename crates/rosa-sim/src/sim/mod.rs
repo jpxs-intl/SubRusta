@@ -27,7 +27,7 @@ use rosa_protocol::{
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
-use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
+use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, items, player::Player, world::World};
 
 pub mod admin;
 pub mod bots;
@@ -39,12 +39,6 @@ pub mod eliminator;
 pub mod events;
 pub mod hull;
 pub mod humans;
-pub mod item_grid;
-pub mod item_logic;
-pub mod item_sets;
-pub mod item_state;
-pub mod item_types;
-pub mod items;
 pub mod memos;
 pub mod missions;
 pub mod npcs;
@@ -135,64 +129,63 @@ const TICK_MS: u64 = 16;
 
 pub struct Sim {
     pub(crate) tick: u32,
-    /// Ticks since the last reset_game (ticksSinceReset).
-    ticks_since_reset: u32,
-    round_number: u32,
-    gamemode: GameMode,
-    gamestate: GameState,
+    pub(crate) ticks_since_reset: u32,
+    pub(crate) round_number: u32,
+    pub(crate) gamemode: GameMode,
+    pub(crate) gamestate: GameState,
     in_rx: mpsc::UnboundedReceiver<Inbound>,
     out_tx: Outbound,
     pub(crate) world: World,
-    saved_accounts: SrkData,
-    players: crate::player::PlayerTable,
+    pub(crate) saved_accounts: SrkData,
+    pub(crate) players: crate::player::PlayerTable,
     pub(crate) clients: HashMap<ConnId, Client>,
-    max_players: u8,
-    events: EventRing,
+    pub(crate) max_players: u8,
+    pub(crate) events: EventRing,
     pub(crate) items: rosa_physics::Table<items::Item>,
     pub(crate) humans: rosa_physics::Table<crate::human::Human>,
-    bodies: rosa_physics::RigidBodies,
-    pub(crate) item_types: Vec<item_types::ItemType>,
-    item_grid: item_grid::ItemGrid,
-    noise_seed: i32,
-    corporations: [economy::Corporation; economy::CORPORATIONS],
-    bullets: Vec<bullets::Bullet>,
-    vehicles: rosa_physics::Table<crate::vehicle::Vehicle>,
-    vehicle_types: Vec<crate::vehicle::types::VehicleType>,
+    pub(crate) bodies: rosa_physics::RigidBodies,
+    pub(crate) item_types: Vec<items::types::ItemType>,
+    pub(crate) item_grid: items::grid::ItemGrid,
+    pub(crate) noise_seed: i32,
+    pub(crate) corporations: [economy::Corporation; economy::CORPORATIONS],
+    pub(crate) bullets: Vec<bullets::Bullet>,
+    pub(crate) vehicles: rosa_physics::Table<crate::vehicle::Vehicle>,
+    pub(crate) vehicle_types: Vec<crate::vehicle::types::VehicleType>,
     /// The world mode clock (0xe3b21e0).
-    world_time: i32,
+    pub(crate) world_time: i32,
     /// Per account, the spawn timer kept while its player is away (account record +0x48, not saved to disk).
-    account_spawn_timers: HashMap<u32, i32>,
+    pub(crate) account_spawn_timers: HashMap<u32, i32>,
     /// Each account's name lock (account record +0x38, memory only): while above 0 the account's name is forced on the
     /// player at join; it counts down every world save.
-    account_name_locks: HashMap<u32, i32>,
+    pub(crate) account_name_locks: HashMap<u32, i32>,
     /// The walkie-talkies on each channel (rebuilt by logic_item, read by calculate_voice).
-    radio_channels: Vec<Vec<usize>>,
-    traffic: crate::traffic::Traffic,
-    tick_stats: tps::TickStats,
+    pub(crate) radio_channels: Vec<Vec<usize>>,
+    pub(crate) traffic: crate::traffic::Traffic,
+    pub(crate) tick_stats: tps::TickStats,
     /// Each corporation's manager, applicants and account.
     pub(crate) corp_state: [corporations::CorpState; 6],
     /// The vehicles the corporations can buy in round mode.
-    vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
+    pub(crate) vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
     /// (+0x23c).
-    game_timer: i32,
-    round_elapsed: i32,
-    round_max_time: i32,
-    round_cfg: round::RoundConfig,
-    versus_cfg: round::VersusConfig,
-    world_cfg: world::WorldConfig,
-    world_state: world::WorldState,
-    npcs: Vec<Option<npcs::Npc>>,
-    admin: admin::AdminState,
+    pub(crate) game_timer: i32,
+    pub(crate) round_elapsed: i32,
+    pub(crate) round_max_time: i32,
+    pub(crate) round_cfg: round::RoundConfig,
+    pub(crate) versus_cfg: round::VersusConfig,
+    pub(crate) world_cfg: world::WorldConfig,
+    pub(crate) world_state: world::WorldState,
+    pub(crate) npcs: Vec<Option<npcs::Npc>>,
+    pub(crate) admin: admin::AdminState,
     /// The round mode weekday (rounds since the weekly reset).
-    weekday: i32,
-    missions: missions::MissionGlobals,
+    pub(crate) weekday: i32,
+    pub(crate) missions: missions::MissionGlobals,
     /// The percent of team damage dealt back to the attacker's head (game_mode_state +0x248), set at reset_game.
-    team_damage: i32,
+    pub(crate) team_damage: i32,
     /// Whether people (not bots) were on the server at the last check of the main loop.
-    occupied: bool,
-    stats: ServerStats,
-    eliminator: eliminator::EliminatorState,
+    pub(crate) occupied: bool,
+    pub(crate) stats: ServerStats,
+    pub(crate) eliminator: eliminator::EliminatorState,
     /// The computers' volumes and file contents.
     pub(crate) fs: crate::computer::fs::FileSystem,
     pub(crate) world_missions: world_missions::WorldMissions,
@@ -230,8 +223,8 @@ impl Sim {
             items: rosa_physics::Table::new(items::MAX_ITEMS),
             humans: rosa_physics::Table::new(crate::human::MAX_HUMANS),
             bodies: rosa_physics::RigidBodies::default(),
-            item_types: item_types::item_types(),
-            item_grid: item_grid::ItemGrid::default(),
+            item_types: items::types::item_types(),
+            item_grid: items::grid::ItemGrid::default(),
             noise_seed: 0,
             corporations,
             bullets: Vec::new(),

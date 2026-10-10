@@ -11,14 +11,13 @@ use rosa_protocol::clientbound::game::{
     events::{Event, ServerEvent, bullet_hit::EventBulletHit},
 };
 
-use super::item_state::ItemState;
-use super::{
-    Sim,
-    humans::{HUMAN_SLOTS, OBJECT_SLOTS},
-    item_grid::ItemGrid,
-    item_types::ItemType,
-};
-use crate::{PlayerId, world::trace::line_intersect_level};
+pub mod grid;
+pub mod logic;
+pub mod sets;
+pub mod state;
+pub mod types;
+
+use crate::{PlayerId, items::{grid::ItemGrid, state::ItemState, types::ItemType}, sim::{Sim, hull::collide_convex_hulls, humans::{HUMAN_SLOTS, OBJECT_SLOTS}}, world::trace::line_intersect_level};
 
 pub const MAX_ITEMS: usize = 1024;
 
@@ -82,7 +81,7 @@ pub struct Item {
     pub input_flags: u32,
     pub last_input_flags: u32,
     /// The item-set cell the item was taken out of, if any.
-    pub set_origin: Option<super::item_sets::SetOrigin>,
+    pub set_origin: Option<sets::SetOrigin>,
     /// The file system volume of a disk or computer (+0x334), 0 until one is given.
     pub volume: i32,
     /// The line links the item's text is sent through (+0x178), and which of them are in use (+0x170).
@@ -108,7 +107,7 @@ pub struct Touchables<'a> {
 /// The item and vehicle tables a human reaches into, borrowed field by field so the sim's humans and bodies stay free.
 macro_rules! touchables {
     ($sim:expr, $occupied:expr) => {
-        crate::sim::items::Touchables {
+        crate::items::Touchables {
             grid: &$sim.item_grid,
             items: &mut $sim.items,
             types: &$sim.item_types,
@@ -599,7 +598,7 @@ impl Sim {
             let (Some(ha), Some(hb)) = (&self.item_types[kind as usize].hull, &self.item_types[o.item_type as usize].hull) else { continue };
             let body_b = o.body;
             let (Some(a), Some(b)) = (self.bodies.get(body_a), self.bodies.get(body_b)) else { continue };
-            let contacts = super::hull::collide_convex_hulls(ha, a.pos, &a.rot, hb, b.pos, &b.rot);
+            let contacts = collide_convex_hulls(ha, a.pos, &a.rot, hb, b.pos, &b.rot);
             for c in &contacts {
                 let (first, second) = if c.swapped { (body_b, body_a) } else { (body_a, body_b) };
                 self.bodies.add_body_contact(first, second, c.offset_a, c.offset_b, c.normal, c.depth, ITEM_FRICTION, CONTACT_DEPTH_SCALE, CONTACT_SOFTNESS);

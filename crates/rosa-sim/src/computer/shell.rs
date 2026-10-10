@@ -1,5 +1,5 @@
 use super::{COLUMNS, Computer, DISK_OP_COPY, DISK_OP_DIR, DRIVE_A, DRIVE_C, LINES, Mode, WHITE, fs, put_text, text_len};
-use crate::sim::Sim;
+use crate::{items::{self, state::ItemState}, sim::Sim};
 
 /// The last column the shell reads and types into.
 const LAST: i32 = 61;
@@ -93,13 +93,13 @@ impl Sim {
     /// Runs `f` on item `id`'s computer, taken out of the item meanwhile.
     pub(crate) fn with_computer<R>(&mut self, id: usize, f: impl FnOnce(&mut Self, &mut Computer) -> R) -> Option<R> {
         let item = self.items.get_mut(id)?;
-        let crate::sim::item_state::ItemState::Computer(_) = item.state else { return None };
-        let crate::sim::item_state::ItemState::Computer(mut c) = std::mem::replace(&mut item.state, crate::sim::item_state::ItemState::Plain) else {
+        let ItemState::Computer(_) = item.state else { return None };
+        let ItemState::Computer(mut c) = std::mem::replace(&mut item.state, ItemState::Plain) else {
             return None;
         };
         let r = f(self, &mut c);
         if let Some(i) = self.items.get_mut(id) {
-            i.state = crate::sim::item_state::ItemState::Computer(c);
+            i.state = ItemState::Computer(c);
         }
         Some(r)
     }
@@ -137,7 +137,7 @@ impl Sim {
             colors[..COLUMNS - 1].fill(WHITE);
         }
         if let Some(i) = self.items.get_mut(id) {
-            i.state = crate::sim::item_state::ItemState::Computer(c);
+            i.state = ItemState::Computer(c);
         }
     }
 
@@ -630,7 +630,7 @@ impl Sim {
 impl Sim {
     pub fn computer(&self, id: usize) -> Option<&Computer> {
         match &self.items.get(id)?.state {
-            crate::sim::item_state::ItemState::Computer(c) => Some(c),
+            ItemState::Computer(c) => Some(c),
             _ => None,
         }
     }
@@ -654,7 +654,7 @@ impl Sim {
     }
 
     pub fn insert_item_in(&mut self, parent: usize, child: usize) -> bool {
-        crate::sim::items::attach_child(&mut self.items, &self.item_types, parent, child)
+        items::attach_child(&mut self.items, &self.item_types, parent, child)
     }
 
     pub fn run_logic_computer(&mut self, id: usize) {

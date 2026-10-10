@@ -10,11 +10,9 @@ use rosa_protocol::{
 
 use super::{
     Sim,
-    item_state::{BILL_VALUES, Cash, ItemState, PhoneStatus},
 };
 use crate::{
-    PlayerId,
-    world::{area::MESH, city_objects::GARAGE_DOOR, trace::line_intersect_level},
+    PlayerId, items::state::{BILL_VALUES, Cash, ItemState, PhoneStatus}, world::{area::MESH, city_objects::GARAGE_DOOR, trace::line_intersect_level},
 };
 
 /// A corporation takes up to 32 applications at once.

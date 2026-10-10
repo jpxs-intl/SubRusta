@@ -1,6 +1,5 @@
 use crate::{
-    sim::{item_types::ItemType, items::Touchables},
-    world::{capsule::segment_closest_points, map::Map, trace::line_intersect_level},
+    items::{Touchables, state::{ItemState, PhoneStatus}, types::ItemType}, world::{capsule::segment_closest_points, map::Map, trace::line_intersect_level},
 };
 use glam::Vec3;
 use rosa_physics::{
@@ -500,7 +499,7 @@ fn hold_frame(
         v = m1 * -0.125 + (v + r2 * 0.275);
         k == 0
     } else if k == 1 && kind == ItemKind::Phone {
-        if item.state.phone().is_some_and(|p| p.status == crate::sim::item_state::PhoneStatus::Connected) {
+        if item.state.phone().is_some_and(|p| p.status == PhoneStatus::Connected) {
             v = 0.0625 * m1 + (v + r2 * 0.4375);
         }
         false
@@ -526,7 +525,7 @@ fn hold_frame(
     let [m0, m1, r2] = m;
     let p = ty.hold_pos[hand];
     v = p.x * m0 + v + p.y * m1 + r2 * p.z;
-    if kind == ItemKind::Radio && matches!(item.state, crate::sim::item_state::ItemState::Radio { transmitting: true, .. }) {
+    if kind == ItemKind::Radio && matches!(item.state, ItemState::Radio { transmitting: true, .. }) {
         v += r2 * 0.1875;
     } else if kind == ItemKind::Briefcase && (thrown || h.action_type == 0) {
         let axis = m[0];

@@ -7,8 +7,7 @@ use super::{
     bones::{BONES, BoneId},
 };
 use crate::{
-    sim::items::Touchables,
-    world::{
+    items::Touchables, world::{
         capsule::{CapsuleHit, capsule_intersect_level, segment_closest_points},
         map::Map,
         trace::line_intersect_level,

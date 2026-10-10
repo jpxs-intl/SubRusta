@@ -8,7 +8,7 @@ use rosa_protocol::clientbound::game::events::sound::Sound;
 
 use super::physics::HumanOutput;
 use crate::input::{DROP_ITEM, ITEM_SECONDARY, ITEM_USE, LEFT_MOUSE, MODE_KEYS, RELOAD, SHIFT, SWITCH_HANDS};
-use crate::sim::items::{Touchables, attach_child, remove_link};
+use crate::items::{Item, Touchables, attach_child, remove_link};
 
 const PICKUP_REACH: f32 = 1.5;
 const PICKUP_RADIUS: f32 = 0.5;
@@ -528,7 +528,7 @@ fn drop(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, f: usiz
 }
 
 /// The nearest free item within 0.5 of the line of sight (1.5 from the head) that `free` accepts.
-fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&crate::sim::items::Item) -> bool) -> Option<usize> {
+fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&Item) -> bool) -> Option<usize> {
     let head = &h.bones[3];
     let (p, r2) = (head.pos, head.rot[2]);
     let end = r2 * -PICKUP_REACH + p;
@@ -551,7 +551,7 @@ fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&crate::sim::items
 /// a computer used instead (action 4, queued for the right hand).
 fn grab_item(h: &mut Human, touch: &mut Touchables) {
     let items = &*touch.items;
-    let free = |i: &crate::sim::items::Item| {
+    let free = |i: &Item| {
         i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1)
     };
     let Some(item_id) = item_in_sight(h, touch, free) else { return };

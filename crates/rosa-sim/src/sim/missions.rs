@@ -8,8 +8,8 @@ use rosa_protocol::{
     },
 };
 
-use super::{Sim, item_state::ItemState};
-use crate::PlayerId;
+use super::Sim;
+use crate::{PlayerId, items::state::ItemState};
 
 /// A corporation holds sixteen mission slots (+0x45c, 0x45c each).
 pub const MISSION_SLOTS: usize = 16;

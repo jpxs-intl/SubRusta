@@ -3,6 +3,7 @@ use rosa_protocol::{GameMode, Team};
 
 use super::Sim;
 use crate::computer::fs::COMPUTER_CAPACITY;
+use crate::items::state::ItemState;
 use crate::world::building::{CORPORATION_BASE, LAB};
 
 /// A lab's computers, where document missions are put (0x44da7000, 0x40c each): the building, how many missions it
@@ -197,7 +198,7 @@ impl Sim {
                     i.volume = v;
                 }
                 if b.kind == CORPORATION_BASE
-                    && let Some(crate::sim::item_state::ItemState::Computer(c)) = self.items.get_mut(id).map(|i| &mut i.state)
+                    && let Some(ItemState::Computer(c)) = self.items.get_mut(id).map(|i| &mut i.state)
                 {
                     c.team = b.team;
                 }
@@ -450,7 +451,7 @@ impl Sim {
     }
 
     pub fn set_computer_team(&mut self, id: usize, team: i32) {
-        if let Some(crate::sim::item_state::ItemState::Computer(c)) = self.items.get_mut(id).map(|i| &mut i.state) {
+        if let Some(ItemState::Computer(c)) = self.items.get_mut(id).map(|i| &mut i.state) {
             c.team = team;
         }
     }
@@ -626,7 +627,7 @@ impl Sim {
         let (vpos, vrot) = (v.pos, v.rot);
         let Some((driver, driver_human)) = self.create_mission_bot(expiry, None, vpos, vrot, vid, 0) else { return Some(car) };
         if let Some(key) = self.create_item(ItemKind::Key, INTEL_ITEMS_POS, None, IDENTITY) {
-            self.items.get_mut(key).unwrap().state = super::item_state::ItemState::Key { vehicle: Some(vid) };
+            self.items.get_mut(key).unwrap().state = ItemState::Key { vehicle: Some(vid) };
             if let Some(h) = driver_human {
                 self.link_to_slot(h, key, INTEL_KEY_SLOT);
             }

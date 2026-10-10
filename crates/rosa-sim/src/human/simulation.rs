@@ -19,9 +19,9 @@ use super::{
     },
     seated::{fall_out, simulate_seated, walk_simulation},
 };
-use crate::input::{GRAB, JUMP, RAGDOLL};
+use crate::{input::{GRAB, JUMP, RAGDOLL}, items::Touchables};
 use crate::time::TICKS_PER_MINUTE;
-use crate::{sim::items::Touchables, world::map::Map};
+use crate::world::map::Map;
 
 const TURN_STEP: f32 = 3.0 / 64.0;
 const DESPAWN_TICKS: i32 = TICKS_PER_MINUTE;

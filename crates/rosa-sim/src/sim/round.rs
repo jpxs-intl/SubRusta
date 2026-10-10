@@ -5,8 +5,8 @@ use rosa_protocol::{
     clientbound::game::{GameState, ItemKind, MenuType, events::chat::ChatType},
 };
 
-use super::{Sim, item_state::ItemState, items::touchables};
-use crate::PlayerId;
+use super::{Sim, items::touchables};
+use crate::{PlayerId, items::state::ItemState};
 use crate::time::TICKS_PER_MINUTE;
 
 /// The round corporations: Goldmen, Monsota and OXS.

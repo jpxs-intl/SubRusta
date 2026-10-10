@@ -6,10 +6,11 @@ use rosa_protocol::clientbound::game::ItemKind;
 
 use super::{
     Sim,
-    item_state::{BILL_VALUES, ItemState},
-    item_types::ItemType,
     items::touchables,
 };
+use crate::items::state::BILL_VALUES;
+use crate::items::state::ItemState;
+use crate::items::types::ItemType;
 use crate::time::WORLD_HOUR;
 use crate::{
     PlayerId,
@@ -281,7 +282,7 @@ impl Sim {
         }
         if let Some(key) = self.create_item(ItemKind::Key, pos, None, rot) {
             if let Some(i) = self.items.get_mut(key) {
-                i.state = super::item_state::ItemState::Key { vehicle: vid };
+                i.state = ItemState::Key { vehicle: vid };
             }
             self.link_first_free(human, key, POCKETS);
         }
@@ -310,7 +311,7 @@ impl Sim {
             return;
         }
         let key = hand.items[0] as usize;
-        let Some(super::item_state::ItemState::Key { vehicle: Some(vid) }) = self.items.get(key).map(|i| i.state.clone()) else { return };
+        let Some(ItemState::Key { vehicle: Some(vid) }) = self.items.get(key).map(|i| i.state.clone()) else { return };
         let Some(v) = self.vehicles.get(vid).filter(|v| v.health > 0) else { return };
         let price = self.vehicle_types.get(v.kind as usize).map_or(0, |t| t.price);
         if let Some(p) = self.players.get_mut(pid.idx()) {
@@ -347,7 +348,7 @@ impl Sim {
         human: usize,
         kind: u8,
         slots: std::ops::Range<usize>,
-        init: impl FnOnce(&mut super::item_state::ItemState),
+        init: impl FnOnce(&mut ItemState),
     ) -> Option<usize> {
         let kind = ItemKind::try_from(kind).ok()?;
         let pos = self.humans.get(human).map(|h| h.pos)?;

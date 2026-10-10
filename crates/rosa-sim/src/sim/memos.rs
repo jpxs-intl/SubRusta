@@ -1,8 +1,9 @@
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{Team, clientbound::game::ItemKind};
 
-use super::{Sim, item_state::ItemState};
+use super::Sim;
 use crate::computer::links::{ITEM_SLOTS, KIND_MEMO, Link};
+use crate::items::state::ItemState;
 use crate::time::{WORLD_HOUR, WORLD_MINUTE};
 
 /// A memo holds up to 1023 characters (item +0x368), sent in 64 character blocks.

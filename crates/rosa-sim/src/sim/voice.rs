@@ -4,7 +4,7 @@ use glam::Vec3;
 use rosa_protocol::clientbound::game::{GameState, ItemKind};
 
 use super::{Earshot, Sim, TickCtx};
-use crate::{Client, PlayerId};
+use crate::{Client, PlayerId, items::state::{ItemState, PhoneStatus}};
 
 /// A speaker's reach by volume level: whisper, talk and shout.
 const WHISPER_RANGE: f32 = 8.0;
@@ -64,7 +64,7 @@ impl Sim {
     pub(crate) fn build_radio_channels(&mut self) {
         self.radio_channels = vec![Vec::new(); RADIO_CHANNELS];
         for (id, item) in self.items.iter() {
-            if let super::item_state::ItemState::Radio { channel, .. } = item.state {
+            if let ItemState::Radio { channel, .. } = item.state {
                 let list = &mut self.radio_channels[(channel & 0x7f) as usize];
                 if list.len() < CHANNEL_RADIOS {
                     list.push(id);
@@ -80,7 +80,7 @@ impl Sim {
             .map(|(id, i)| {
                 let phone = i.state.phone();
                 let (transmitting, channel) = match i.state {
-                    super::item_state::ItemState::Radio { channel, transmitting } => (transmitting, channel),
+                    ItemState::Radio { channel, transmitting } => (transmitting, channel),
                     _ => (false, 0),
                 };
                 let v = VoiceItem {
@@ -89,7 +89,7 @@ impl Sim {
                     parent_human: i.parent_human,
                     parent_slot: i.parent_slot,
                     connected: phone.and_then(|p| p.connected),
-                    on_call: phone.is_some_and(|p| p.status == super::item_state::PhoneStatus::Connected),
+                    on_call: phone.is_some_and(|p| p.status == PhoneStatus::Connected),
                     transmitting,
                     channel,
                 };

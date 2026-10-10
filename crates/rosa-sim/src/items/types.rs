@@ -1,7 +1,7 @@
 use glam::Vec3;
 use rosa_protocol::clientbound::game::ItemKind;
 
-use super::hull::ConvexHull;
+use crate::sim::hull::ConvexHull;
 
 pub struct ItemType {
     pub name: String,

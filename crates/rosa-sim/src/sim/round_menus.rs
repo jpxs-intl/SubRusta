@@ -3,8 +3,8 @@ use rosa_protocol::{
     clientbound::game::{ItemKind, MenuType, events::chat::ChatType},
 };
 
-use super::{Sim, item_state::ItemState};
-use crate::PlayerId;
+use super::Sim;
+use crate::{PlayerId, items::state::ItemState};
 
 /// The vehicle stock the corporations buy from in round mode (corp_stock_data + 0x1c4, 0x10 each).
 pub const VEHICLE_STOCK: usize = 8;
