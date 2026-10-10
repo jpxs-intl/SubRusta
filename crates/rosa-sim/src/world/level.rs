@@ -64,6 +64,9 @@ pub fn build_level(
 
     let mut item_sets = vec![String::new(); 4];
     item_sets.extend(list_names(&data_dir.join("itemset"), ".sis"));
+    let item_types = crate::sim::item_types::item_types();
+    let type_names: Vec<String> = item_types.iter().map(|t| t.name.clone()).collect();
+    area.item_sets = crate::world::item_sets::ItemSets::load(data_dir, &item_sets[4..], &type_names, item_types.into_iter().map(|t| t.hull).collect());
 
     let city_iset = |v: u32| -> u32 {
         let name = city.itemset_names.get((v & 1023) as usize).map(|n| {

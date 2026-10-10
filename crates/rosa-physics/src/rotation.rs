@@ -75,16 +75,20 @@ pub fn rk4_rotation(rot: &mut RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> V
     let k2 = angular_velocity(&turned(rot, k1, true), momentum, inv_inertia);
     let k3 = angular_velocity(&turned(rot, k2, true), momentum, inv_inertia);
     let k4 = angular_velocity(&turned(rot, k3, false), momentum, inv_inertia);
+
     let avg = Vec3::new(
-        (((k2.x + k2.x) + k1.x) + (k3.x + k3.x) + k4.x) * 0.16666667,
-        (((k1.y + (k2.y + k2.y)) + (k3.y + k3.y)) + k4.y) * 0.16666667,
-        0.16666667 * (k4.z + ((k3.z + k3.z) + ((k2.z + k2.z) + k1.z))),
+        (((k2.x + k2.x) + k1.x) + (k3.x + k3.x) + k4.x) * (1.0 / 6.0),
+        (((k1.y + (k2.y + k2.y)) + (k3.y + k3.y)) + k4.y) * (1.0 / 6.0),
+        (1.0 / 6.0) * (k4.z + ((k3.z + k3.z) + ((k2.z + k2.z) + k1.z))),
     );
+
     let n = (avg.z * avg.z + (avg.x * avg.x + avg.y * avg.y)).sqrt();
+
     if n > (1.0/65536.0) {
         let inv = 1.0 / n;
         rotate_orientation(rot, Vec3::new(avg.x * inv, avg.y * inv, inv * avg.z), n);
     }
+
     avg
 }
 
@@ -116,6 +120,7 @@ fn half_angle_acos(w: f32) -> f32 {
     } else {
         1.0
     };
+
     let a = c.acos();
     (a + a) as f32
 }

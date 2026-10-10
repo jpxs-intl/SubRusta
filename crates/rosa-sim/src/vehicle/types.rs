@@ -6,7 +6,7 @@ use rosa_protocol::clientbound::game::VehicleKind;
 use super::sbv::VehicleBody;
 
 pub const VEHICLE_TYPES: usize = 17;
-const COPLANAR: f32 = 1.5258789e-5;
+const COPLANAR: f32 = 1.0 / 65536.0;
 const NODE_SEARCH: f32 = 65536.0;
 const WHEEL_SEARCH_SCALE: f32 = 4.0;
 const LOWER_NODE_MASS: f32 = 4.0;
@@ -565,7 +565,7 @@ impl VehicleType {
     /// The four wheels of a saloon, hung along its lower sides.
     fn saloon_wheels(&mut self) {
         for (a, b, weights) in [(0, 2, [0.25, 0.75]), (1, 3, [0.25, 0.75]), (2, 4, [0.125, 0.875]), (3, 5, [0.125, 0.875])] {
-            self.add_wheel(0, a, b, weights, 0.375, 12.0, 14.222222, -0.125, [0.25, 0.5, 0.25]);
+            self.add_wheel(0, a, b, weights, 0.375, 12.0, 128.0 / 9.0, -0.125, [0.25, 0.5, 0.25]);
         }
     }
 
@@ -696,7 +696,7 @@ impl VehicleType {
             panel([16, 17, 19, 18]),
         ]);
         for (a, b, weights) in [(0, 2, [0.75, 0.25]), (1, 3, [0.75, 0.25]), (2, 4, [0.25, 0.75]), (3, 5, [0.25, 0.75]), (2, 4, [0.5, 0.5]), (3, 5, [0.5, 0.5])] {
-            t.add_wheel(0, a, b, weights, 0.375, 80.0, 11.377778, -0.125, [0.25, 0.5, 0.5]);
+            t.add_wheel(0, a, b, weights, 0.375, 80.0, 512.0 / 45.0, -0.125, [0.25, 0.5, 0.5]);
         }
         t.track = 1.125;
         t.wheelbase = (z[1] + (z[2] - z[1]) * 0.75) - ((z[0] - z[1]) * 0.75 + z[1]);
@@ -752,7 +752,7 @@ impl VehicleType {
         t.add_node_edges(&[12, 13, 15, 14, 2, 3, 5, 4]);
         t.add_node_edges(&[12, 13, 15, 14, 8, 9, 11, 10]);
         for (a, b, weights) in [(12, 14, [0.75, 0.25]), (13, 15, [0.75, 0.25]), (12, 14, [0.25, 0.75]), (13, 15, [0.25, 0.75])] {
-            t.add_wheel(0, a, b, weights, 0.375, 80.0, 11.377778, -0.125, [0.25, 0.5, 0.5]);
+            t.add_wheel(0, a, b, weights, 0.375, 80.0, 512.0 / 45.0, -0.125, [0.25, 0.5, 0.5]);
         }
         t.track = 1.125;
         t.wheelbase = ((z[2] - z[1]) * 0.75 + z[1]) - ((z[0] - z[1]) * 0.75 + z[1]);

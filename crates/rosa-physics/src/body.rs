@@ -84,9 +84,6 @@ pub enum SolverStep {
 
 /// How much a free body's vertical speed drops each tick: 9.8 / 60².
 pub const GRAVITY: f32 = 9.8 / (60.0 * 60.0);
-/// A world contact's sliding speed that friction stops outright: 2.5 ticks of gravity, as the binary rounds it
-/// (0x3bdf0123; computing it in f32 gives one ulp more).
-const STATIC_SLIDE: f32 = f32::from_bits(0x3bdf_0123);
 
 pub struct RigidBodies {
     bodies: Table<RigidBody>,
@@ -283,7 +280,7 @@ fn solve_world_contact(b: &mut RigidBody, c: &Contact) {
         let (dx, dy, dz) = (tx * inv, ty * inv, tz * inv);
         let jlen = ((jx * jx + jy * jy) + jz * jz).sqrt();
         let limit = c.friction * jlen;
-        let k = STATIC_SLIDE;
+        let k = 24.5 / 3600.0;
         let m = if tlen > limit {
             slide = (((tlen - limit) * jlen) * 60.0) * 8.0 + 0.0;
             if limit > k {

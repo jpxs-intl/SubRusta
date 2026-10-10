@@ -114,6 +114,8 @@ pub struct Human {
     pub gear_x_input: f32,
     pub gear_y_input: f32,
     pub last_vehicle_cooldown: i32,
+    /// Whether the traffic car this human sits in names it as its driver (traffic car +0x04), set before each tick.
+    pub traffic_driver: bool,
     /// An immortal human (record 0x68) loses no blood, cannot die of its wounds and is not hurt by falls or
     /// vehicles; it recovers quickly while knocked down.
     pub is_immortal: bool,

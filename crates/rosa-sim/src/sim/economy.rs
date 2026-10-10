@@ -62,16 +62,19 @@ pub fn purchase_stocks(player: &mut Player, corps: &mut [Corporation; CORPORATIO
 
 /// player_sell_stocks: sells `n` of the player's shares at 95% (98% in round mode) of the price less what the
 /// corporation's running projects have spent per share.
-pub fn sell_stocks(player: &mut Player, corps: &mut [Corporation; CORPORATIONS], n: i32, mode: GameMode) {
+pub fn sell_stocks(player: &mut Player, corps: &mut [Corporation; CORPORATIONS], projects: &[super::corporations::CorpState], n: i32, mode: GameMode) {
     let Some(c) = corporation_of(player.team) else { return };
     let held = player.stocks;
     if held < n {
         return;
     }
     let shares = corps[c].shares;
-    let price = corps[c].price;
-    // TODO: each of the corporation's 16 active projects (team + 0x45c * k, spend at +0x4c) with positive spend
-    // lowers the price by max(spend - unk_14, 0) / shares
+    let mut price = corps[c].price;
+    for m in projects.get(c).map_or(&[][..], |p| &p.missions[..]) {
+        if m.active && m.provided_cash > 0 && shares > 0 {
+            price -= (m.provided_cash - corps[c].unk_14).max(0) as f32 / shares as f32;
+        }
+    }
     let rate = if mode == GameMode::Round { ROUND_SELL_RATE } else { SELL_RATE };
     player.stocks = held - n;
     player.money = ((price * rate) * n as f32 + player.money as f32) as i32;
@@ -113,11 +116,43 @@ pub fn stock_event(corps: &[Corporation; CORPORATIONS], tick: u32) -> Event {
     }
 }
 
-/// The money a player has on joining: world mode tops it up to 500 and versus sets it to 250.
-pub fn joining_money(mode: GameMode, money: i32) -> i32 {
+/// A new account's money and corporate rating (create_account_from_join_ticket), before world mode's startcash.
+const NEW_ACCOUNT_MONEY: u32 = 1000;
+const NEW_ACCOUNT_RATING: u32 = 1000;
+/// The longest name an account or player keeps.
+const NAME_LEN: usize = 31;
+
+/// The name as an account stores it: at most 31 bytes.
+/// An account on the Steam ban list is banned for this long.
+const STEAM_BAN_TIME: u32 = 100000000;
+/// A name taken at join is kept for this many world saves.
+const NAME_LOCK: i32 = 5;
+/// A banned account dropped from the server keeps its name for this many world saves.
+pub(crate) const BANNED_NAME_LOCK: i32 = 2;
+
+fn account_name_bytes(name: &str) -> [u8; 32] {
+    let mut buf = [0u8; 32];
+    let src = name.as_bytes();
+    let n = src.len().min(NAME_LEN);
+    buf[..n].copy_from_slice(&src[..n]);
+    buf
+}
+
+/// sanitize_name: slashes become spaces, the spaces at either end go, and an empty name is "Noname".
+pub fn sanitize_name(raw: &[u8]) -> String {
+    let end = raw.iter().take(NAME_LEN).position(|&b| b == 0).unwrap_or(raw.len().min(NAME_LEN));
+    let bytes: Vec<u8> = raw[..end].iter().map(|&b| if b == b'/' { b' ' } else { b }).collect();
+    let start = bytes.iter().position(|&b| b != b' ').unwrap_or(bytes.len());
+    let stop = bytes.iter().rposition(|&b| b != b' ').map_or(start, |i| i + 1);
+    let name = String::from_utf8_lossy(&bytes[start..stop.max(start)]).into_owned();
+    if name.is_empty() { "Noname".into() } else { name }
+}
+
+/// The money a player has on joining: world mode tops it up to mincash and versus sets it to 250.
+pub fn joining_money(mode: GameMode, money: i32, mincash: i32) -> i32 {
     // TODO: round mode with the setting at 0x452cacd0 set gives the 0x453855d0 setting (250)
     match mode {
-        GameMode::World if money < 500 => 500,
+        GameMode::World if money < mincash => mincash,
         GameMode::Versus => 250,
         _ => money,
     }
@@ -134,45 +169,13 @@ fn keeps_suit(suit: u8) -> bool {
 }
 
 pub const WORLD_TIME_START: i32 = 1728010;
-const WORLD_TIME_STEP: i32 = 10;
-const WORLD_MISSIONS_TIME: i32 = 1728060;
-const WORLD_SAVE_PERIOD: i32 = 18000;
 const WORLD_RESPAWN_BASE: i32 = 1200;
 const WORLD_RESPAWN_PER_CRIME: i32 = 30;
 /// An eliminator death adds 18000 ticks split between a third of the starting players, up to 50400.
 const DEATH_CUT_TIME: i32 = 18000;
 const DEATH_CUT_CAP: i32 = 50400;
-const PLAY_TIME_STEP: u32 = 5;
 
 impl Sim {
-    /// The economy part of logic_world: the clock, and every 18000 clock units the accounts are saved and the share
-    /// prices sent.
-    pub(crate) fn logic_world(&mut self) {
-        // TODO: the per-player checks before the clock (spawn timers, vehicle ownership)
-        // TODO: the clock advances by the rate at 0xe3b21e4
-        self.world_time += WORLD_TIME_STEP;
-        if self.world_time == WORLD_MISSIONS_TIME {
-            // TODO: the day's world missions (create_world_mode_mission, world_distribute_document_missions)
-        }
-        self.stock_burger_shops();
-        // TODO: the day's end (reset_game past 0x3e9f3f), traffic and trains, and the 54000 checks
-        if self.world_time % WORLD_SAVE_PERIOD != 0 {
-            return;
-        }
-        // TODO: count down the human +0x14 timers
-        self.restock_dealerships();
-        self.stock_gun_stores();
-        self.save_accounts();
-        for (_, p) in self.players.iter() {
-            if let Some(a) = self.saved_accounts.get_player_data(p.account_id) {
-                a.play_time += PLAY_TIME_STEP;
-            }
-        }
-        // TODO: the account countdown at record +0x38 (not saved)
-        self.save_stats();
-        self.events.push(stock_event(&self.corporations, self.tick));
-    }
-
     /// update_suitcolor_model: moves the player to another team and dresses them for it (the corporation's suit and
     /// tie, or plain clothes with no team), then their human.
     pub(crate) fn set_player_team(&mut self, pid: PlayerId, team: Team) {
@@ -250,7 +253,7 @@ impl Sim {
         let real = pid.idx() <= 0xff;
         if mode == GameMode::World && real {
             let held = player.stocks;
-            sell_stocks(player, &mut self.corporations, held, mode);
+            sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
         }
         if real {
             wealth_tax(player, &mut self.corporations);
@@ -259,10 +262,10 @@ impl Sim {
         if mode == GameMode::Eliminator && real {
             self.broadcast_death_cut_time(pid);
         }
-        // TODO: versus clears the player's seven saved slots (+0x17f4, 0x64 apart)
         if mode == GameMode::World {
-            // TODO: the setting at 0x45385614 (off by default) keeps the dead player in their corporation
-            self.set_player_team(pid, Team::Spectator);
+            if !self.world_cfg.respawnteam {
+                self.set_player_team(pid, Team::Spectator);
+            }
             let Some(player) = self.players.get_mut(pid.idx()) else { return };
             player.spawn_timer = player.crim_rating * WORLD_RESPAWN_PER_CRIME + WORLD_RESPAWN_BASE;
         }
@@ -283,6 +286,35 @@ impl Sim {
         }
     }
 
+    /// create_account_from_join_ticket: the joining player's account, made new (1000 money, startcash in world mode,
+    /// 1000 corporate rating and a random look) if this server has not seen them, and brought up to date with what the
+    /// master server says about them.
+    pub(crate) fn join_account(&mut self, auth: &rosa_protocol::masterserver::AuthPacket) -> SrkPlayerData {
+        let accounts = &mut self.saved_accounts;
+        if !accounts.players.iter().any(|a| a.account_id == auth.account_id) {
+            let mut a = SrkPlayerData::new(auth.account_id, &auth.player_name, auth.phone_number, auth.steam_id);
+            a.money = if self.gamemode == GameMode::World { self.world_cfg.startcash as u32 } else { NEW_ACCOUNT_MONEY };
+            a.corp_rating = NEW_ACCOUNT_RATING;
+            a.eye_color = (crate::rng::rand() % 3) as u32;
+            a.hair_color = (crate::rng::rand() & 7) as u32;
+            a.skin_color = (crate::rng::rand() & 3) as u32;
+            accounts.players.push(a);
+            accounts.player_count = accounts.players.len() as u32;
+        }
+        let a = accounts.players.iter_mut().find(|a| a.account_id == auth.account_id).unwrap();
+        a.phone_number = auth.phone_number;
+        a.steam_id = auth.steam_id;
+        if self.admin.steam_bans.contains(&a.steam_id) {
+            a.ban_time = STEAM_BAN_TIME;
+        }
+        let lock = self.account_name_locks.entry(auth.account_id).or_insert(0);
+        if *lock == 0 {
+            a.player_name = account_name_bytes(&auth.player_name);
+            *lock = NAME_LOCK;
+        }
+        a.clone()
+    }
+
     /// The account part of server_recv_and_dispatch's join and restore_account_data: round and world mode players
     /// get their saved money and ratings back, then the mode's starting money applies.
     pub(crate) fn restore_account(&mut self, pid: PlayerId) {
@@ -301,7 +333,7 @@ impl Sim {
         }
         self.reclaim_humans(pid);
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        player.money = joining_money(mode, player.money);
+        player.money = joining_money(mode, player.money, self.world_cfg.mincash);
     }
 
     /// A returning player takes back every human still holding their account: its team becomes theirs, and in world
@@ -334,14 +366,21 @@ impl Sim {
     /// human remembers the account.
     pub(crate) fn settle_leave(&mut self, pid: PlayerId) {
         let mode = self.gamemode;
+        if let Some(p) = self.players.get(pid.idx()).filter(|p| p.is_bot) {
+            let (human, account) = (p.human, p.account_id);
+            if let Some(h) = human.and_then(|h| self.humans.get_mut(h)).filter(|h| h.player == Some(pid)) {
+                h.player = None;
+                h.account = Some(account);
+            }
+            return;
+        }
         self.remove_player_from_corps(pid);
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        // TODO: bots skip all of this
         let held = player.stocks;
-        sell_stocks(player, &mut self.corporations, held, mode);
+        sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
         if pid.idx() <= 0xff {
             let held = player.stocks;
-            sell_stocks(player, &mut self.corporations, held, mode);
+            sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
         }
         let team = player.team;
         self.leave_corp_management(pid, team);
@@ -374,7 +413,7 @@ impl Sim {
         let b = (button & 0xff) as usize;
         match b {
             0..4 => purchase_stocks(player, &mut self.corporations, amounts[b]),
-            4..8 => sell_stocks(player, &mut self.corporations, amounts[b - 4], mode),
+            4..8 => sell_stocks(player, &mut self.corporations, &self.corp_state, amounts[b - 4], mode),
             _ => {}
         }
         self.events.push(player.make_update_round_event(tick));
@@ -389,6 +428,7 @@ impl Sim {
     }
 
     pub fn set_accounts(&mut self, accounts: Vec<rosa_map::file_types::srk::SrkPlayerData>) {
+        self.saved_accounts.player_count = accounts.len() as u32;
         self.saved_accounts.players = accounts;
     }
 

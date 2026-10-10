@@ -83,13 +83,12 @@ pub fn sync_bones(h: &mut Human, bodies: &mut RigidBodies, map: &Map) {
         h.grid_min[k] = (h.aabb_min.to_array()[k] * 0.25) as i32;
         h.grid_max[k] = (h.aabb_max.to_array()[k] * 0.25) as i32;
     }
-    // TODO: spawn item-set items inside the human's grid bounds (spawn_item_from_grid_cell)
 }
 
 /// The end of human_simulation: every bone's rotation relative to its parent (sent to clients) and its Euler angles.
 pub(super) fn update_networked_bones(h: &mut Human) {
     for child in 1..BONE_COUNT {
-        let [p0, p1, p2] = h.bones[BONES[child].parent].rot;
+        let [p0, p1, p2] = h.bones[BONES[child].parent.index()].rot;
         let [c0, c1, c2] = h.bones[child].rot;
         let dot = |c: Vec3, p: Vec3| (c.x * p.x + c.y * p.y) + c.z * p.z;
         let m = [
@@ -124,7 +123,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         } else if j <= BoneId::Torso as usize {
             0.03125
         } else {
-            0.015625
+            1.0 / 64.0
         };
 
         let t = &BONES[j];
@@ -146,7 +145,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let Some(hit) = capsule_intersect_level(&map.ground, &map.level.area, &map.level.meshes, a, b, radius) else { continue };
         let n = hit.normal;
         let impact = ((bone.vel.x * n.x + bone.vel.y * n.y) + bone.vel.z * n.z).abs();
-        if !(impact <= 0.06666667) && hit.area != -1 && hit.block.x != -1 {
+        if !(impact <= 1.0 / 15.0) && hit.area != -1 && hit.block.x != -1 {
             add_bullet_hole(map, hit, bone.pos, bone.vel, out);
         }
         if h.last_vehicle_cooldown == 0 && !h.is_immortal {
@@ -170,8 +169,48 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let body = h.bones[j].body;
         let Some(bp) = bodies.get(body).map(|b| b.pos) else { continue };
         let offset = Vec3::new(hit.pos.x - bp.x, hit.pos.y - bp.y, hit.pos.z - bp.z);
-        bodies.add_world_contact(body, offset, n, radius - hit.dist, friction, depth_scale, BONE_SOFTNESS);
+        if hit.set.is_none() {
+            bodies.add_world_contact(body, offset, n, radius - hit.dist, friction, depth_scale, BONE_SOFTNESS);
+        }
         h.is_on_ground = true;
+    }
+}
+
+const TRACK_FRICTION: f32 = f32::from_bits(0x3ecc_cccd);
+const TRACK_DEPTH_SCALE: f32 = 0.03125;
+const TRACK_SOFTNESS: f32 = 0.0625;
+
+/// The track part of human_generate_world_item_self_contacts: every bone capsule but the feet (and the shins of a
+/// human standing) against the track walls within the human's bounds, its deepest-axis triangle pushing it out.
+pub(super) fn bone_track_contacts(h: &Human, bodies: &mut RigidBodies, track: &crate::world::track::Track) {
+    let tris = track.collect(h.aabb_min, h.aabb_max, crate::world::track::WALLS);
+    if tris.is_empty() {
+        return;
+    }
+    let standing = h.movement_state != 2 && h.old_health > 0 && h.health > 49;
+    for (j, bone) in h.bones.iter().enumerate() {
+        if j == BoneId::FootLeft as usize || j == BoneId::FootRight as usize {
+            continue;
+        }
+        if (j == BoneId::ShinLeft as usize || j == BoneId::ShinRight as usize) && standing {
+            continue;
+        }
+        let radius = BONES[j].shape_size[1];
+        let [start, end] = bone.capsule;
+        let mut best: Option<(Vec3, Vec3, f32)> = None;
+        let mut best_d = 65536.0f32;
+        for &[a, b, c] in &tris {
+            if let Some(hit) = crate::world::capsule::capsule_intersect_triangle(start, end, a, b, c, radius)
+                && !(best_d <= hit.2)
+            {
+                best_d = hit.2;
+                best = Some(hit);
+            }
+        }
+        let Some((p, n, d)) = best else { continue };
+        let Some(bp) = bodies.get(bone.body).map(|b| b.pos) else { continue };
+        let offset = Vec3::new(p.x - bp.x, p.y - bp.y, p.z - bp.z);
+        bodies.add_world_contact(bone.body, offset, n, radius - d, TRACK_FRICTION, TRACK_DEPTH_SCALE, TRACK_SOFTNESS);
     }
 }
 
@@ -275,7 +314,7 @@ pub(super) fn joint_limits(h: &mut Human, bodies: &mut RigidBodies) {
     for child in 1..BONE_COUNT {
         let parent = BONES[child].parent;
         let Some(bond) = h.bones[child].joint else { continue };
-        let (correction, angles) = joint_limit_correction(h, parent, child);
+        let (correction, angles) = joint_limit_correction(h, parent, BoneId::ALL[child]);
         h.bones[child].limit_angles = angles;
         if let Some(Bond::Joint(j)) = bodies.bond_mut(bond) {
             j.target_ang_vel = Vec3::ZERO;
@@ -292,9 +331,9 @@ fn maxss(a: f32, b: f32) -> f32 {
 }
 
 /// human_accumulate_joint_limit_correction: (world-space corrective spin, clamped joint angles).
-pub(super) fn joint_limit_correction(h: &Human, parent: usize, child: usize) -> (Vec3, [f32; 3]) {
-    let [p0, p1, p2] = h.bones[parent].rot;
-    let [c0, c1, c2] = h.bones[child].rot;
+pub(super) fn joint_limit_correction(h: &Human, parent: BoneId, child: BoneId) -> (Vec3, [f32; 3]) {
+    let [p0, p1, p2] = h.bones[parent as usize].rot;
+    let [c0, c1, c2] = h.bones[child as usize].rot;
     let dot = |c: Vec3, p: Vec3| (c.x * p.x + c.y * p.y) + c.z * p.z;
     let (m00, m01, m02) = (dot(c0, p0), dot(c0, p1), dot(c0, p2));
     let (m10, m11, m12) = (dot(c1, p0), dot(c1, p1), dot(c1, p2));
@@ -307,11 +346,11 @@ pub(super) fn joint_limit_correction(h: &Human, parent: usize, child: usize) -> 
     let (s, c) = (s as f32, c as f32);
     let a2 = ((s * m20 - c * m10) as f64).atan2((m11 * c - m21 * s) as f64) as f32;
 
-    let (wp, wc) = (h.bones[parent].ang_vel, h.bones[child].ang_vel);
+    let (wp, wc) = (h.bones[parent.index()].ang_vel, h.bones[child.index()].ang_vel);
     let dw = Vec3::new(wp.x - wc.x, wp.y - wc.y, wp.z - wc.z);
     let local = [dot(dw, p0), dot(dw, p1), dot(dw, p2)];
 
-    let t = &BONES[child];
+    let t = &BONES[child.index()];
     let (lmin, lmax) = (t.limit_min.to_array(), t.limit_max.to_array());
     let mut angles = [a0, a1, a2];
     let mut corr = [0f32; 3];

@@ -16,24 +16,9 @@ use crate::{
     world::{map::Map, trace::line_intersect_level},
 };
 
-const SEAT_REACH: f32 = 1.375;
-const HEAD_REACH: f32 = -0.75;
-const MAX_SPAWN_PROTECTION: i32 = 900;
-const SEAT_HEIGHT: f32 = 0.25;
-const EXIT_STEPS: f32 = 15.0;
-const EXIT_TICKS: i32 = 29;
 pub(super) const ENTER_KEY: u32 = 0x800;
 const LAST_VEHICLE_TICKS: i32 = 100;
-const EXIT_PUSH: f32 = 0.0625;
-const THIGH_TURN: f32 = -1.5707964;
-const UPPER_ARM_TURN: f32 = -1.1780972;
-const FOREARM_TURN: f32 = -0.3926991;
-const EXIT_LEG_TURN: f32 = 0.7853982;
-const EXIT_LEFT_THIGH: f64 = 0.5890486225481251;
-const EXIT_RIGHT_THIGH: f64 = 0.196349540849375;
-const HIP_SPACING: f32 = 0.3125;
-const KNEE_FORWARD: f32 = -0.125;
-const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 0.7853982, clamp_max: 0.018_407_77, pose_spin: [0.125; 3], spin_limit: [0.015625; 3], flags: 0 };
+const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), pose_spin: [0.125; 3], spin_limit: [1.0 / 64.0; 3], flags: 0 };
 
 /// A vehicle's seat offset in the world, in the order human_action_simulation adds it.
 fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {
@@ -50,8 +35,8 @@ fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {
 pub(super) fn find_seat(h: &Human, touch: &Touchables) -> Option<(usize, usize)> {
     let head = &h.bones[BoneId::Head as usize];
     let (p, r2) = (head.pos, head.rot[2]);
-    let at = Vec3::new(r2.x * HEAD_REACH + p.x, r2.y * HEAD_REACH + p.y, r2.z * HEAD_REACH + p.z);
-    let mut best = SEAT_REACH;
+    let at = Vec3::new(r2.x * -(3.0 / 4.0) + p.x, r2.y * -(3.0 / 4.0) + p.y, r2.z * -(3.0 / 4.0) + p.z);
+    let mut best = 11.0 / 8.0;
     let mut seat = None;
     for (vid, v) in touch.vehicles.iter() {
         for (k, &s) in v.seats.iter().enumerate() {
@@ -76,8 +61,7 @@ fn hands_free(h: &Human, touch: &Touchables) -> bool {
 
 /// The driver's controls handed to the vehicle (seat 0 of a car not driven by the traffic).
 fn drive(h: &Human, touch: &mut Touchables, vid: usize) {
-    // TODO: a traffic car driven by its own bot keeps its controls
-    if h.despawn_ticks == 0 {
+    if h.traffic_driver || h.despawn_ticks == 0 {
         return;
     }
     let free = hands_free(h, touch);
@@ -119,10 +103,10 @@ fn place_pelvis(h: &Human, bodies: &mut RigidBodies, v: &Vehicle, scale: f32) {
     let s = v.seats[h.seat];
     let mut p = Vec3::new(pos.x + s.x * r0.x, pos.y + s.x * r0.y, s.x * r0.z + pos.z);
     if h.seat_exit > 0 {
-        let k = (s.x * h.seat_exit as f32) / EXIT_STEPS;
+        let k = (s.x * h.seat_exit as f32) / 15.0;
         p = Vec3::new(p.x + k * r0.x, p.y + k * r0.y, p.z + k * r0.z);
     }
-    let (sy, sz) = (SEAT_HEIGHT + s.y, s.z);
+    let (sy, sz) = (0.25 + s.y, s.z);
     let p = Vec3::new((p.x + sy * r1.x) + sz * r2.x, (p.y + sy * r1.y) + sz * r2.y, (sy * r1.z + p.z) + sz * r2.z);
     let w = bodies.get(v.body).map_or(Vec3::ZERO, |b| b.ang_vel);
     let Some(b) = bodies.get_mut(h.bones[0].body) else { return };
@@ -148,7 +132,7 @@ fn place_pelvis(h: &Human, bodies: &mut RigidBodies, v: &Vehicle, scale: f32) {
 fn exit_leg_angle(h: &Human, map: &Map, scale: f32) -> f32 {
     let p = h.bones[0].pos;
     let end = Vec3::new(p.x - UP.x, p.y - UP.y, p.z - UP.z);
-    let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, p, end) else { return EXIT_LEG_TURN };
+    let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, p, end) else { return 45_f32.to_radians() };
     let d = p.y - hit.hit.pos.y;
     let c = if d > scale { 1.0 } else { d as f64 };
     let a = c.acos();
@@ -166,16 +150,16 @@ fn pose_bones(h: &Human, bodies: &mut RigidBodies, map: &Map, has_item: bool, sc
             continue;
         }
         let t = &BONES[j];
-        let Some((pp, prot, pvel)) = bodies.get(h.bones[t.parent].body).map(|b| (b.pos, b.rot, b.vel)) else { continue };
+        let Some((pp, prot, pvel)) = bodies.get(h.bones[t.parent.index()].body).map(|b| (b.pos, b.rot, b.vel)) else { continue };
         let mut rot = prot;
         let turn = |rot: &mut RotMatrix, row: usize, angle: f32| {
             let axis = rot[row];
             rotate_orientation(rot, axis, angle);
         };
         match exit_angle {
-            None if j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize => turn(&mut rot, 0, THIGH_TURN),
-            Some(a) if j == BoneId::ThighLeft as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 - EXIT_LEFT_THIGH) as f32),
-            Some(a) if j == BoneId::ThighRight as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 + EXIT_RIGHT_THIGH) as f32),
+            None if j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize => turn(&mut rot, 0, -90.0_f32.to_radians()),
+            Some(a) if j == BoneId::ThighLeft as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 - (33.75_f64.to_radians())) as f32),
+            Some(a) if j == BoneId::ThighRight as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 + (11.25_f64.to_radians())) as f32),
             Some(a) if j == BoneId::ShinLeft as usize || j == BoneId::ShinRight as usize => turn(&mut rot, 0, a),
             _ => {}
         }
@@ -189,9 +173,9 @@ fn pose_bones(h: &Human, bodies: &mut RigidBodies, map: &Map, has_item: bool, sc
         if h.seat == 0 {
             if j == BoneId::ShoulderLeft as usize || j == BoneId::ShoulderRight as usize {
                 turn(&mut rot, 1, -h.look_yaw * 0.25);
-                turn(&mut rot, 0, UPPER_ARM_TURN);
+                turn(&mut rot, 0, -3.0 * 22.5_f32.to_radians());
             } else if j == BoneId::ForearmLeft as usize || j == BoneId::ForearmRight as usize {
-                turn(&mut rot, 0, FOREARM_TURN);
+                turn(&mut rot, 0, -22.5_f32.to_radians());
             }
         }
         let (jt, o) = (t.joint, t.offset);
@@ -224,8 +208,8 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
     h.view_pitch = 0.0;
     h.locomotion.feet[0].mode = FOOT_FREE;
     h.locomotion.feet[1].mode = FOOT_FREE;
-    if h.spawn_protection > MAX_SPAWN_PROTECTION {
-        h.spawn_protection = MAX_SPAWN_PROTECTION;
+    if h.spawn_protection > 900 {
+        h.spawn_protection = 900;
     }
     if h.seat == 0 {
         drive(h, touch, vid);
@@ -245,7 +229,7 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
     let u = h.unk_b4;
     let speed = ((u.y * u.y + u.x * u.x) + u.z * u.z).sqrt();
     h.seat_exit += 1;
-    if h.seat_exit <= (scale + speed * 60.0) as i32 + EXIT_TICKS {
+    if h.seat_exit <= (scale + speed * 60.0) as i32 + 29 {
         return;
     }
     h.look_pitch = h.view_pitch;
@@ -258,7 +242,7 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
     for j in (0..BONE_COUNT).filter(|&j| j != BoneId::FootLeft as usize && j != BoneId::FootRight as usize) {
         if let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, h.bones[j].pos) {
             let (p, n) = (hit.hit.pos, hit.hit.normal);
-            h.bones[j].pos = Vec3::new(n.x * EXIT_PUSH + p.x, n.y * EXIT_PUSH + p.y, n.z * EXIT_PUSH + p.z);
+            h.bones[j].pos = Vec3::new(n.x * (1.0 / 16.0) + p.x, n.y * (1.0 / 16.0) + p.y, n.z * (1.0 / 16.0) + p.z);
         }
     }
 }
@@ -297,12 +281,12 @@ pub fn walk_simulation(h: &mut Human, bodies: &mut RigidBodies) {
         f.plant_pitch = 0.0;
         let pelvis = &h.bones[0];
         let (p, [r0, r1, r2]) = (pelvis.pos, pelvis.rot);
-        let side = if k == 0 { -HIP_SPACING } else { HIP_SPACING };
+        let side = if k == 0 { -(5.0 / 16.0) } else { 5.0 / 16.0 };
         let base = Vec3::new(side * r0.x + p.x, p.y + side * r0.y, p.z + side * r0.z);
         let target = Vec3::new(
-            ((HEAD_REACH * r2.x + base.x) + KNEE_FORWARD * r1.x) - hips[k].x,
-            ((base.y + r2.y * HEAD_REACH) + r1.y * KNEE_FORWARD) - hips[k].y,
-            ((base.z + r2.z * HEAD_REACH) + r1.z * KNEE_FORWARD) - hips[k].z,
+            ((-(3.0 / 4.0) * r2.x + base.x) + (-1.0 / 8.0) * r1.x) - hips[k].x,
+            ((base.y + r2.y * -(3.0 / 4.0)) + r1.y * (-1.0 / 8.0)) - hips[k].y,
+            ((base.z + r2.z * -(3.0 / 4.0)) + r1.z * (-1.0 / 8.0)) - hips[k].z,
         );
         let frame = h.bones[0].rot;
         let mut end_rot = [0.0, 0.0, 0.0, 1.0];

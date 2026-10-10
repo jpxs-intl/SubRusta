@@ -280,9 +280,9 @@ impl Sim {
             let base = &self.world.map.level.bases[k];
             let mut rot = IDENTITY;
             let axis = rot[1];
-            rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - (std::f64::consts::PI / 2.0)) as f32);
+            rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - 90.0_f64.to_radians()) as f32);
             let axis = rot[1];
-            rotate_orientation(&mut rot, axis, std::f32::consts::PI);
+            rotate_orientation(&mut rot, axis, 180.0_f32.to_radians());
             let t = base.table;
             let [r0, _, r2] = rot;
             let first = Vec3::new(PHONE_BACK * r2.x + t.x, PHONE_BACK * r2.y + t.y, PHONE_BACK * r2.z + t.z);
@@ -307,7 +307,7 @@ impl Sim {
         let x = ((crate::rng::rand() & 255) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.x;
         let z = ((crate::rng::rand() & 255) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.z;
         let pos = Vec3::new(x, spawn.y - SPAWN_DROP, z);
-        let yaw = ((std::f64::consts::PI / 2.0) + table_orientation as f64) as f32;
+        let yaw = (90.0_f64.to_radians() + table_orientation as f64) as f32;
         let mut rot = IDENTITY;
         let axis = rot[1];
         rotate_orientation(&mut rot, axis, yaw);
@@ -339,7 +339,7 @@ impl Sim {
                 if p.vehicles_bought > 0 {
                     p.vehicles_bought -= 1;
                 }
-                p.daily_counter = 0;
+                p.bills_withdrawn = 0;
             }
         }
         if self.round_elapsed > LOOT_GRACE && !self.loot_all_in_bases() && self.all_members_home() {
@@ -533,7 +533,6 @@ impl Sim {
 
     /// The corporations' part of reset_game (every dedicated mode goes through it): funds and counts cleared, the
     /// managers dropped and the share prices set to 100 on the first reset, and the shares counted again.
-    // TODO: driving, racing, world, coop and versus also go through this in reset_game
     pub(crate) fn reset_corporation_rounds(&mut self) {
         let first = self.round_number == 0;
         for (k, c) in self.corp_state.iter_mut().enumerate() {
@@ -574,7 +573,7 @@ impl Sim {
 
     /// The world part of reset_game: every body, human, vehicle, item, bullet and traffic car gone, the event list
     /// started over and each connection's object and event state with it.
-    fn clear_world(&mut self) {
+    pub(crate) fn clear_world(&mut self) {
         let gravity = self.bodies.gravity_scale;
         self.bodies = rosa_physics::RigidBodies::default();
         self.bodies.gravity_scale = gravity;
@@ -582,6 +581,7 @@ impl Sim {
         self.items = rosa_physics::Table::new(super::items::MAX_ITEMS);
         self.vehicles = rosa_physics::Table::new(crate::vehicle::MAX_VEHICLES);
         self.bullets.clear();
+        self.npcs.clear();
         self.traffic = crate::traffic::Traffic::new(&self.world.map.streets, self.world.map.map_name == "round");
         self.events = super::EventRing::default();
         for c in self.clients.values_mut() {
@@ -595,6 +595,7 @@ impl Sim {
         p.saved_inventory = Default::default();
         let Some(h) = p.human.and_then(|h| self.humans.get(h)) else { return };
         let mut saved: [Vec<SavedItem>; 7] = Default::default();
+        let mut keys = Vec::new();
         for (slot, s) in h.inventory.iter().enumerate() {
             for &id in &s.items[..s.count.max(0) as usize] {
                 let Some(item) = self.items.get(id as usize) else { continue };
@@ -615,13 +616,20 @@ impl Sim {
                     if let ItemState::Key { vehicle: Some(v) } = item.state
                         && let Some(veh) = self.vehicles.get(v).filter(|v| v.health > 0)
                     {
-                        // TODO: world mode keeps the vehicle itself (its id and pose) to respawn at reset
-                        saved[slot].push(SavedItem { kind, a: veh.kind as i32, b: veh.color });
+                        if self.gamemode == rosa_protocol::GameMode::World {
+                            keys.push((slot, v));
+                            saved[slot].push(SavedItem { kind, a: v as i32, b: 0 });
+                        } else {
+                            saved[slot].push(SavedItem { kind, a: veh.kind as i32, b: veh.color });
+                        }
                     }
                 } else if let ItemState::Cash(c) = &item.state {
                     saved[slot].push(SavedItem { kind, a: c.bills, b: c.codes as i32 });
                 }
             }
+        }
+        for (_, v) in keys {
+            self.save_world_key(v);
         }
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.saved_inventory = saved;
@@ -653,6 +661,13 @@ impl Sim {
                             i.state.set_left(s.b);
                         }
                         super::items::attach_child(&mut self.items, &self.item_types, id, mag);
+                    }
+                    id
+                } else if kind == ItemKind::Key && self.gamemode == rosa_protocol::GameMode::World {
+                    let Some(id) = self.create_item(ItemKind::Key, pos, None, IDENTITY) else { continue };
+                    let v = self.world_key_vehicle(s.a);
+                    if let Some(i) = self.items.get_mut(id) {
+                        i.state = ItemState::Key { vehicle: v };
                     }
                     id
                 } else if kind == ItemKind::Key {
@@ -717,7 +732,7 @@ impl Sim {
                     let mode = self.gamemode;
                     let p = self.players.get_mut(pid.idx()).unwrap();
                     let held = p.stocks;
-                    super::economy::sell_stocks(p, &mut self.corporations, held, mode);
+                    super::economy::sell_stocks(p, &mut self.corporations, &self.corp_state, held, mode);
                     p.team = Team::Spectator;
                     p.manager_tab = false;
                     let e = p.make_update_round_event(self.tick);

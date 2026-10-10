@@ -1,10 +1,11 @@
-use crate::{clientbound::game::events::{bullet::EventBullet, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, explosion::EventExplosion, mission::EventMission, phone_sound::EventPhoneSound, sound::EventSound, team_door::EventTeamDoor, update_corporation::EventUpdateCorporation, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_stock::EventUpdateStock, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
+use crate::{clientbound::game::events::{bullet::EventBullet, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, explosion::EventExplosion, item_set_cell::EventItemSetCell, mission::EventMission, phone_sound::EventPhoneSound, sound::EventSound, team_door::EventTeamDoor, update_corporation::EventUpdateCorporation, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound, update_stock::EventUpdateStock, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor}, codec::{WireWrite, Writer}};
 
 pub mod bullet;
 pub mod bullet_hit;
 pub mod bullet_hole;
 pub mod chat;
 pub mod explosion;
+pub mod item_set_cell;
 pub mod mission;
 pub mod phone_sound;
 pub mod sound;
@@ -30,6 +31,7 @@ pub enum ServerEvent {
     BulletHole(EventBulletHole),
     Chat(EventChat),
     Explosion(EventExplosion),
+    ItemSetCell(EventItemSetCell),
     Mission(EventMission),
     PhoneSound(EventPhoneSound),
     Sound(EventSound),
@@ -64,6 +66,7 @@ impl WireWrite for Event {
             ServerEvent::TeamDoor(e) => (10, e),
             ServerEvent::UpdateCorporation(e) => (0xc, e),
             ServerEvent::UpdateStock(e) => (0xd, e),
+            ServerEvent::ItemSetCell(e) => (0xf, e),
             ServerEvent::BulletHole(e) => (0x10, e),
             ServerEvent::PhoneSound(e) => (0x13, e),
             ServerEvent::Explosion(e) => (0x14, e),

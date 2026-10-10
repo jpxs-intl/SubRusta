@@ -2,6 +2,10 @@
 resolver="3"
 members = ["crates/rosa-bin", "crates/rosa-map","crates/rosa-math", "crates/rosa-net", "crates/rosa-physics", "crates/rosa-protocol", "crates/rosa-sim"]
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [workspace.lints.clippy]
 neg_cmp_op_on_partial_ord = "allow"
 approx_constant = "allow"

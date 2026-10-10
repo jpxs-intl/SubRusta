@@ -18,7 +18,6 @@ use rosa_protocol::{
     }, frame_packet, serverbound::game::actions::GameAction,
 };
 use glam::Vec3;
-use slab::Slab;
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
@@ -28,6 +27,7 @@ pub mod bullets;
 pub mod corporations;
 pub mod admin;
 pub mod bots;
+pub mod world;
 pub mod eliminator;
 pub mod missions;
 pub mod round;
@@ -42,16 +42,24 @@ pub mod humans;
 pub mod item_grid;
 pub mod item_types;
 pub mod items;
+pub mod item_sets;
+pub mod npcs;
 pub mod shops;
 pub mod tps;
 pub mod traffic;
 pub mod vehicles;
+pub mod world_missions;
+pub mod memos;
+pub mod voice;
 
 /// One of a client's 8 voice slots: a speaker it can hear.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Earshot {
     pub player: PlayerId,
     pub human: Option<usize>,
+    /// The phone or radio the voice comes out of, and the one it goes into (a radio's sender).
+    pub item: Option<usize>,
+    pub source: Option<usize>,
     pub distance: f32,
     pub volume: f32,
 }
@@ -85,7 +93,7 @@ impl EventRing {
 
 #[allow(unused)]
 struct TickCtx<'a> {
-    players: &'a Slab<Player>,
+    players: &'a crate::player::PlayerTable,
     world: &'a World,
     events: &'a EventRing,
     humans: Vec<rosa_protocol::clientbound::game::ServerHumanObject>,
@@ -103,28 +111,37 @@ struct TickCtx<'a> {
     team_counts: [i32; 5],
     /// The items no client is sent (in a pocket or closed briefcase).
     pocketed: std::collections::HashSet<u16>,
+    /// Each item with text lines: where it is, which line link slots it uses and their links.
+    item_links: HashMap<u16, (Vec3, u64, [i32; crate::computer::links::ITEM_SLOTS])>,
+    links: &'a crate::computer::links::LinkPool,
+    voice_items: std::collections::BTreeMap<usize, voice::VoiceItem>,
+    human_players: HashMap<usize, Option<PlayerId>>,
+    radio_channels: &'a [Vec<usize>],
 }
+
+/// The spectated human a client sends when it watches no one.
+const NO_HUMAN: u8 = 255;
 
 /// The length of a tick.
 const TICK_MS: u64 = 16;
 
 pub struct Sim {
-    tick: u32,
+    pub(crate) tick: u32,
     round_number: u32,
     gamemode: GameMode,
     gamestate: GameState,
     in_rx: mpsc::UnboundedReceiver<Inbound>,
     out_tx: Outbound,
-    world: World,
+    pub(crate) world: World,
     saved_accounts: SrkData,
-    players: Slab<Player>,
-    clients: HashMap<ConnId, Client>,
+    players: crate::player::PlayerTable,
+    pub(crate) clients: HashMap<ConnId, Client>,
     max_players: u8,
     events: EventRing,
-    items: rosa_physics::Table<items::Item>,
-    humans: rosa_physics::Table<crate::human::Human>,
+    pub(crate) items: rosa_physics::Table<items::Item>,
+    pub(crate) humans: rosa_physics::Table<crate::human::Human>,
     bodies: rosa_physics::RigidBodies,
-    item_types: Vec<item_types::ItemType>,
+    pub(crate) item_types: Vec<item_types::ItemType>,
     item_grid: item_grid::ItemGrid,
     noise_seed: i32,
     corporations: [economy::Corporation; economy::CORPORATIONS],
@@ -135,10 +152,15 @@ pub struct Sim {
     world_time: i32,
     /// Per account, the spawn timer kept while its player is away (account record +0x48, not saved to disk).
     account_spawn_timers: HashMap<u32, i32>,
+    /// Each account's name lock (account record +0x38, memory only): while above 0 the account's name is forced on the
+    /// player at join; it counts down every world save.
+    account_name_locks: HashMap<u32, i32>,
+    /// The walkie-talkies on each channel (rebuilt by logic_item, read by calculate_voice).
+    radio_channels: Vec<Vec<usize>>,
     traffic: crate::traffic::Traffic,
     tick_stats: tps::TickStats,
     /// Each corporation's manager, applicants and account.
-    corp_state: [corporations::CorpState; corporations::CORPORATIONS],
+    pub(crate) corp_state: [corporations::CorpState; corporations::CORPORATIONS],
     /// The vehicles the corporations can buy in round mode.
     vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
@@ -148,6 +170,9 @@ pub struct Sim {
     round_max_time: i32,
     round_cfg: round::RoundConfig,
     versus_cfg: round::VersusConfig,
+    world_cfg: world::WorldConfig,
+    world_state: world::WorldState,
+    npcs: Vec<Option<npcs::Npc>>,
     admin: admin::AdminState,
     /// The round mode weekday (rounds since the weekly reset).
     weekday: i32,
@@ -158,6 +183,10 @@ pub struct Sim {
     occupied: bool,
     stats: ServerStats,
     eliminator: eliminator::EliminatorState,
+    /// The computers' volumes and file contents.
+    pub(crate) fs: crate::computer::fs::FileSystem,
+    pub(crate) world_missions: world_missions::WorldMissions,
+    pub(crate) links: crate::computer::links::LinkPool,
 }
 
 /// What stats.txt counts since the server started: mission deals (0x7d078a4) and bullets (0x7d078a0).
@@ -178,7 +207,6 @@ impl Sim {
         let srk_data = SrkData::load(Path::new("server.srk")).unwrap();
         let corporations = [economy::Corporation::default(); economy::CORPORATIONS];
         let mut events = EventRing::default();
-        // TODO: reset_game also restocks the shop and car dealership vehicles here
         events.push(economy::stock_event(&corporations, 0));
 
         let mut sim = Self {
@@ -190,7 +218,7 @@ impl Sim {
             gamestate: GameState::Intermission,
             round_number: 0,
             saved_accounts: srk_data,
-            players: Slab::with_capacity(256),
+            players: crate::player::PlayerTable::default(),
             clients: HashMap::new(),
             max_players,
             events,
@@ -206,6 +234,8 @@ impl Sim {
             vehicle_types: crate::vehicle::types::vehicle_types(Path::new("data")),
             world_time: economy::WORLD_TIME_START,
             account_spawn_timers: HashMap::new(),
+            account_name_locks: HashMap::new(),
+            radio_channels: vec![Vec::new(); voice::RADIO_CHANNELS],
             traffic: crate::traffic::Traffic::default(),
             tick_stats: tps::TickStats::default(),
             corp_state: Default::default(),
@@ -215,6 +245,9 @@ impl Sim {
             round_max_time: round::ROUND_MAX_TIME,
             round_cfg: round::RoundConfig::load(Path::new("config_round.txt")),
             versus_cfg: round::VersusConfig::load(Path::new("config_versus.txt")),
+            world_cfg: world::WorldConfig::load(Path::new("config_world.txt")),
+            world_state: world::WorldState { max_time: world::DEFAULT_MAX_TIME, ..Default::default() },
+            npcs: Vec::new(),
             admin: admin::AdminState::load(Path::new("serveradmin.txt")),
             weekday: 0,
             missions: Default::default(),
@@ -222,6 +255,9 @@ impl Sim {
             occupied: false,
             stats: ServerStats::default(),
             eliminator: Default::default(),
+            fs: Default::default(),
+            world_missions: Default::default(),
+            links: Default::default(),
         };
         sim.reset_game();
         sim
@@ -245,6 +281,8 @@ impl Sim {
                 client.last_sdl_tick = g.sdl_tick;
                 client.event_cursor = g.received_events as u16;
                 client.pack_ack = g.unk & 0x7ff;
+                client.link_ack = g.unk1;
+                client.spectating = (g.spectating_human_id != NO_HUMAN).then_some(g.spectating_human_id as usize);
 
                 player.process_game_packet(g);
             }
@@ -305,10 +343,8 @@ impl Sim {
             return None;
         }
 
-        let entry = self.players.vacant_entry();
-        let id = PlayerId(entry.key() as u32);
-
-        entry.insert(Player::new_from_join(id, account_id, j));
+        let id = PlayerId(self.players.next_key() as u32);
+        self.players.insert(Player::new_from_join(id, account_id, j));
 
         Some(id)
     }
@@ -348,7 +384,7 @@ impl Sim {
 
         self.process_actions(pending);
         self.admin_reset();
-        if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator) {
+        if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator | GameMode::World) {
             self.start_round_if_all_ready();
         }
         self.update_shop_menus();
@@ -361,6 +397,7 @@ impl Sim {
         }
         if self.gamestate == GameState::InGame {
             self.simulate_traffic();
+            self.do_npc();
         }
         if self.gamemode == GameMode::World {
             self.logic_world();
@@ -417,21 +454,17 @@ impl Sim {
             println!("[Sim] Everyone is ready, starting the round");
 
             self.gamestate = GameState::InGame;
-            // TODO: logic_round restocks the vehicles when the intermission timer reaches 5400, with the rest of the round start
-            if self.gamemode == GameMode::Round {
-                self.randomize_corp_vehicle_stock();
-            }
 
-            for (_, p) in &mut self.players {
+            for (_, p) in self.players.iter_mut() {
                 p.menu = MenuType::Empty;
             }
         }
     }
 
-    fn calculate_ready_states(players: &mut Slab<Player>) -> [bool; 32] {
+    fn calculate_ready_states(players: &mut crate::player::PlayerTable) -> [bool; 32] {
         let mut ready_vec = [false; 32];
 
-        for (idx, player) in &mut *players {
+        for (idx, player) in players.iter_mut() {
             ready_vec[idx] = player.is_ready;
         }
 
@@ -445,7 +478,9 @@ impl Sim {
         let items = self.item_objects();
         let vehicles = self.vehicle_objects();
         let pocketed = self.items.iter().filter(|(_, i)| i.in_pocket).map(|(id, _)| id as u16).collect();
-        // TODO: the second value per corporation (0x45385e34 + 4 * k) is written only by do_versus_payouts, so 0 outside versus
+        let voice_items = self.voice_items();
+        let human_players = voice::human_players(&self.humans);
+        let item_links = self.items.iter().filter(|(_, i)| i.link_mask != 0).filter_map(|(id, i)| Some((id as u16, (self.bodies.get(i.body)?.pos, i.link_mask, i.links)))).collect();
         let corp_round = std::array::from_fn(|k| (self.corp_state[k].funds, 0));
         let team_counts = std::array::from_fn(|k| self.corp_state[k].player_count);
         let (game_timer, round_number) = (self.game_timer, self.round_number);
@@ -459,6 +494,8 @@ impl Sim {
             tick,
             gamestate,
             traffic,
+            links,
+            radio_channels,
             ..
         } = self;
 
@@ -486,6 +523,11 @@ impl Sim {
             corp_round,
             team_counts,
             pocketed,
+            item_links,
+            links,
+            voice_items,
+            human_players,
+            radio_channels,
         };
 
         for client in clients.values_mut() {
@@ -513,6 +555,7 @@ impl Sim {
         let (global_event_count, events) = Self::collect_events(client, ctx, player.team as i32, player_id.0 as i32);
         let earshots = Self::calculate_earshot(client, player_id, ctx);
         let (object_packs, pack_offset, packed_items) = Self::object_packs(client, ctx, player.camera_pos.0);
+        let (line_links, link_offset) = Self::link_section(client, ctx, player.camera_pos.0);
         let (traffic, signal) = traffic_section(client, ctx.traffic, &ctx.world.map.streets, player.camera_pos.0);
 
         let mut voice_data: [Option<ServerVoiceData>; 8] = [const { None }; 8];
@@ -523,7 +566,7 @@ impl Sim {
 
             let data = ServerVoiceData {
                 human_id: earshot.human.map_or(-1, |h| h as i32),
-                item_id: -1,
+                item_id: earshot.item.map_or(-1, |i| i as i32),
                 player_id: earshot.player.idx() as i32,
                 voice_frames: speaker.voice.recent4()
             };
@@ -548,6 +591,9 @@ impl Sim {
             money: player.money,
             corp_money: player.corp_money,
             corp_credit: player.corp_credit,
+            corp_rating: player.corp_rating,
+            crim_rating: player.crim_rating,
+            manager_tab: player.manager_tab,
             menu_buttons: player.menu_buttons.clone(),
             gamestate: ctx.gamestate,
             game_timer: ctx.game_timer,
@@ -561,6 +607,8 @@ impl Sim {
             vehicles: ctx.vehicles.clone(),
             object_packs,
             pack_offset,
+            line_links,
+            link_offset,
             traffic_count: ctx.traffic.cars.len() as i32,
             traffic,
             signal,
@@ -627,6 +675,42 @@ impl Sim {
         (packs, client.pack_ack, items)
     }
 
+    /// The line link part of append_object_packet: the new lines of each packed item within 4 of the camera go into
+    /// the connection's 256 entry ring, and every packet carries those it has not acknowledged.
+    fn link_section(client: &mut Client, ctx: &TickCtx, camera: Vec3) -> (Vec<rosa_protocol::clientbound::game::LineLinkEntry>, u8) {
+        const NEAR: f32 = 4.0;
+        if client.link_ring.len() != 256 {
+            client.link_ring = vec![0; 256];
+        }
+        let mut packed: Vec<&ObjectPack> = client.packed.values().filter(|p| p.kind == 1).collect();
+        packed.sort_unstable_by_key(|p| p.slot);
+        let items: Vec<u16> = packed.iter().map(|p| p.index).collect();
+        for item in items {
+            let Some(&(pos, mask, ids)) = ctx.item_links.get(&item) else { continue };
+            let d = Vec3::new(camera.x - pos.x, camera.y - pos.y, camera.z - pos.z);
+            if !(NEAR > ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()) {
+                continue;
+            }
+            let sent = client.link_sent.entry(item as usize).or_insert(0);
+            for k in 0..crate::computer::links::ITEM_SLOTS {
+                if mask & (1 << k) != 0 && *sent & (1 << k) == 0 {
+                    *sent |= 1 << k;
+                    client.link_ring[client.link_count as usize] = ids[k];
+                    client.link_count = client.link_count.wrapping_add(1);
+                }
+            }
+        }
+        let n = client.link_count.wrapping_sub(client.link_ack).min(255);
+        let entries = (0..n)
+            .filter_map(|k| {
+                let index = client.link_ring[client.link_ack.wrapping_add(k) as usize];
+                let l = ctx.links.record(index)?;
+                Some(rosa_protocol::clientbound::game::LineLinkEntry { index: index as u16, kind: l.kind, tick: l.tick, item: l.item, line: l.line, text: l.text.clone(), colors: l.colors.clone() })
+            })
+            .collect();
+        (entries, client.link_ack)
+    }
+
     /// add_events_to_packet: the events the client has not had, up to 63, with old sounds and other teams' corporation
     /// updates sent empty.
     fn collect_events(
@@ -674,97 +758,4 @@ impl Sim {
         (total as u32, out)
     }
 
-    /// calculate_voice: keeps each speaker the client can hear in the same one of its 8 voice slots while they stay
-    /// audible. Two humans hear each other within a range set by the speaker's volume level, halved without line of
-    /// sight; players without humans hear each other, and everyone hears everyone while the round restarts.
-    fn calculate_earshot(client: &mut Client, player_id: PlayerId, ctx: &TickCtx) -> [Option<Earshot>; 8] {
-        // TODO: phones and walkie-talkies (earshots through a receiving item), the voicechat setting, and a
-        // listener without a human hearing from the human it spectates
-        let restarting = ctx.gamestate == GameState::Restarting;
-        let listener = ctx.players.get(player_id.idx()).and_then(|p| p.human).and_then(|h| ctx.heads.get(&h).map(|&(pos, _)| pos));
-        let range = |level: u8| match level {
-            0 => 8.0f32,
-            1 => 64.0,
-            _ => 128.0,
-        };
-        let map = &ctx.world.map;
-        let line_of_sight = |from: Vec3, to: Vec3| -> f32 {
-            let d = Vec3::new(to.x - from.x, to.y - from.y, to.z - from.z);
-            let dist = (d.z * d.z + (d.x * d.x + d.y * d.y)).sqrt();
-            if dist <= 128.0 && crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to).is_none() { 1.0 } else { 0.5 }
-        };
-        let distance = |a: Vec3, b: Vec3| {
-            let d = Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z);
-            ((d.x * d.x + d.y * d.y) + d.z * d.z).sqrt()
-        };
-        for slot in client.earshots.iter_mut() {
-            let Some(e) = slot else { continue };
-            let Some(speaker) = ctx.players.get(e.player.idx()) else {
-                *slot = None;
-                continue;
-            };
-            e.human = speaker.human;
-            if speaker.voice.is_silenced {
-                *slot = None;
-                continue;
-            }
-            if restarting {
-                continue;
-            }
-            match (listener, e.human) {
-                (None, None) => {}
-                (Some(pos), Some(h)) => {
-                    let Some(&(head, alive)) = ctx.heads.get(&h) else {
-                        *slot = None;
-                        continue;
-                    };
-                    if !alive {
-                        *slot = None;
-                        continue;
-                    }
-                    e.distance = distance(head, pos);
-                    e.volume = (line_of_sight(head, pos) - e.volume) * 0.125 + e.volume;
-                    if !(e.distance <= e.volume * range(speaker.voice.volume_level)) {
-                        *slot = None;
-                    }
-                }
-                _ => *slot = None,
-            }
-        }
-        for (_, p) in ctx.players.iter() {
-            let id = p.player_id;
-            if id == player_id || p.voice.is_silenced || client.earshots.iter().flatten().any(|e| e.player == id && e.human == p.human) {
-                continue;
-            }
-            let (distance, volume) = if restarting || (listener.is_none() && p.human.is_none()) {
-                (4.0, 1.0)
-            } else {
-                let (Some(pos), Some(&(head, alive))) = (listener, p.human.and_then(|h| ctx.heads.get(&h))) else { continue };
-                if !alive {
-                    continue;
-                }
-                let volume = line_of_sight(head, pos);
-                let distance = distance(head, pos);
-                if !(range(p.voice.volume_level) * volume > distance) {
-                    continue;
-                }
-                (distance, volume)
-            };
-            let earshot = Earshot { player: id, human: p.human, distance, volume };
-            if let Some(free) = client.earshots.iter_mut().find(|s| s.is_none()) {
-                *free = Some(earshot);
-                continue;
-            }
-            // TODO: connection_find_earshot_slot compares against the slot it last picked (starting from slot -1,
-            // outside the array); this evicts the slot with the largest distance / (volume + 0.01) instead
-            let ratio = |e: &Earshot| e.distance / (e.volume + 0.01);
-            let worst = client.earshots.iter().enumerate().filter_map(|(i, s)| s.as_ref().map(|e| (i, ratio(e)))).max_by(|a, b| a.1.total_cmp(&b.1));
-            if let Some((i, r)) = worst
-                && r > distance / volume
-            {
-                client.earshots[i] = Some(earshot);
-            }
-        }
-        client.earshots
-    }
 }

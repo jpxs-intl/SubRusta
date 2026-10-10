@@ -6,8 +6,6 @@ use crate::{
     body::{BodyContact, Contact, GroundContact},
 };
 
-pub const NEVER_DESPAWN: i32 = 65536;
-
 const JOINT_STIFFNESS: f32 = 0.1875;
 const JOINT_MAX_ERROR: f32 = 0.0625;
 const JOINT_MAX_IMPULSE: f32 = f32::from_bits(0x3d08_8889);
@@ -26,7 +24,9 @@ pub enum Bond {
 impl Bond {
     pub fn despawn_time(&self) -> i32 {
         match self {
-            Bond::Joint(_) => NEVER_DESPAWN,
+            Bond::Joint(_) => 65536,
+            Bond::ItemPoint(b) if b.permanent => 65536,
+            Bond::ItemAngular(b) if b.permanent => 65536,
             Bond::WorldContact(_) | Bond::BodyContact(_) | Bond::GroundContact(_) | Bond::ItemPoint(_) | Bond::ItemAngular(_) => 0,
         }
     }
@@ -40,6 +40,8 @@ pub struct ItemPoint {
     pub anchor_a: Vec3,
     pub anchor_b: Vec3,
     pub rest: f32,
+    /// A vehicle's own bond (vehicle_bond_something), kept from tick to tick.
+    pub permanent: bool,
     solve: PointSolve,
 }
 
@@ -55,7 +57,12 @@ struct PointSolve {
 
 impl ItemPoint {
     pub fn new(body_a: usize, body_b: usize, anchor_a: Vec3, anchor_b: Vec3) -> Self {
-        Self { body_a, body_b, anchor_a, anchor_b, rest: 0.0, solve: PointSolve::default() }
+        Self { body_a, body_b, anchor_a, anchor_b, rest: 0.0, permanent: false, solve: PointSolve::default() }
+    }
+
+    /// vehicle_bond_something: a lasting point bond between two bodies of one vehicle.
+    pub fn vehicle(body_a: usize, body_b: usize, anchor_a: Vec3, anchor_b: Vec3) -> Self {
+        Self { permanent: true, ..Self::new(body_a, body_b, anchor_a, anchor_b) }
     }
 
     pub(crate) fn prepare(&mut self, bodies: &Table<RigidBody>) {
@@ -73,7 +80,7 @@ impl ItemPoint {
         let c = -self.rest;
         let mut corr = Vec3::new(n.x * c + d.x, d.y + n.y * c, c * n.z + d.z);
         let both_vehicles = matches!(a.kind, RigidBodyType::Vehicle) && matches!(b.kind, RigidBodyType::Vehicle);
-        let (k, stiffness) = if both_vehicles { (0.00390625, 0.125) } else { (0.1875, 0.1875) };
+        let (k, stiffness) = if both_vehicles { (1.0 / 256.0, 0.125) } else { (0.1875, 0.1875) };
         if !both_vehicles && matches!(b.kind, RigidBodyType::Item) {
             let len = ((corr.x * corr.x + corr.y * corr.y) + corr.z * corr.z).sqrt();
             if len > 0.125 {
@@ -110,6 +117,9 @@ pub struct ItemAngular {
     pub body_b: usize,
     pub target: Vec3,
     pub spin_limit: f32,
+    /// Bond data +0x5c and +0x60: the axis the turn is kept off (the train's bogies turn only about it).
+    pub axis_lock: Option<Vec3>,
+    pub permanent: bool,
     solve: AngularSolve,
 }
 
@@ -122,7 +132,12 @@ struct AngularSolve {
 
 impl ItemAngular {
     pub fn new(body_a: usize, body_b: usize, target: Vec3) -> Self {
-        Self { body_a, body_b, target, spin_limit: f32::from_bits(0x3e88_8889), solve: AngularSolve::default() }
+        Self { body_a, body_b, target, spin_limit: f32::from_bits(0x3e88_8889), axis_lock: None, permanent: false, solve: AngularSolve::default() }
+    }
+
+    /// create_bond_type8: a lasting angular bond between two bodies of one vehicle, with no spin limit.
+    pub fn vehicle(body_a: usize, body_b: usize) -> Self {
+        Self { spin_limit: 0.0, permanent: true, ..Self::new(body_a, body_b, Vec3::ZERO) }
     }
 
     pub(crate) fn prepare(&mut self, bodies: &Table<RigidBody>) {
@@ -147,6 +162,10 @@ impl ItemAngular {
             JOINT_DAMPING * wb.y + (-JOINT_DAMPING * wa.y + s.target.y),
             JOINT_DAMPING * wb.z + (-JOINT_DAMPING * wa.z + s.target.z),
         );
+        if let Some(ax) = self.axis_lock {
+            let d = -((t.x * ax.x + t.y * ax.y) + t.z * ax.z);
+            t = Vec3::new(t.x + ax.x * d, t.y + ax.y * d, t.z + d * ax.z);
+        }
         if self.spin_limit != 0.0 {
             let len = ((t.x * t.x + t.y * t.y) + t.z * t.z).sqrt();
             if len > self.spin_limit {

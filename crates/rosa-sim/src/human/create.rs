@@ -6,9 +6,9 @@ use super::{
     AttachmentChain, AttachmentGroup, AttachmentLink, Attachments, BONE_COUNT, Bone, Human, INVENTORY_SLOTS, InventorySlot, Joint, Locomotion, QueuedAction,
     bones::{BONES, BoneTemplate},
 };
-use crate::{player::Player, rng::rand};
+use crate::{human::BoneId, player::Player, rng::rand};
 
-const PLAYER_FACE_SHAPE: [Vec3; 4] = [Vec3::new(0.046875, 0.046875, -0.15), Vec3::ONE, Vec3::new(-0.046875, 0.046875, -0.15), Vec3::ONE];
+const PLAYER_FACE_SHAPE: [Vec3; 4] = [Vec3::new(3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE, Vec3::new(-3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE];
 const JOINT_ORDER: [usize; 15] = [1, 2, 3, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7, 8, 9];
 const LINKS: [(usize, usize); 13] = [(0, 1), (1, 2), (2, 3), (0, 4), (4, 5), (0, 7), (7, 8), (2, 10), (10, 11), (11, 12), (2, 13), (13, 14), (14, 15)];
 
@@ -67,8 +67,8 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
     for child in JOINT_ORDER {
         let t = &BONES[child];
         let anchor_b = Vec3::new(t.joint.x - t.offset.x, t.joint.y - t.offset.y, t.joint.z - t.offset.z);
-        let Some(bond) = bodies.create_bond(Bond::Joint(BondJoint::new(bones[t.parent].body, bones[child].body, t.joint, anchor_b, id as i32))) else { continue };
-        joints.push(Joint { bond, parent: t.parent, child });
+        let Some(bond) = bodies.create_bond(Bond::Joint(BondJoint::new(bones[t.parent as usize].body, bones[child].body, t.joint, anchor_b, id as i32))) else { continue };
+        joints.push(Joint { bond, parent: t.parent as usize, child });
         bones[child].joint = Some(bond);
     }
 
@@ -105,6 +105,7 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         gear_x_input: 0.0,
         gear_y_input: 0.0,
         last_vehicle_cooldown: 0,
+        traffic_driver: false,
         is_immortal: false,
         is_on_ground: false,
         spawn_protection,
@@ -181,15 +182,15 @@ fn bot_face_shape() -> [Vec3; 4] {
 }
 
 fn build_attachments(bones: &[Bone]) -> Attachments {
-    let body = |b: usize| bones[b].body;
-    let anchor = |child: usize| {
-        let t = &BONES[child];
+    let body = |b: BoneId| bones[b as usize].body;
+    let anchor = |child: BoneId| {
+        let t = &BONES[child as usize];
         let local = Vec3::new(t.joint.x - t.offset.x, t.joint.y - t.offset.y, t.joint.z - t.offset.z);
         vec![(body(t.parent), t.joint), (body(child), local)]
     };
-    let knee = |b: usize| vec![(body(b), Vec3::new(0.0, 0.25, 0.0))];
-    let center = |b: usize| vec![(body(b), Vec3::ZERO)];
-    let groups: Vec<AttachmentGroup> = [center(0), center(1), center(2), center(3), anchor(10), anchor(11), knee(11), anchor(13), anchor(14), knee(14), anchor(4), anchor(5), anchor(6), anchor(7), anchor(8), anchor(9)]
+    let knee = |b: BoneId| vec![(body(b), Vec3::new(0.0, 0.25, 0.0))];
+    let center = |b: BoneId| vec![(body(b), Vec3::ZERO)];
+    let groups: Vec<AttachmentGroup> = [center(BoneId::Pelvis), center(BoneId::Stomach), center(BoneId::Torso), center(BoneId::Head), anchor(BoneId::ThighLeft), anchor(BoneId::ShinLeft), knee(BoneId::ShinLeft), anchor(BoneId::ThighRight), anchor(BoneId::ShinRight), knee(BoneId::ShinRight), anchor(BoneId::ShoulderLeft), anchor(BoneId::ForearmLeft), anchor(BoneId::HandLeft), anchor(BoneId::ShoulderRight), anchor(BoneId::ForearmRight), anchor(BoneId::HandRight)]
         .into_iter()
         .map(|points| AttachmentGroup { points, ..Default::default() })
         .collect();

@@ -97,13 +97,20 @@ impl Sim {
     }
 
     pub(crate) fn sync_humans(&mut self) {
-        let map = &self.world.map;
-        for (_, h) in self.humans.iter_mut() {
-            sync_bones(h, &mut self.bodies, map);
+        for id in self.humans.ids() {
+            let Some(h) = self.humans.get_mut(id) else { continue };
+            sync_bones(h, &mut self.bodies, &self.world.map);
+            let (lo, hi) = (glam::IVec3::from_array(h.grid_min), glam::IVec3::from_array(h.grid_max));
+            self.spawn_set_items_in(lo, hi);
         }
     }
 
     pub(crate) fn simulate_humans(&mut self) {
+        for id in self.humans.ids() {
+            let car = self.humans.get(id).and_then(|h| h.vehicle).and_then(|v| self.vehicles.get(v)).and_then(|v| usize::try_from(v.traffic_car).ok());
+            let driver = car.and_then(|c| self.traffic.cars.get(c)).is_some_and(|c| c.human == id as i32);
+            self.humans.get_mut(id).unwrap().traffic_driver = driver;
+        }
         let map = &mut self.world.map;
         let mut out = Vec::new();
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };

@@ -440,7 +440,7 @@ pub fn generate_grass(do_hack: bool) -> Vec<f32> {
         for x in 0..2049 {
             let dx640 = (x as i32 - 640) as f32;
             let dist1 = (dx640 * dx640 + dz640_sq).sqrt();
-            let nrm = (dist1 * 0.0078125 - 1.5) * 0.5;
+            let nrm = (dist1 * (1.0 / 128.0) - 1.5) * 0.5;
             let (a, b, c): (f32, f64, f64) = if nrm <= 0.0 {
                 (0.0, 0.0, 0.0)
             } else if nrm <= 3.0 {
@@ -451,8 +451,8 @@ pub fn generate_grass(do_hack: bool) -> Vec<f32> {
             };
 
             let n1 = value_noise_2d(u32::MAX, x as f32 * 0.03125, z as f32 * 0.03125);
-            let n2 = value_noise_2d(u32::MAX, x as f32 * 0.015625, z as f32 * 0.015625);
-            let n3 = value_noise_2d(u32::MAX, x as f32 * 0.0078125, z as f32 * 0.0078125);
+            let n2 = value_noise_2d(u32::MAX, x as f32 * (1.0 / 64.0), z as f32 * (1.0 / 64.0));
+            let n3 = value_noise_2d(u32::MAX, x as f32 * (1.0 / 128.0), z as f32 * (1.0 / 128.0));
 
             let acc32: f32 = 16.0 * (n2 + a) + (23.75 + 8.0 * n1);
             let acc64: f64 = (n3 as f64 + b) * 32.0 * c + acc32 as f64;
@@ -460,7 +460,7 @@ pub fn generate_grass(do_hack: bool) -> Vec<f32> {
 
             let dx704 = (x as i32 - 704) as f32;
             let dist2 = (dx704 * dx704 + dz704 * dz704).sqrt();
-            let v = 0.015625 * (dist2 - 320.0);
+            let v = (1.0 / 64.0) * (dist2 - 320.0);
 
             if v < 0.0 {
                 height = 23.875;

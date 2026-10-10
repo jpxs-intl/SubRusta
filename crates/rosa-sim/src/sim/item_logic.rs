@@ -37,18 +37,41 @@ enum PhoneCall {
 }
 
 impl Sim {
+    /// The key part of logic_item: a key keeps while its vehicle stands, and locks it unless whoever holds the key
+    /// sits in it, who then owns it.
+    fn key_logic(&mut self, id: usize) {
+        let Some(item) = self.items.get(id) else { return };
+        let ItemState::Key { vehicle: Some(vid) } = item.state else { return };
+        let holder = item.parent_human;
+        let active = self.vehicles.get(vid).is_some();
+        if active && let Some(i) = self.items.get_mut(id) {
+            i.despawn_time = 0xffff;
+        }
+        let Some(v) = self.vehicles.get_mut(vid) else { return };
+        v.locked = true;
+        if let Some(h) = usize::try_from(holder).ok().and_then(|h| self.humans.get(h))
+            && h.vehicle == Some(vid)
+        {
+            v.locked = false;
+            v.owner = h.player.map_or(-1, |p| p.0 as i32);
+        }
+    }
+
     /// The per-item part of logic_item: despawn timers, then each type's behaviour, then the item's keys move to
     /// last tick's.
     pub(crate) fn item_behaviours(&mut self) {
-        // TODO: the walkie-talkie channel lists (read by calculate_voice) and items placed in other items
+        self.build_radio_channels();
         for id in self.items.ids() {
             self.item_despawn_rules(id);
             let Some(kind) = self.items.get(id).map(|i| i.item_type) else { continue };
             if self.item_types[kind as usize].is_gun {
                 self.fire_gun(id);
             }
-            // TODO: a key locking its vehicle, logic_computer
+            if kind == ItemKind::Computer {
+                self.with_computer(id, |sim, c| sim.logic_computer(id, c));
+            }
             match kind {
+                ItemKind::Key => self.key_logic(id),
                 ItemKind::Radio => {
                     let pressed = self.items.get(id).is_some_and(|i| i.input_flags & USE != 0);
                     if let Some(ItemState::Radio { transmitting, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
@@ -202,8 +225,12 @@ impl Sim {
         let d = item.despawn_time;
         let next = if d <= GROUND_DESPAWN { d - 1 } else { GROUND_DESPAWN - 1 };
         item.despawn_time = next;
-        // TODO: an item holding other items stays at 18000
-        if modeless && next > 0 {
+        if !item.children.is_empty() {
+            item.despawn_time = GROUND_DESPAWN;
+            if modeless {
+                item.despawn_time = NEVER_DESPAWN;
+            }
+        } else if modeless && next > 0 {
             item.despawn_time = NEVER_DESPAWN;
         }
     }
@@ -413,7 +440,8 @@ impl Sim {
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdatePhone(e) });
     }
 
-    fn phone_sound(&mut self, sound: Sound, id: usize, volume: f32) {
+    /// create_event_phone: a sound the item plays (event 0x13).
+    pub(crate) fn phone_sound(&mut self, sound: Sound, id: usize, volume: f32) {
         let e = EventPhoneSound { sound, item_id: id as i32, volume, pitch: 1.0 };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::PhoneSound(e) });
     }
@@ -590,12 +618,15 @@ impl Sim {
         }
     }
 
-    /// The item action (type 2) a player sends for an item in their hands: a dialling phone takes a digit.
+    /// The item action (type 2) a player sends for an item in their hands: a computer takes the key, a dialling
+    /// phone a digit.
     pub(crate) fn item_action(&mut self, pid: PlayerId, item_id: usize, key: i32) {
-        // TODO: computer key presses (computer_handle_keypress)
         let Some(human) = self.players.get(pid.idx()).and_then(|p| p.human) else { return };
         let Some(h) = self.humans.get(human) else { return };
         let Some(hand) = (0..2).find(|&s| h.inventory[s].count > 0 && h.inventory[s].items[0] == item_id as i32) else { return };
+        if self.items.get(item_id).is_some_and(|i| i.item_type == ItemKind::Computer) {
+            self.computer_keypress(item_id, key);
+        }
         if self.items.get(item_id).is_some_and(|i| i.item_type == ItemKind::CashWorld) {
             self.cash_action(human, hand, item_id, key);
         }

@@ -202,6 +202,8 @@ pub struct ServerItemObject {
     pub parent_item: i32,
     pub parent_human: i32,
     pub parent_slot: i32,
+    /// A computer's current and top screen lines (5 bits each), sent with the item's status.
+    pub screen: Option<(i32, i32)>,
     pub tail: ItemTail,
 }
 
@@ -226,6 +228,10 @@ impl ServerItemObject {
         w.bits(self.parent_item, 10);
         w.bits(self.parent_human, 10);
         w.bits(self.parent_slot, 4);
+        if let Some((current, top)) = self.screen {
+            w.bits(current, 5);
+            w.bits(top, 5);
+        }
         w.bits(0, 8);
 
         let p = self.pos.0;
@@ -243,6 +249,42 @@ impl ServerItemObject {
             }
             ItemTail::Radio(on) => w.bits(on as i32, 1),
             ItemTail::Computer(cursor) => w.bits(cursor, 12),
+        }
+    }
+}
+
+/// A text line sent to a client (object_packet_write_line_link): a memo's (kind 0) or computer's (kind 1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineLinkEntry {
+    pub index: u16,
+    pub kind: i32,
+    pub tick: i32,
+    pub item: i32,
+    pub line: i32,
+    pub text: Vec<u8>,
+    pub colors: Vec<u8>,
+}
+
+impl LineLinkEntry {
+    fn write(&self, w: &mut Writer) {
+        w.bits(self.index as i32, 16);
+        w.bits(self.kind, 6);
+        w.bits(self.tick, 28);
+        match self.kind {
+            0 => {
+                w.bits(self.item, 12);
+                w.bits(self.line, 6);
+                w.bits(self.text.len() as i32, 7);
+                w.bytes(&self.text);
+            }
+            1 => {
+                w.bits(self.item, 12);
+                w.bits(self.line, 5);
+                w.bits(self.text.len() as i32, 7);
+                w.bytes(&self.text);
+                w.bytes(&self.colors);
+            }
+            _ => {}
         }
     }
 }
@@ -453,6 +495,11 @@ pub struct ServerGamePacket {
     /// The money and credit of the player's corporation (player +0x50 and +0x54).
     pub corp_money: i32,
     pub corp_credit: i32,
+    /// The player's corporate and criminal ratings (player +0x58 and +0x5c).
+    pub corp_rating: i32,
+    pub crim_rating: i32,
+    /// Whether the player sees the round manager page (player +0x90).
+    pub manager_tab: bool,
     pub menu_buttons: Vec<MenuButton>,
     pub gamestate: GameState,
     /// The game timer, and per round corporation its round funds and a second value shown between rounds.
@@ -472,6 +519,9 @@ pub struct ServerGamePacket {
     /// The pack entries the client has not acknowledged yet, starting at `pack_offset` in its 2048 entry ring.
     pub object_packs: Vec<ObjectPack>,
     pub pack_offset: u16,
+    /// The line links the client has not acknowledged yet, from `link_offset` in its 256 entry ring.
+    pub line_links: Vec<LineLinkEntry>,
+    pub link_offset: u8,
     /// How many traffic cars there are, and the ones sent this packet in index order.
     pub traffic_count: i32,
     pub traffic: Vec<TrafficEntry>,
@@ -508,7 +558,6 @@ impl WireWrite for ServerGamePacket {
         }
 
         w.bits(self.game_timer, 24);
-        // TODO: the racing value at 0x45384fa4 (0 outside racing)
         w.bits(0, 16);
         w.bits(get_sun_time(12, 60), 30);
 
@@ -544,7 +593,7 @@ impl WireWrite for ServerGamePacket {
         w.f32(head_vel.0.y);
         w.f32(head_vel.0.z);
 
-        w.bits(0, 1);
+        w.bits(self.manager_tab as i32, 1);
         w.bits(self.menu_type as i32, 8);
         w.bits(self.menu_tab, 16);
         if self.menu_type == MenuType::WorldStore {
@@ -559,8 +608,8 @@ impl WireWrite for ServerGamePacket {
         w.i32(self.money);
         w.i32(self.corp_money);
         w.i32(self.corp_credit);
-        w.u32(0);
-        w.u32(24);
+        w.i32(self.corp_rating);
+        w.i32(self.crim_rating);
 
         w.bits(0, 16);
         w.bits(self.received_actions as i32, 8);
@@ -599,8 +648,11 @@ impl WireWrite for ServerGamePacket {
             pack.write(w);
         }
 
-        w.bits(0, 8);
-        w.bits(0, 8);
+        w.bits(self.line_links.len() as i32, 8);
+        w.bits(self.link_offset as i32, 8);
+        for link in &self.line_links {
+            link.write(w);
+        }
 
         for human in &self.humans {
             human.write_body(w);

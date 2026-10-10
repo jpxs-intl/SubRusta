@@ -30,6 +30,8 @@ pub mod capsule;
 pub mod city_objects;
 pub mod sphere;
 pub mod sphere_cast;
+pub mod item_sets;
+pub mod track;
 
 pub struct World {
     sun_angle: u16,

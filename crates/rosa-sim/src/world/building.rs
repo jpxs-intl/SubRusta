@@ -5,7 +5,7 @@ use rosa_physics::{
     RotMatrix,
     rotation::{IDENTITY, rotate_orientation},
 };
-use rosa_protocol::Team;
+use rosa_protocol::{Team, clientbound::game::ItemKind};
 use rosa_map::file_types::{
     csx::CityFileCSX,
     sbb::{BuildingFile, BuildingFileTile},
@@ -89,6 +89,36 @@ pub struct BuildingRecord {
     pub interior_min: Vec3,
     pub interior_max: Vec3,
     pub shop: Vec<ShopEntry>,
+    /// Where the building's local frame sits in the world (+0x10, +0x1c): its origin and turned axes.
+    pub pos: Vec3,
+    pub rot: RotMatrix,
+    /// The places a lab guard can be posted (+0x1f0, 0x314 each from +0x1f4): the building file's bots placed
+    /// in the world.
+    pub patrol: Vec<PatrolSpot>,
+    /// Where a dealership puts the cars it sells (+0xcabc: 24 along, 80 across and 2 up from its origin), and which
+    /// of the 8 spaces back from there is next (+0xcab8).
+    pub car_spawn: Vec3,
+    pub car_counter: i32,
+    /// Its lobby (+0xc6f4: 32 along, 18 across and 2 up from its origin; a lab's 50 along and 26 across), where a
+    /// lab's intel disk is left.
+    pub lobby: Vec3,
+    /// The computers the building's item sets place (+0xcac8 count, 16 bytes each from +0xcacc): their cell and the
+    /// volume init_mission_spots gives them.
+    pub computers: Vec<(IVec3, i32)>,
+    /// The corporation a base belongs to (+0x1e8).
+    pub team: i32,
+    /// A lab's mission spot (+0x1ec).
+    pub spot: i32,
+    /// The two streets of the intersection nearest the point 32 along the building's facing (+0x1d8, +0x1dc).
+    pub streets: (i32, i32),
+}
+
+/// A guard post: where it stands, the building's quarter turns (which way it faces) and its patrol route.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PatrolSpot {
+    pub pos: Vec3,
+    pub facing: u32,
+    pub waypoints: Vec<Vec3>,
 }
 
 impl BuildingRecord {
@@ -156,7 +186,7 @@ impl Default for CorporationBase {
             interior_max: Vec3::ZERO,
             vault_min: Vec3::ZERO,
             vault_max: Vec3::ZERO,
-            table_orientation: std::f32::consts::PI,
+            table_orientation: 180.0_f32.to_radians(),
             table: Vec3::ZERO,
             spawn: Vec3::ZERO,
             car_spaces: Vec::new(),
@@ -188,7 +218,7 @@ impl CorporationBase {
         let axis = m[1];
         rotate_orientation(&mut m, axis, self.table_orientation);
         let axis = m[1];
-        rotate_orientation(&mut m, axis, std::f32::consts::PI);
+        rotate_orientation(&mut m, axis, 180.0_f32.to_radians());
         m
     }
 
@@ -208,6 +238,8 @@ pub struct Buildings<'a> {
     pub generated: Vec<(u32, u32)>,
     pub records: Vec<BuildingRecord>,
     pub bases: Vec<CorporationBase>,
+    /// The computers found while instantiating the building being placed.
+    computers: Vec<IVec3>,
     game_type: u32,
 }
 
@@ -222,6 +254,7 @@ impl<'a> Buildings<'a> {
             mesh_cache: HashMap::new(),
             generated: Vec::new(),
             records: Vec::new(),
+            computers: Vec::new(),
             bases: vec![CorporationBase::default(); CORPORATIONS],
             game_type,
         }
@@ -256,14 +289,18 @@ impl<'a> Buildings<'a> {
         if let Some(k) = base {
             let b = &mut self.bases[k];
             for _ in 0..(rot & 3) {
-                b.table_orientation = (b.table_orientation as f64 + (std::f64::consts::PI / 2.0)) as f32;
+                b.table_orientation = (b.table_orientation as f64 + 90.0_f64.to_radians()) as f32;
             }
         }
 
+        self.computers.clear();
         self.instantiate(area, ground, tables, dims, o, w, l, h, off_y, rot, corp, base);
 
         if let Some(kind) = record_kind(ty) {
-            self.records.push(building_record(kind, &raw, o, rot));
+            let mut record = building_record(kind, &raw, o, rot, pos);
+            record.computers = self.computers.iter().map(|&p| (p, -1)).collect();
+            record.team = base.map_or(0, |k| k as i32);
+            self.records.push(record);
         }
 
         if let Some(k) = base {
@@ -292,7 +329,7 @@ impl<'a> Buildings<'a> {
             b.car_spaces.push((p, m));
             if n == 4 {
                 let axis = m[1];
-                rotate_orientation(&mut m, axis, std::f32::consts::PI);
+                rotate_orientation(&mut m, axis, 180.0_f32.to_radians());
                 let r2 = m[2];
                 p = Vec3::new(p.x + r2.x * CAR_ROW_GAP, p.y + r2.y * CAR_ROW_GAP, p.z + r2.z * CAR_ROW_GAP);
             } else if n != CAR_SPACES {
@@ -577,6 +614,8 @@ impl<'a> Buildings<'a> {
                     if v != 0 {
                         let p = o + IVec3::new(x, y, z);
                         area.set_item_set(p.x, p.y, p.z, v);
+                        let computers = area.item_sets.set(v).map_or(0, |s| s.entries.iter().filter(|e| e.kind == ItemKind::Computer as i32).count());
+                        self.computers.extend(std::iter::repeat_n(p, computers));
                     }
                 }
             }
@@ -622,6 +661,28 @@ pub fn clear_collision_cell(area: &mut AreaGrid, x: i32, y: i32, z: i32) {
     area.clear_cell(x, y, z);
 }
 
+/// The area_instantiate_building_blocks part naming each building's streets: of the intersection nearest its origin
+/// moved 32 along its third axis, the first two streets, the opposite ones standing in for missing ones.
+pub fn assign_streets(records: &mut [BuildingRecord], streets: &crate::world::streets::StreetMap) {
+    const REACH: f32 = 32.0;
+    for b in records {
+        let [_, _, r2] = b.rot;
+        let p = Vec3::new(r2.x * REACH + b.pos.x, r2.y * REACH + b.pos.y, r2.z * REACH + b.pos.z);
+        let mut best = 65536.0f32;
+        let mut near = 0;
+        for (k, i) in streets.intersections.iter().enumerate() {
+            let (dx, dy, dz) = (i.pos.x as f32 * 4.0 - p.x, i.pos.y as f32 * 4.0 - p.y, i.pos.z as f32 * 4.0 - p.z);
+            let d = ((dy * dy + dx * dx) + dz * dz).sqrt();
+            if best > d {
+                best = d;
+                near = k;
+            }
+        }
+        let s = streets.intersections.get(near).map_or([-1; 4], |i| i.streets);
+        b.streets = (if s[0] != -1 { s[0] } else { s[2] }, if s[1] != -1 { s[1] } else { s[3] });
+    }
+}
+
 /// The record area_instantiate_building_blocks makes: the interior is the building past its offset margin, turned with
 /// the building, from `o` (the building's lowest corner).
 /// The interior's x and z extent from the building's lowest corner: past its offset margin, turned with the building.
@@ -636,11 +697,41 @@ fn interior_span(raw: &BuildingFile, rot: u32) -> ((i32, i32), (i32, i32)) {
     }
 }
 
-fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32) -> BuildingRecord {
+/// The building's frame as the city loader builds it: from its cell less its offsets, each quarter turn moves the
+/// origin back by the offsets, turns the axes about their up axis and moves it on by the new offsets.
+fn placement(raw: &BuildingFile, city: IVec3, rot: u32) -> (Vec3, RotMatrix) {
+    let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
+    let cell = |v: i32| v as f32 * 4.0;
+    let mut pos = Vec3::new(cell(city.x - off.x), cell(city.y - off.y), cell(city.z - off.z));
+    let mut m = IDENTITY;
+    // TODO: the offsets the loaded building's quarter turn leaves (rotate_loaded_building_tiles_quarter_turn); taken
+    // as swapped, which every lab (4, 0, 4) agrees with
+    let (mut ox, mut oz) = (off.x, off.z);
+    for _ in 0..rot {
+        let (a4, c4) = (cell(ox), cell(oz));
+        let [r0, _, r2] = m;
+        pos = Vec3::new((pos.x + r0.x * a4) + r2.x * c4, (r0.y * a4 + pos.y) + r2.y * c4, (r0.z * a4 + pos.z) + r2.z * c4);
+        let axis = m[1];
+        rotate_orientation(&mut m, axis, 90.0_f32.to_radians());
+        (ox, oz) = (oz, ox);
+        let (mx, mz) = (cell(-ox), cell(!oz));
+        let [r0, _, r2] = m;
+        pos = Vec3::new((r0.x * mx + pos.x) + r2.x * mz, (pos.y + r0.y * mx) + r2.y * mz, (mx * r0.z + pos.z) + mz * r2.z);
+    }
+    (pos, m)
+}
+
+fn place_point(pos: Vec3, m: &RotMatrix, w: Vec3) -> Vec3 {
+    let [a, b, c] = *m;
+    Vec3::new(((pos.x + a.x * w.x) + b.x * w.y) + c.x * w.z, ((a.y * w.x + pos.y) + b.y * w.y) + c.y * w.z, ((a.z * w.x + pos.z) + b.z * w.y) + c.z * w.z)
+}
+
+fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32, city: IVec3) -> BuildingRecord {
     let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
     let h = raw.height as i32;
     let (x, z) = interior_span(raw, rot);
     let cell = |v: i32| v as f32 * 4.0;
+    let (pos, m) = placement(raw, city, rot);
     let shop = match kind {
         CLOTHING_STORE => CLOTHING_STOCK.iter().map(|&(k, price)| ShopEntry { kind: k, price, extra: 0 }).collect(),
         BURGER_SHOP => vec![ShopEntry { kind: 0, price: BURGER_PRICE, extra: 0 }],
@@ -651,5 +742,40 @@ fn building_record(kind: i32, raw: &BuildingFile, o: IVec3, rot: u32) -> Buildin
         interior_min: Vec3::new(cell(o.x + x.0), cell(o.y + off.y), cell(o.z + z.0)),
         interior_max: Vec3::new(cell(o.x + x.1), cell(o.y + h), cell(o.z + z.1)),
         shop,
+        pos,
+        rot: m,
+        car_spawn: if kind == CAR_DEALER {
+            let [a, b, c] = m;
+            let p = Vec3::new(pos.x + a.x * 24.0, pos.y + a.y * 24.0, pos.z + 24.0 * a.z);
+            let q = Vec3::new(c.x * 80.0 + p.x, c.y * 80.0 + p.y, 80.0 * c.z + p.z);
+            Vec3::new((b.x + b.x) + q.x, (b.y + b.y) + q.y, q.z + (b.z + b.z))
+        } else {
+            Vec3::ZERO
+        },
+        car_counter: 0,
+        lobby: {
+            let [a, b, c] = m;
+            let (along, across) = if kind == LAB { (50.0, 26.0) } else { (32.0, 18.0) };
+            Vec3::new(
+                (a.x * along + pos.x) + c.x * across + (b.x + b.x),
+                (a.y * along + pos.y) + c.y * across + (b.y + b.y),
+                (a.z * along + pos.z) + c.z * across + (b.z + b.z),
+            )
+        },
+        computers: Vec::new(),
+        team: 0,
+        spot: 0,
+        streets: (0, 0),
+        patrol: if kind == LAB {
+            raw.bots
+                .iter()
+                .map(|b| {
+                    let pts: Vec<Vec3> = b.waypoints.iter().map(|w| place_point(pos, &m, w.waypoint.0)).collect();
+                    PatrolSpot { pos: place_point(pos, &m, b.waypoints.first().map_or(Vec3::ZERO, |w| w.waypoint.0)), facing: rot & 3, waypoints: pts }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
     }
 }

@@ -17,7 +17,7 @@ use crate::world::{
 pub const GARAGE_DOOR: u32 = 6;
 const TYPES: usize = 8;
 /// An object cell faces one of four ways, a quarter turn apart.
-const TURNS: [f32; 3] = [1.570_796_4, 3.141_592_7, 4.712_389];
+const TURNS: [f32; 3] = [90.0_f32.to_radians(), 180.0_f32.to_radians(), 270.0_f32.to_radians()];
 
 /// An area object type (setup_city_object_types, 0x38f9d8e0 + type * 0x2418): the radius it is culled by, its boxes and
 /// where it sits from its cell's floor centre.

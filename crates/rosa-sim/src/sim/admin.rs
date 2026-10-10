@@ -36,6 +36,7 @@ const VERSUS_MAPS: i32 = 32;
 /// A connection is dropped 1800 ticks after its last packet; a kick leaves it 600 of them.
 const TIMEOUT: i32 = 1800;
 const KICK_TIMEOUT: i32 = 1200;
+const STEAM_BAN_FILE: &str = "serversteamban.txt";
 
 /// The admin side of the server: the password and admin phones (serveradmin.txt), the kicked addresses, a ban
 /// waiting to be confirmed, a game mode change asked for with /resetgame and the versus map picked with /setmap.
@@ -43,6 +44,8 @@ const KICK_TIMEOUT: i32 = 1200;
 pub struct AdminState {
     pub password: String,
     pub phones: Vec<u32>,
+    /// The Steam ids banned in serversteamban.txt.
+    pub steam_bans: Vec<u64>,
     pub kicked: Vec<IpAddr>,
     pub pending_ban: Option<usize>,
     pub reset_requested: bool,
@@ -51,12 +54,16 @@ pub struct AdminState {
 }
 
 impl AdminState {
-    /// load_admin_data: every `adminphone=` number in serveradmin.txt.
+    /// load_admin_data: every `adminphone=` number in serveradmin.txt and every `steamban=` id in serversteamban.txt
+    /// beside it.
     pub fn load(path: &std::path::Path) -> Self {
         let phones = std::fs::read_to_string(path)
             .map(|text| text.split("adminphone=").skip(1).filter_map(|rest| leading_int(rest).map(|n| n as u32)).collect())
             .unwrap_or_default();
-        AdminState { phones, ..Default::default() }
+        let steam_bans = std::fs::read_to_string(path.with_file_name(STEAM_BAN_FILE))
+            .map(|text| text.split("steamban=").skip(1).filter_map(|rest| leading_u64(rest)).collect())
+            .unwrap_or_default();
+        AdminState { phones, steam_bans, ..Default::default() }
     }
 }
 
@@ -67,6 +74,12 @@ fn scan_int(s: &str) -> Result<Option<i32>, ()> {
         return Err(());
     }
     Ok(leading_int(t))
+}
+
+fn leading_u64(s: &str) -> Option<u64> {
+    let t = s.trim_start();
+    let end = t.char_indices().find(|&(_, c)| !c.is_ascii_digit()).map_or(t.len(), |(i, _)| i);
+    t[..end].parse::<u64>().ok()
 }
 
 fn leading_int(s: &str) -> Option<i32> {
@@ -89,7 +102,7 @@ fn numbers(s: &str) -> impl Iterator<Item = i32> + '_ {
     })
 }
 
-fn account_name(a: &rosa_map::file_types::srk::SrkPlayerData) -> String {
+pub(crate) fn account_name(a: &rosa_map::file_types::srk::SrkPlayerData) -> String {
     String::from_utf8_lossy(a.player_name.split(|&b| b == 0).next().unwrap_or(&[])).into_owned()
 }
 
@@ -389,6 +402,11 @@ impl Sim {
             let Some(c) = self.clients.get(&conn) else { continue };
             let banned = self.players.get(c.player_id.idx()).and_then(|p| self.saved_accounts.players.iter().find(|a| a.account_id == p.account_id)).is_some_and(|a| a.ban_time > 0);
 
+            if banned
+                && let Some(p) = self.players.get(c.player_id.idx())
+            {
+                self.account_name_locks.insert(p.account_id, super::economy::BANNED_NAME_LOCK);
+            }
             if banned || c.timeout >= TIMEOUT || self.players.get(c.player_id.idx()).is_none() {
                 self.on_leave(conn);
             }

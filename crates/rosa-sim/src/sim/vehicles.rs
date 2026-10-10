@@ -75,7 +75,7 @@ impl Sim {
             .iter()
             .filter(|(id, v)| *id < NETWORKED_VEHICLES && v.controllable_state != HIDDEN_STATE)
             .map(|(id, v)| {
-                let steer = ((v.steer as f64 / std::f64::consts::PI * BYTE) as i32).clamp(-255, 255);
+                let steer = ((v.steer as f64 / 180.0_f64.to_radians() * BYTE) as i32).clamp(-255, 255);
                 let wheels = std::array::from_fn(|k| v.wheels.get(k).filter(|_| k < NETWORKED_WHEELS).map_or([0; 3], |w| [to_byte(w.visual_height, 0), to_byte(w.spin, -255), to_byte(w.skid, 0)]));
                 ServerVehicleObject {
                     vehicle_id: id as u16,
@@ -92,9 +92,18 @@ impl Sim {
 }
 
 impl Sim {
-    /// The record part of vehicle_update_bbox_wake_items, after the bodies move.
+    /// vehicle_update_bbox_wake_items, after the bodies move: each vehicle's record, then the set items in the
+    /// blocks its bounds cover.
     pub(crate) fn update_vehicle_bounds(&mut self) {
-        crate::vehicle::physics::update_vehicle_bounds(&mut self.vehicles, &self.bodies, &self.vehicle_types);
+        for id in self.vehicles.ids() {
+            let Some(v) = self.vehicles.get_mut(id) else { continue };
+            if self.bodies.get(v.body).is_none() {
+                continue;
+            }
+            crate::vehicle::physics::update_vehicle_bounds(v, &self.bodies, &self.vehicle_types);
+            let (lo, hi) = (glam::IVec3::from_array(v.block_min), glam::IVec3::from_array(v.block_max));
+            self.spawn_set_items_in(lo, hi);
+        }
     }
 
     /// vehicleSimulation, with its crash sounds and broken glass as events.
@@ -107,6 +116,10 @@ impl Sim {
             match o {
                 VehicleOutput::Sound { sound, pos, volume, pitch } => self.apply_human_outputs(vec![HumanOutput::Sound { sound, pos, volume, pitch }]),
                 VehicleOutput::Damage { vehicle, amount } => self.vehicle_take_damage(vehicle, amount),
+                VehicleOutput::Update { vehicle, kind, part, pos, vel } => {
+                    let e = EventUpdateVehicle { vehicle_id: vehicle as i32, kind, part, pos: Vector(pos), velocity: Vector(vel) };
+                    self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicle(e) });
+                }
             }
         }
         self.apply_human_outputs(glass);

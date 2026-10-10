@@ -6,6 +6,7 @@ use crate::world::{
     collide::{TraceHit, calculate_face_normal, segment_intersect_face},
     ground::Ground,
     mesh::{CUBE_CORNERS, CUBE_FACES, CUBE_NORMALS},
+    item_sets::{SetHit, entry_pose},
     meshes::BlockMeshes,
 };
 
@@ -20,6 +21,8 @@ pub struct LevelHit {
     pub face_attr: u32,
     /// The area object type the hit was on (line_intersect_result.unk23), -1 for anything else.
     pub object: i32,
+    /// The item-set item the area trace ended on, which the binary reports even when the terrain is nearer.
+    pub set: Option<SetHit>,
 }
 
 #[inline]
@@ -125,7 +128,9 @@ fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s
     (1.0 > best).then_some((best, out.0, out.1, out.2))
 }
 
-pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3) -> Option<(TraceHit, IVec3, u32, u32, i32)> {
+pub type AreaHit = (TraceHit, IVec3, u32, u32, i32, Option<SetHit>);
+
+pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3) -> Option<AreaHit> {
     let f = AreaFrame::new(area);
     let (s3, e3) = (start.to_array(), end.to_array());
     let (mn, mx) = (f.min.to_array(), f.max.to_array());
@@ -184,14 +189,32 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
     }
 
     let mut best = 1.0f32;
-    let mut result: Option<(TraceHit, IVec3, u32, u32, i32)> = None;
+    let mut result: Option<AreaHit> = None;
     let (sl, el) = (Vec3::from_array(ls), Vec3::from_array(le));
     let mut n = 0;
     loop {
         let cell = IVec3::from_array(c);
         if let Some(rec) = area.record(cell.x, cell.y, cell.z) {
             let idx = cell_index(cell.x, cell.y, cell.z);
-            // TODO: item sets (+0x1400) are tested first in the binary
+            let word = rec.item_set[idx];
+            if word != 0
+                && let Some(set) = area.item_sets.set(word)
+            {
+                let turn = (word >> 24) & 3;
+                for (i, e) in set.entries.iter().enumerate() {
+                    if rec.taken[idx] & 1u32.wrapping_shl(i as u32) != 0 {
+                        continue;
+                    }
+                    let (pos, rot) = entry_pose(e, cell, f.size, turn);
+                    let Some(hull) = area.item_sets.hull(e.kind) else { continue };
+                    if let Some((t, p, n)) = hull.trace_mesh(&hull.world_verts(pos, &rot), sl, el)
+                        && !(best <= t)
+                    {
+                        best = t;
+                        result = Some((TraceHit { fraction: t, pos: p, normal: n }, cell, 0, 0, -1, Some(SetHit { set: word & 1023, turn, index: i })));
+                    }
+                }
+            }
             let object = rec.object[idx];
             if object as i32 > 0 {
                 let (kind, pos, rot) = object_pose(object, cell, f.size);
@@ -201,7 +224,7 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                     best = t;
                     let p = f.rotate_back(p);
                     let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
-                    result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, cell, 0, 0, kind as i32));
+                    result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, cell, 0, 0, kind as i32, None));
                 }
             }
             for layer in 0..2 {
@@ -223,7 +246,7 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                         best = t;
                         let p = f.rotate_back(p);
                         let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
-                        result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr, -1));
+                        result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr, -1, None));
                     }
             }
             if 1.0 > best {
@@ -264,18 +287,37 @@ pub fn line_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMesh
     let mut frac = 1.0f32;
     if let Some(h) = ground.line_intersect_landscape(start, end) && frac > h.fraction {
             frac = h.fraction;
-            best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0, object: -1 });
+            best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0, object: -1, set: None });
         }
-    if let Some((h, block, cell, face_attr, object)) = line_intersect_area(area, meshes, start, end) {
+    if let Some((h, block, cell, face_attr, object, set)) = line_intersect_area(area, meshes, start, end) {
         if !(frac <= h.fraction) {
             frac = h.fraction;
-            best = Some(LevelHit { hit: h, area: 0, block, cell, face_attr, object });
+            best = Some(LevelHit { hit: h, area: 0, block, cell, face_attr, object, set });
         } else if let Some(b) = &mut best {
             b.area = 0;
             b.block = block;
             b.cell = cell;
             b.face_attr = face_attr;
             b.object = object;
+            b.set = set;
+        }
+    }
+    if !area.track.meshes.is_empty() {
+        let (s3, e3) = (start.to_array(), end.to_array());
+        let (mut lo, mut hi) = ([0f32; 3], [0f32; 3]);
+        for k in 0..3 {
+            (lo[k], hi[k]) = if e3[k] <= s3[k] { (e3[k], s3[k]) } else { (s3[k], e3[k]) };
+        }
+        let tris = area.track.collect(Vec3::from_array(lo), Vec3::from_array(hi), crate::world::track::WALLS);
+        if let Some((t, pos, normal)) = crate::world::track::segment_intersect_triangles(&tris, start, end)
+            && frac > t
+        {
+            frac = t;
+            let hit = TraceHit { fraction: t, pos, normal };
+            best = Some(match best {
+                Some(b) => LevelHit { hit, area: -1, ..b },
+                None => LevelHit { hit, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0, object: -1, set: None },
+            });
         }
     }
     if 1.0 > frac { best } else { None }

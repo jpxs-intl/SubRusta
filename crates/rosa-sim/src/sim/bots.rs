@@ -11,7 +11,7 @@ use crate::{PlayerId, player::BotTarget, world::trace::line_intersect_level};
 
 /// How far the view may turn from the body, either way.
 const MAX_LOOK: f64 = f64::from_bits(0x4005fdbbe9bba90d);
-const LOOK_LIMIT: f32 = f32::from_bits(0x402feddf);
+const LOOK_LIMIT: f32 = 157.5_f32.to_radians();
 /// A bot remembers up to 16 enemies within 128 of its chest, sure of them up to 16; every other tick it looks again
 /// and its memory fades (x 31/32) until it forgets below 0.875.
 const MAX_TARGETS: usize = 16;
@@ -48,7 +48,7 @@ const WAYPOINT_RADIUS: f32 = 2.0;
 /// A bot whose pelvis tips past this lies down and crouches half the time.
 const UPRIGHT: f32 = 0.9;
 /// The seated bots look out at these headings: front passenger, then the back seats left and right.
-const SEAT_YAW: [f32; 3] = [f32::from_bits(0x3f490fdb), f32::from_bits(0xc016cbe4), f32::from_bits(0x4016cbe4)];
+const SEAT_YAW: [f32; 3] = [45.0_f32.to_radians(), -135.0_f32.to_radians(), 135.0_f32.to_radians()];
 const WRECK_PATIENCE: i32 = 179;
 /// The driver's gear stick: second gear, forward; reversing out of a jam after 180 and 280 stuck ticks.
 const DRIVE_GEAR_X: f32 = 2.0;
@@ -66,9 +66,9 @@ const INPUT_CHAMBER: u32 = 0x1000;
 /// The difference from `a` to `b` taken the short way, the way player_ai wraps it: `b` is moved up a turn when `a`
 /// is half a turn past it, then the difference has `a` moved up a turn when still half a turn out.
 fn wrap(a: f32, b: f32) -> f32 {
-    let t = if ((a - b) as f64) >= std::f64::consts::PI { ((b as f64) + (std::f64::consts::PI * 2.0)) as f32 } else { b };
+    let t = if ((a - b) as f64) >= 180.0_f64.to_radians() { ((b as f64) + 360.0_f64.to_radians()) as f32 } else { b };
     let d = t - a;
-    if (d as f64) >= std::f64::consts::PI { t - ((a as f64 + (std::f64::consts::PI * 2.0)) as f32) } else { d }
+    if (d as f64) >= 180.0_f64.to_radians() { t - ((a as f64 + 360.0_f64.to_radians()) as f32) } else { d }
 }
 
 fn dist(v: Vec3) -> f32 {
@@ -337,11 +337,11 @@ impl Sim {
         let (yaw_to, pitch_to) = if attack { self.bot_attack_on_foot(pid, hid) } else { (yaw_to, 0.0) };
         let p = self.players.get_mut(pid.idx()).unwrap();
         let mut facing = (view_yaw + yaw_offset) + p.controls[4];
-        if -std::f64::consts::PI > facing as f64 {
-            facing = (facing as f64 + (std::f64::consts::PI * 2.0)) as f32;
+        if -180.0_f64.to_radians() > facing as f64 {
+            facing = (facing as f64 + 360.0_f64.to_radians()) as f32;
         }
-        if facing as f64 > std::f64::consts::PI {
-            facing = (facing as f64 - (std::f64::consts::PI * 2.0)) as f32;
+        if facing as f64 > 180.0_f64.to_radians() {
+            facing = (facing as f64 - 360.0_f64.to_radians()) as f32;
         }
         let d = wrap(facing, yaw_to);
         p.controls[4] += d * HALF;

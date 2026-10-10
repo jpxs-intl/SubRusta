@@ -275,7 +275,7 @@ impl Sim {
         let mode = self.gamemode;
         let Some(t) = self.players.get_mut(tid.idx()) else { return };
         let held = t.stocks;
-        super::economy::sell_stocks(t, &mut self.corporations, held, mode);
+        super::economy::sell_stocks(t, &mut self.corporations, &self.corp_state, held, mode);
         t.team = Team::Spectator;
         t.manager_tab = false;
         t.ghost_human = t.human.take().is_some();

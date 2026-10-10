@@ -7,10 +7,10 @@ use crate::{vehicle::types::VehicleType, world::map::Map};
 
 /// The rounded pi the binary turns a new car with: std's pi gives a different last bit (checked by the traffic
 /// dumps).
-const SPAWN_PI: f64 = 3.14159265359;
-const SPAWN_HALF_PI: f64 = 1.570796326795;
+const SPAWN_PI: f64 = 180.0_f64.to_radians();
+const SPAWN_HALF_PI: f64 = 90.0_f64.to_radians();
 const COLORS: i32 = 6;
-const PROGRESS_STEP: f32 = 0.00390625;
+const PROGRESS_STEP: f32 = 1.0 / 256.0;
 /// The ground is found by tracing 128 down from two above the street's higher end.
 const TRACE_LIFT: f32 = 2.0;
 const TRACE_DEPTH: f32 = -128.0;
@@ -86,7 +86,7 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
     };
     let len = (dz * dz + (dx * dx + 0.0)).sqrt();
     let p = progress * len;
-    let mut yaw = if st.north_south != 0 { -std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::PI };
+    let mut yaw = if st.north_south != 0 { -90.0_f32.to_radians() } else { -180.0_f32.to_radians() };
     if slot == 0 {
         yaw = (yaw as f64 + SPAWN_PI) as f32;
     }

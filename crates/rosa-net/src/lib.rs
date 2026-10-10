@@ -107,7 +107,7 @@ impl Edge {
                 if self.server_ip.is_none() {
                     println!("[Net] Received my IP, its {}", p.addr);
                 }
-                
+
                 self.server_ip = Some(p.addr)
             }
         }

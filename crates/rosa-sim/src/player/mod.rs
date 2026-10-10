@@ -37,11 +37,13 @@ pub struct Player {
     pub ghost: Option<crate::sim::round_menus::GhostHuman>,
     /// Ticks before the player can change team in the lobby again (player +0x88).
     pub team_switch_timer: i32,
-    /// Vehicles bought this round day (player +0x6c) and a third daily counter cleared with it (+0x70).
+    /// Vehicles bought this round day (player +0x6c) and the $5 and $10 bills taken from a bank since (+0x70).
     pub vehicles_bought: i32,
-    pub daily_counter: i32,
+    pub bills_withdrawn: i32,
     /// What the player's human held at the end of the last round, slot by slot.
     pub saved_inventory: [Vec<crate::sim::round::SavedItem>; 7],
+    /// Where the player's human stood when the world day ended (player +0x3818 on).
+    pub saved_body: Option<crate::sim::world::SavedBody>,
     /// The money and credit of the player's corporation, copied every tick (player +0x50 and +0x54).
     pub corp_money: i32,
     pub corp_credit: i32,
@@ -147,8 +149,9 @@ impl Player {
             ghost: None,
             team_switch_timer: 0,
             vehicles_bought: 0,
-            daily_counter: 0,
+            bills_withdrawn: 0,
             saved_inventory: Default::default(),
+            saved_body: None,
             corp_money: 0,
             corp_credit: 0,
             input: InputFlags::empty(),
@@ -211,8 +214,9 @@ impl Player {
             ghost: None,
             team_switch_timer: 0,
             vehicles_bought: 0,
-            daily_counter: 0,
+            bills_withdrawn: 0,
             saved_inventory: Default::default(),
+            saved_body: None,
             corp_money: 0,
             corp_credit: 0,
             input: InputFlags::empty(),
@@ -301,5 +305,59 @@ impl Player {
                 stocks: self.stocks
             })
         }
+    }
+}
+
+/// The player records (players, 0x3834 each): a new player takes the lowest free slot, as create_player does.
+#[derive(Default)]
+pub struct PlayerTable {
+    slots: Vec<Option<Player>>,
+    count: usize,
+}
+
+impl PlayerTable {
+    pub fn next_key(&self) -> usize {
+        self.slots.iter().position(Option::is_none).unwrap_or(self.slots.len())
+    }
+
+    pub fn insert(&mut self, p: Player) -> usize {
+        let k = self.next_key();
+        if k == self.slots.len() {
+            self.slots.push(Some(p));
+        } else {
+            self.slots[k] = Some(p);
+        }
+        self.count += 1;
+        k
+    }
+
+    pub fn remove(&mut self, k: usize) -> Player {
+        let p = self.slots.get_mut(k).and_then(Option::take).expect("no player in that slot");
+        self.count -= 1;
+        p
+    }
+
+    pub fn get(&self, k: usize) -> Option<&Player> {
+        self.slots.get(k)?.as_ref()
+    }
+
+    pub fn get_mut(&mut self, k: usize) -> Option<&mut Player> {
+        self.slots.get_mut(k)?.as_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (usize, &Player)> {
+        self.slots.iter().enumerate().filter_map(|(k, p)| Some((k, p.as_ref()?)))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut Player)> {
+        self.slots.iter_mut().enumerate().filter_map(|(k, p)| Some((k, p.as_mut()?)))
     }
 }

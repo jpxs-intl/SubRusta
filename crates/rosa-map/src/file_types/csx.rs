@@ -15,7 +15,7 @@ pub enum CSXFileType {
 #[derive(BinRead, Debug, Clone)]
 #[br(import(file_type: CSXFileType))]
 pub struct CSXFile {
-    #[br(if(file_type == CSXFileType::Building))]
+    #[br(if(file_type == CSXFileType::Building), args(true))]
     pub building: Option<BuildingFile>,
 
     #[br(if(file_type == CSXFileType::Block))]

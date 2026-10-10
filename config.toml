@@ -1,10 +1,10 @@
 master_server_url = "www.crypticsea.com"
 port = 27584
-map_name = "round"
+map_name = "test2"
 server_name = "Rosa but not rosa"
 admin_password = "admin"
 server_password = "test"
-gamemode = "Sandbox"
+gamemode = "World"
 max_players = 16
 round_time = 300
 voice_chat = false

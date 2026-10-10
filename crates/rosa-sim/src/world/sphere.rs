@@ -10,7 +10,7 @@ use super::{
     trace::{AreaFrame, cvtt},
 };
 
-const PARALLEL: f32 = 1.5258789e-5;
+const PARALLEL: f32 = 1.0 / 65536.0;
 const NO_HIT: f32 = 65536.0;
 
 /// Where a wheel disc touched the level: the contact point, the normal pushing the disc away and the distance from
@@ -289,4 +289,13 @@ pub fn segment_intersect_sphere(start: Vec3, end: Vec3, center: Vec3, radius: f3
         Vec3::new(n.x * k, n.y * k, k * n.z)
     };
     Some((frac, p, n))
+}
+
+/// sphere_intersect_mesh: the wheel disc against each of the triangles under its own normal, the nearest hit.
+pub fn sphere_intersect_triangles(tris: &[crate::world::track::TrackTriangle], centre: Vec3, axis: Vec3, radius: f32) -> Option<DiscHit> {
+    let (mut best, mut best_dist) = (None, NO_HIT);
+    for &[a, b, c] in tris {
+        take(&mut best, &mut best_dist, face_hit(centre, axis, radius, calculate_face_normal(a, b, c), a, b, c));
+    }
+    best.filter(|_| NO_HIT > best_dist)
 }

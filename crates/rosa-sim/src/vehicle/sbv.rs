@@ -31,8 +31,6 @@ impl VehicleBody {
     /// load_sbv: reads `path`; None if it cannot be read.
     pub fn load(path: &std::path::Path) -> Option<Self> {
         let mut file = VehicleBodyFile::load(path).ok()?;
-        // TODO: version 1 files centre the vertices and parts on the chassis mean and bind each subshape
-        // (vehicletype_bind_subshape_nodes); no shipped file is that old
         let positions: Vec<Vec3> = file.nodes.iter().map(|n| n.pos.0).collect();
         let centred = match file.offset {
             Some(Vector(offset)) => {

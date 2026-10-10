@@ -50,11 +50,15 @@ pub struct AreaGrid {
     /// line_intersect_result.unk21: the face of the last custom shape a capsule touched (its wall index | 0x10000 for
     /// a breakable wall). The binary keeps it in a global that only custom shape hits overwrite.
     pub face_attr: std::cell::Cell<u32>,
+    /// The item sets the level's item-set cells place, and the item hulls traces test them against.
+    pub item_sets: crate::world::item_sets::ItemSets,
+    /// The dynamic meshes reset_game builds on test2 (the race track and ramps).
+    pub track: crate::world::track::Track,
 }
 
 impl AreaGrid {
     pub fn new(chunks: IVec3, origin: Vec3, block_size: f32) -> Self {
-        Self { origin, block_size, chunks, records: Vec::new(), index: HashMap::new(), face_attr: std::cell::Cell::new(0) }
+        Self { origin, block_size, chunks, records: Vec::new(), index: HashMap::new(), face_attr: std::cell::Cell::new(0), item_sets: Default::default(), track: Default::default() }
     }
 
     pub fn records(&self) -> &[Box<BlockRecord>] {
@@ -133,6 +137,38 @@ impl AreaGrid {
             let c = cell_index(x, y, z);
             r.item_set[c] = v;
             r.taken[c] = 0;
+        }
+    }
+
+    /// grid_lookup_cell_value: the item-set word of a cell (the set, and its quarter turns in bits 24 and 25).
+    pub fn item_set(&self, x: i32, y: i32, z: i32) -> u32 {
+        self.record(x, y, z).map_or(0, |r| r.item_set[cell_index(x, y, z)])
+    }
+
+    /// grid_lookup_cell_mask: which items of a cell's set have been taken out as real items.
+    pub fn taken(&self, x: i32, y: i32, z: i32) -> u32 {
+        self.record(x, y, z).map_or(0, |r| r.taken[cell_index(x, y, z)])
+    }
+
+    /// grid_set_cell_mask.
+    pub fn set_taken(&mut self, x: i32, y: i32, z: i32, mask: u32) {
+        if !self.in_range(x, y, z) {
+            return;
+        }
+        if let Some(&i) = self.index.get(&IVec3::new(x >> 3, y >> 3, z >> 3)) {
+            self.records[i as usize].taken[cell_index(x, y, z)] = mask;
+        }
+    }
+
+    /// reset_city_grid_dynamic_flags: every broken wall mended and every item set whole again.
+    pub fn reset_dynamic(&mut self) {
+        for r in &mut self.records {
+            for c in 0..CELLS {
+                if r.layer1[c] & TYPE_MASK == MESH {
+                    r.layer1[c] &= 0xff00_ffff;
+                }
+                r.taken[c] = 0;
+            }
         }
     }
 

@@ -6,13 +6,6 @@ use rosa_physics::{
 
 use super::{Human, bones::BONES};
 
-const KNEE_AXIS: Vec3 = Vec3::X;
-
-pub const IK_MIRROR: u32 = 4;
-pub const IK_FIXED_END: u32 = 8;
-pub const IK_LIMIT: u32 = 0x10;
-pub const IK_END_ORIENTATION: u32 = 2;
-
 /// The per-call settings of human_update_three_bone_ik_constraints.
 pub struct IkParams {
     pub length: f32,
@@ -57,8 +50,8 @@ pub fn limit_relative_joint_rotation(h: &Human, parent: usize, child: usize, v: 
         q = q.map(|c| -c);
     }
     let mut a = [q[0] + q[0], q[1] + q[1], q[2] + q[2]];
-    if (child == 11 || child == 14) && (a[0] as f64) > 1.570796326795 {
-        a[0] = (-3.14159265359 - (3.14159265359 - a[0] as f64)) as f32;
+    if (child == 11 || child == 14) && (a[0] as f64) > 90.0_f64.to_radians() {
+        a[0] = (-180.0_f64.to_radians() - (180.0_f64.to_radians() - a[0] as f64)) as f32;
     }
     let t = &BONES[child];
     let (lo, hi) = (t.limit_min.to_array(), t.limit_max.to_array());
@@ -113,7 +106,7 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let c = (if l_abs < t_len { l_abs } else { t_len }) / p.length;
     let a = -(c as f64).acos();
     let mut bend = (a + a) as f32;
-    if p.flags & IK_MIRROR != 0 {
+    if p.flags & 4 != 0 {
         bend = -bend;
     }
 
@@ -123,9 +116,9 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let tl_x = (f0.x * target.x + f0.y * target.y) + f0.z * target.z;
     let mut tl_y = (f1.x * target.x + f1.y * target.y) + f1.z * target.z;
     let tl_z = (target.y * f2.y + target.x * f2.x) + target.z * f2.z;
-    let yy = if p.flags & IK_MIRROR == 0 && tl_y > -0.0625 {
+    let yy = if p.flags & 4 == 0 && tl_y > -0.0625 {
         tl_y = -0.0625;
-        0.00390625
+        1.0 / 256.0
     } else {
         tl_y * tl_y
     };
@@ -136,7 +129,7 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
         let inv = 1.0 / dl;
         Vec3::new(-tl_x * inv, -tl_y * inv, inv * -tl_z)
     };
-    let g = KNEE_AXIS;
+    let g = Vec3::X;
     let e = Vec3::new(g.y * dir.z - g.z * dir.y, g.z * dir.x - dir.z * g.x, g.x * dir.y - g.y * dir.x);
     let el = ((e.x * e.x + e.y * e.y) + e.z * e.z).sqrt();
     let e = if el == 0.0 {
@@ -156,13 +149,13 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let mut r = [Vec3::new(f.x, dir.x, e.x), Vec3::new(f.y, dir.y, e.y), Vec3::new(f.z, dir.z, e.z)];
     rotate_orientation(&mut r, Vec3::Y, p.twist);
     let half = -bend * 0.5;
-    rotate_orientation(&mut r, KNEE_AXIS, half);
+    rotate_orientation(&mut r, Vec3::X, half);
     let q = rot_matrix_to_quaternion(&r);
     let mut q_plane = q;
-    if p.flags & IK_FIXED_END != 0 {
+    if p.flags & 8 != 0 {
         let mut r2 = IDENTITY;
         rotate_orientation(&mut r2, Vec3::Y, p.twist);
-        rotate_orientation(&mut r2, KNEE_AXIS, half);
+        rotate_orientation(&mut r2, Vec3::X, half);
         q_plane = rot_matrix_to_quaternion(&r2);
     }
 
@@ -183,7 +176,7 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
         z += ft.z;
     }
     let mut t1 = Vec3::new(x, y, z);
-    if p.flags & IK_LIMIT != 0 {
+    if p.flags & 16 != 0 {
         clamp_bone_relative_correction(h, root, first, &mut t1, p.clamp_max, 1.0);
         if let Some(id) = h.bones[first].joint
             && let Some(Bond::Joint(j)) = bodies.bond(id)
@@ -220,16 +213,16 @@ pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first
     let mut qf = [0.0, 0.0, 0.0, 1.0];
     let conj2 = [-s, -0.0, -0.0, c];
     let conj_plane = [-q_plane[0], -q_plane[1], -q_plane[2], q_plane[3]];
-    if p.flags & IK_END_ORIENTATION != 0 {
+    if p.flags & 2 != 0 {
         qf = quaternion_multiply(conj2, conj_plane);
         if 0.0 > dot4(qf, *end_rot) {
             *end_rot = end_rot.map(|c| -c);
         }
         qf = quaternion_multiply(qf, *end_rot);
-        if p.flags & IK_FIXED_END != 0 {
+        if p.flags & 8 != 0 {
             qf = quaternion_multiply([s, 0.0, 0.0, c], q_plane);
         }
-    } else if p.flags & IK_FIXED_END != 0 {
+    } else if p.flags & 8 != 0 {
         qf = quaternion_multiply(conj2, conj_plane);
     }
     let qm2 = conjugate_towards(qm, 0.0 > dot4(qf, qm));

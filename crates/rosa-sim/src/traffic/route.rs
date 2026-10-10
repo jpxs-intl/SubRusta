@@ -3,7 +3,7 @@ use crate::world::streets::StreetMap;
 
 const SEARCH_STEPS: usize = 4096;
 const NO_BEST: f32 = 65536.0;
-const HEURISTIC: f32 = 0.0078125;
+const HEURISTIC: f32 = 1.0 / 128.0;
 const STEP_COST: f32 = 1.0;
 const DEAD_END_COST: f32 = 256.0;
 const OPEN: i32 = 1;

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use rosa_protocol::{masterserver::AuthPacket, serverbound::{game::ClientGamePacket, join_request::JoinRequest}};
 use tokio::sync::mpsc::UnboundedSender;
 
+pub mod computer;
 pub mod human;
 pub mod player;
 pub mod rng;
@@ -52,6 +53,8 @@ pub struct Client {
     /// Whether the connection gets admin chat and the admin list (an admin's).
     admin_visible: bool,
     earshots: [Option<sim::Earshot>; 8],
+    /// The human the client says it is watching (connection +0x19c), heard from while it has none of its own.
+    spectating: Option<usize>,
     /// The client's object slot ring (2048 entries): what was queued, how far, and how far the client has
     /// acknowledged (the 11 bits after the spectated human in its game packet).
     pack_ring: Vec<rosa_protocol::clientbound::game::ObjectPack>,
@@ -63,6 +66,12 @@ pub struct Client {
     /// next (connection +0x54).
     traffic_priority: Vec<i32>,
     signal_cursor: i32,
+    /// The line links this connection has been sent, per item (connection +0x1dac on), the 256 entry ring of links
+    /// queued for it (+0x2ddd0 on), how far it is filled (+0x2ddc4) and acknowledged (+0x2ddcc).
+    link_sent: std::collections::HashMap<usize, u64>,
+    link_ring: Vec<i32>,
+    link_count: u8,
+    link_ack: u8,
 }
 
 impl Client {

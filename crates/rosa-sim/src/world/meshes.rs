@@ -320,7 +320,7 @@ impl MeshBuilder {
     }
 
     pub fn portal_windows(&mut self, turns: i32, p: &Portal) {
-        let depth = if p.ty == 1 { 0.003_906_25 } else { 0.015_625 };
+        let depth = if p.ty == 1 { 1.0 / 256.0 } else { 1.0 / 64.0 };
 
         for &[x, w, y, h] in &p.windows {
             let x = if p.ty != 1 || turns <= 1 { 1.0 - (x + w) } else { x };
@@ -375,7 +375,7 @@ impl MeshBuilder {
                 }
                 _ => {
                     c = [7; 6];
-                    (0.007_812_5, 0.015_625)
+                    (1.0 / 128.0, 1.0 / 64.0)
                 }
             };
 

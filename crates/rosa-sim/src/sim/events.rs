@@ -18,15 +18,7 @@ const EARTH_GRAVITY: f32 = 9.8;
 
 impl Sim {
     pub(crate) fn on_join(&mut self, conn: ConnId, src: SocketAddr, j: SimJoinMsg) {
-        let accout_data = self
-            .saved_accounts
-            .get_or_create(
-                j.auth_packet.account_id,
-                &j.auth_packet.player_name,
-                j.auth_packet.phone_number,
-                j.auth_packet.steam_id,
-            )
-            .clone();
+        let accout_data = self.join_account(&j.auth_packet);
 
         if accout_data.ban_time > 0 {
             return self.kick(src, "You are banned from this server");
@@ -45,6 +37,9 @@ impl Sim {
         let Some(player_id) = self.alloc_player(accout_data.account_id, j) else {
             return self.kick(src, "Server is full");
         };
+        if let Some(p) = self.players.get_mut(player_id.idx()) {
+            p.username = super::admin::account_name(&accout_data);
+        }
 
         self.clients.insert(
             conn,
@@ -56,18 +51,24 @@ impl Sim {
                 admin_visible: admin,
                 last_sdl_tick: 0,
                 earshots: [None; 8],
+                spectating: None,
                 pack_ring: Vec::new(),
                 pack_count: 0,
                 pack_ack: 0,
                 packed: Default::default(),
                 traffic_priority: Vec::new(),
                 signal_cursor: 0,
+                link_sent: Default::default(),
+                link_ring: vec![0; 256],
+                link_count: 0,
+                link_ack: 0,
                 player_id,
             },
         );
 
         self.restore_account(player_id);
         let player = self.players.get_mut(player_id.idx()).unwrap();
+        player.username = super::economy::sanitize_name(&accout_data.player_name);
         player.is_admin = admin;
         self.events.push(player.make_update_player_event(self.tick));
         self.events.push(player.make_update_round_event(self.tick));
@@ -106,6 +107,9 @@ impl Sim {
             Menu::Lobby => 2,
             Menu::Other(m) => m,
         };
+        if id == 1 && self.enter_city_menu(player_id, action.button) {
+            return;
+        }
 
         let Some(player) = self.players.get_mut(player_id.idx()) else {
             return;
@@ -120,6 +124,10 @@ impl Sim {
 
         if player.menu as u8 == id && matches!(id, 9..=11) {
             return self.shop_menu_action(player_id, action.button);
+        }
+
+        if player.menu as u8 == id && id == 13 {
+            return self.bank_menu_action(player_id, action.button);
         }
 
         if self.gamemode == GameMode::World
@@ -231,7 +239,9 @@ impl Sim {
             return self.tps_command();
         }
 
-        if self.gamemode == GameMode::Sandbox {
+        let player = self.player(player_id).unwrap();
+
+        if self.gamemode == GameMode::Sandbox || player.is_admin {
             match action.message.trim() {
                 "/watermelon" => return self.spawn_watermelon_for(player_id),
                 "/human" => return self.spawn_human_for(player_id),
@@ -267,6 +277,7 @@ impl Sim {
                         human.right_leg_hp = 100;
                         human.old_health = 100;
                         human.blood_level = 100;
+                        human.pain = 0;
                     }
                     return;
                 }

@@ -54,8 +54,11 @@ impl Sim {
         let map = &self.world.map;
         self.traffic = Traffic::new(&map.streets, map.map_name == "round");
         self.missions.counter = 0;
+        self.world_state.memos = 0;
+        self.fs.reset();
+        self.load_newspaper();
+        self.init_mission_spots();
         self.admin.pending_ban = None;
-        // TODO: versus reads its share from config_versus.txt (0x4538562c)
         self.team_damage = match self.gamemode {
             GameMode::Round => self.round_cfg.teamdamage,
             GameMode::Versus => crate::sim::crime::VERSUS_TEAM_DAMAGE,
@@ -64,7 +67,7 @@ impl Sim {
         for c in &mut self.corp_state {
             for m in &mut c.missions {
                 m.active = false;
-                m.unk_5c = 0;
+                m.result = None;
             }
         }
         if self.gamemode == GameMode::Round {
@@ -73,18 +76,32 @@ impl Sim {
         if self.gamemode == GameMode::Eliminator {
             self.reset_eliminator();
         }
+        if self.gamemode == GameMode::World {
+            self.reset_corporation_rounds();
+        }
+        if self.gamemode == GameMode::World {
+            self.gamestate = rosa_protocol::clientbound::game::GameState::Intermission;
+            self.game_timer = 0;
+            self.round_elapsed = 0;
+            self.reset_world_players();
+        }
         if self.gamemode == GameMode::Sandbox {
             self.gamestate = rosa_protocol::clientbound::game::GameState::InGame;
         }
         self.traffic.coop = self.gamemode == GameMode::CoOp;
-        if self.gamemode != GameMode::World {
-            self.roll_weather();
+        self.world.map.level.area.reset_dynamic();
+        if self.world.map.map_name == "test2" {
+            self.world.map.level.area.track = crate::world::track::Track::race_track();
         }
+        self.roll_weather();
         crate::rng::srand(crate::rng::time_seed());
+        if self.gamemode == GameMode::World {
+            self.respawn_world();
+        }
         self.restock_dealerships();
         self.stock_gun_stores();
         let map = &self.world.map;
-        if !matches!(self.gamemode, GameMode::Racing | GameMode::Round | GameMode::Eliminator) && !map.streets.streets.is_empty() {
+        if !matches!(self.gamemode, GameMode::Racing | GameMode::Round | GameMode::Eliminator | GameMode::World) && !map.streets.streets.is_empty() {
             create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
         }
         // TODO: round and eliminator modes work the doors from logic_round and logic_eliminator once those are ported
@@ -115,21 +132,27 @@ impl Sim {
     /// vehicles, and the movement of the rest.
     pub(crate) fn simulate_traffic(&mut self) {
         self.take_over_traffic();
+
         update_signals(&mut self.traffic, &self.world.map.streets);
+
         let map = &self.world.map;
         add_cars(&mut self.traffic, &map.streets);
+
         for id in 0..self.traffic.cars.len() {
             if self.traffic.cars[id].is_bot == DRIVEN {
                 ai_traffic_car(&mut self.traffic, &map.streets, id);
             }
         }
+
         for c in &mut self.traffic.cars {
             if let Some(v) = usize::try_from(c.vehicle).ok().and_then(|v| self.vehicles.get(v)) {
                 c.pos = v.pos;
             }
         }
+
         self.traffic_states();
         self.traffic_spawns();
+
         for id in 0..self.traffic.cars.len() {
             if self.traffic.cars[id].vehicle == -1 {
                 move_virtual_car(&mut self.traffic, &self.world.map, &self.vehicle_types, id);
@@ -142,9 +165,7 @@ impl Sim {
     /// The vehicles a player drove off with free hands this tick: their cars stop driving themselves.
     fn take_over_traffic(&mut self) {
         for (_, v) in self.vehicles.iter_mut() {
-            if std::mem::take(&mut v.traffic_taken)
-                && let Some(c) = usize::try_from(v.traffic_car).ok().and_then(|t| self.traffic.cars.get_mut(t))
-            {
+            if std::mem::take(&mut v.traffic_taken) && let Some(c) = usize::try_from(v.traffic_car).ok().and_then(|t| self.traffic.cars.get_mut(t)) {
                 c.is_bot = TAKEN;
             }
         }
@@ -277,7 +298,7 @@ impl Sim {
 /// Each car's priority grows by up to 256 a tick, more the nearer it is to the camera, the less it steers and the
 /// faster it goes (at least 16); the client gets the 16 most overdue each packet.
 const PRIORITY_SCALE: f32 = 256.0;
-const PRIORITY_FALLOFF: f32 = 0.001953125;
+const PRIORITY_FALLOFF: f32 = 1.0 / 512.0;
 const PRIORITY_MIN: i32 = 16;
 const STEER_WEIGHT: f64 = 4.0;
 const MOVING_WEIGHT: f32 = 5.0;
@@ -316,4 +337,10 @@ pub(crate) fn traffic_section(client: &mut crate::Client, traffic: &Traffic, map
     client.signal_cursor = client.signal_cursor.wrapping_add(1);
     let lights = traffic.signals.get(at as usize).map_or([0; 4], |s| [s.lights[0], s.lights[1], s.lights[2], s.lights[3]]);
     (entries, (at, lights))
+}
+
+impl Sim {
+    pub fn run_simulate_traffic(&mut self) {
+        self.simulate_traffic();
+    }
 }

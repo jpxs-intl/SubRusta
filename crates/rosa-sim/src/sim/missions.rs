@@ -93,8 +93,9 @@ pub struct Mission {
     pub rate: f32,
     /// +0x58
     pub unk_58: i32,
-    /// +0x5c, cleared by reset_game.
-    pub unk_5c: u8,
+    /// +0x5c: the line settle_mission_result writes, kept as whether it expired and the rating it gave (None
+    /// before, and after reset_game clears it).
+    pub result: Option<(bool, i32)>,
 }
 
 /// A place in the city a sold disk can wait in a briefcase (init_mission_spots, 0x4c each).
@@ -113,6 +114,14 @@ pub const MISSION_SPOTS: [MissionSpot; 8] = [
     MissionSpot { pos: Vec3::new(1606.0, 26.0, 1166.0), name: "Gas Station" },
     MissionSpot { pos: Vec3::new(1546.0, 38.0, 1278.0), name: "Red Cube Park" },
 ];
+
+/// settle_mission_result: a failed acquisition costs 10 rating; a seller gains 50 plus 10 on success when paid at
+/// least what it was given, and up to 10 back on success when short.
+const FAILED_RATING: i32 = -10;
+const SELLER_RATING: i32 = 50;
+const SUCCESS_RATING: i32 = 10;
+/// Each rating point a member gains also pays 10.
+const RATING_MONEY: i32 = 10;
 
 /// The mission globals (0x44da5bc0 on).
 #[derive(Clone, Copy, Debug, Default)]
@@ -381,7 +390,7 @@ impl Sim {
             let Some(slot) = self.open_mission(k) else { continue };
             let spent = self.corp_state[k].spent;
             let m = &mut self.corp_state[k].missions[slot];
-            
+
             m.item = item;
             m.disk_type = disk_type;
             m.value = values[i];
@@ -496,38 +505,12 @@ impl Sim {
     /// create_round_traffic_car: a traffic car on a random street, routed to another and spawned as a vehicle at once,
     /// with a mission bot driving it holding its key and a briefcase with the disk, and one to three armed guards.
     pub(crate) fn create_round_traffic_car(&mut self, disk: ItemKind, deadline: i32) {
-        use crate::traffic::{random_street, route::plan_route, spawn::create_traffic_car};
-        use rosa_physics::rotation::{IDENTITY, rotate_orientation};
-        let slot = rand() & 1;
-        let streets = &self.world.map.streets;
-        let street = if streets.streets.is_empty() { 0 } else { random_street(streets) };
-        let progress = (rand() & 255) as f32 * (1.0 / 256.0);
-        let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, street, slot, 1, progress);
-        self.missions.chase_car = car as i32;
-        let streets = &self.world.map.streets;
-        let to = if streets.streets.is_empty() { 0 } else { random_street(streets) };
-        let to_slot = rand() & 1;
-        let c = &mut self.traffic.cars[car];
-        let from = c.street;
-        plan_route(c, streets, from, slot, to, to_slot);
-        c.is_bot = crate::traffic::PARKED;
-        let mut rot = IDENTITY;
-        let axis = rot[1];
-        rotate_orientation(&mut rot, axis, std::f32::consts::FRAC_PI_2);
-        let axis = rot[1];
-        rotate_orientation(&mut rot, axis, c.yaw);
-        c.rot = rot;
-        let pos = super::traffic::vehicle_pos(c, &self.vehicle_types);
-        let (vel, kind, color) = (c.vel, c.kind, c.color);
-        let vid = crate::vehicle::spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, Some(vel));
-        self.traffic.cars[car].vehicle = vid.map_or(-1, |v| v as i32);
-        let Some(vid) = vid else { return };
-        let e = EventUpdateVehicleTypeColor { vehicle_id: vid as i32, vehicle_type: kind, vehicle_color: color as u8 };
-        self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
-        let v = self.vehicles.get_mut(vid).unwrap();
-        v.traffic_car = car as i32;
+        use rosa_physics::rotation::IDENTITY;
+        let (_, Some(vid)) = self.spawn_chase_car(None) else { return };
+        let v = self.vehicles.get(vid).unwrap();
         let (vpos, vrot) = (v.pos, v.rot);
-        let Some((driver, driver_human)) = self.create_mission_bot(deadline, vpos, vrot, vid, 0) else { return };
+        let counter = self.missions.counter;
+        let Some((driver, driver_human)) = self.create_mission_bot(deadline, Some(counter), vpos, vrot, vid, 0) else { return };
         if let Some(key) = self.create_item(ItemKind::Key, CHASE_ITEMS_POS, None, IDENTITY) {
             self.items.get_mut(key).unwrap().state = ItemState::Key { vehicle: Some(vid) };
             if let Some(h) = driver_human {
@@ -556,30 +539,85 @@ impl Sim {
             p.bot.waypoint = 0;
             p.bot.waypoint_count = 0;
         }
-        self.create_guard(deadline, vpos, vrot, vid, 1);
+        self.create_guards(deadline, Some(counter), vpos, vrot, vid);
+    }
+
+    /// A town car (create_traffic_car on a random street) routed to another street, at least `min_distance` away
+    /// when given (1024 tries), and spawned as a vehicle at once: the car and its vehicle.
+    pub(crate) fn spawn_chase_car(&mut self, min_distance: Option<f32>) -> (usize, Option<usize>) {
+        use crate::traffic::{random_street, route::plan_route, spawn::create_traffic_car};
+        use rosa_physics::rotation::{IDENTITY, rotate_orientation};
+        let slot = rand() & 1;
+        let streets = &self.world.map.streets;
+        let street = if streets.streets.is_empty() { 0 } else { random_street(streets) };
+        let progress = (rand() & 255) as f32 * (1.0 / 256.0);
+        let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, street, slot, 1, progress);
+        self.missions.chase_car = car as i32;
+        let streets = &self.world.map.streets;
+        let mut to = if streets.streets.is_empty() { 0 } else { random_street(streets) };
+        if let Some(min) = min_distance {
+            let corner = |s: i32| usize::try_from(s).ok().and_then(|s| streets.streets.get(s)).map_or(Vec3::ZERO, |s| s.bounds_min);
+            let from = corner(self.traffic.cars[car].street);
+            for _ in 0..0x400 {
+                let d = from - corner(to);
+                if (d.x * d.x + d.y * d.y + d.z * d.z).sqrt() >= min {
+                    break;
+                }
+                if !streets.streets.is_empty() {
+                    to = random_street(streets);
+                }
+            }
+        }
+        let to_slot = rand() & 1;
+        let c = &mut self.traffic.cars[car];
+        let from = c.street;
+        plan_route(c, streets, from, slot, to, to_slot);
+        c.is_bot = crate::traffic::PARKED;
+        let mut rot = IDENTITY;
+        let axis = rot[1];
+        rotate_orientation(&mut rot, axis, 90.0_f32.to_radians());
+        let axis = rot[1];
+        rotate_orientation(&mut rot, axis, c.yaw);
+        c.rot = rot;
+        let pos = super::traffic::vehicle_pos(c, &self.vehicle_types);
+        let (vel, kind, color) = (c.vel, c.kind, c.color);
+        let vid = crate::vehicle::spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, Some(vel));
+        self.traffic.cars[car].vehicle = vid.map_or(-1, |v| v as i32);
+        let Some(vid) = vid else { return (car, None) };
+        let e = EventUpdateVehicleTypeColor { vehicle_id: vid as i32, vehicle_type: kind, vehicle_color: color as u8 };
+        self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
+        self.vehicles.get_mut(vid).unwrap().traffic_car = car as i32;
+        (car, Some(vid))
+    }
+
+    /// The chase car's guards: one in the front passenger seat, each back seat taken at even odds.
+    pub(crate) fn create_guards(&mut self, deadline: i32, mission: Option<i32>, pos: Vec3, rot: RotMatrix, vehicle: usize) {
+        self.create_guard(deadline, mission, pos, rot, vehicle, 1);
         if rand() & 1 == 0 {
-            self.create_guard(deadline, vpos, vrot, vid, 2);
+            self.create_guard(deadline, mission, pos, rot, vehicle, 2);
         }
         if rand() & 1 == 0 {
-            self.create_guard(deadline, vpos, vrot, vid, 3);
+            self.create_guard(deadline, mission, pos, rot, vehicle, 3);
         }
     }
 
-    fn create_guard(&mut self, deadline: i32, pos: Vec3, rot: RotMatrix, vehicle: usize, seat: usize) {
-        if let Some((_, Some(h))) = self.create_mission_bot(deadline, pos, rot, vehicle, seat) {
+    fn create_guard(&mut self, deadline: i32, mission: Option<i32>, pos: Vec3, rot: RotMatrix, vehicle: usize, seat: usize) {
+        if let Some((_, Some(h))) = self.create_mission_bot(deadline, mission, pos, rot, vehicle, seat) {
             self.give_weapon(h, ItemKind::Pistol, GUARD_MAGAZINES);
         }
     }
 
-    /// A mission bot of the chase's team seated in its vehicle: the player and its human.
-    fn create_mission_bot(&mut self, deadline: i32, pos: Vec3, rot: RotMatrix, vehicle: usize, seat: usize) -> Option<(PlayerId, Option<usize>)> {
+    /// A mission bot of the chase's team seated in its vehicle (with the round's mission counter when given): the
+    /// player and its human.
+    pub(crate) fn create_mission_bot(&mut self, deadline: i32, mission: Option<i32>, pos: Vec3, rot: RotMatrix, vehicle: usize, seat: usize) -> Option<(PlayerId, Option<usize>)> {
         let pid = self.create_player()?;
-        let counter = self.missions.counter;
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.team = Team::Mission;
         p.username.clear();
         p.bot_deadline = deadline;
-        p.bot_mission = counter;
+        if let Some(m) = mission {
+            p.bot_mission = m;
+        }
         p.is_bot = true;
         p.customization.gender = 1;
         p.customization.model = 2;
@@ -622,9 +660,8 @@ impl Sim {
         };
         let lobby = self.gamestate == GameState::Intermission && self.gamemode == GameMode::Round;
         let menu = if lobby { MenuType::Lobby } else { MenuType::Empty };
-        let entry = self.players.vacant_entry();
-        let pid = PlayerId(entry.key() as u32);
-        entry.insert(crate::player::Player::new_bot(pid, customization, menu));
+        let pid = PlayerId(self.players.next_key() as u32);
+        self.players.insert(crate::player::Player::new_bot(pid, customization, menu));
         Some(pid)
     }
 
@@ -658,7 +695,69 @@ impl Sim {
     }
 }
 
+impl Mission {
+    /// The result line: "Acquisition(n): Complete   Rating:  r" or "Transaction(n): Expired    Rating:  r".
+    pub fn result_text(&self, slot: usize) -> String {
+        let Some((expired, rating)) = self.result else { return String::new() };
+        let name = if (self.kind as u32) <= 1 { "Acquisition" } else { "Transaction" };
+        let state = if expired { "Expired   " } else { "Complete  " };
+        format!("{name}({}): {state} Rating:  {rating}", slot + 1)
+    }
+}
+
 impl Sim {
+    /// despawn_missions_by_type: every undecided mission of the deal lets go of its disk, which despawns.
+    pub(crate) fn despawn_missions_by_id(&mut self, id: i32) {
+        for k in 0..self.corp_state.len() {
+            for slot in 0..MISSION_SLOTS {
+                let m = self.corp_state[k].missions[slot];
+                if !m.active || m.done || m.id != id {
+                    continue;
+                }
+                if let Some(item) = usize::try_from(m.item).ok().and_then(|i| self.items.get_mut(i)) {
+                    item.despawn_time = 0;
+                }
+                self.corp_state[k].missions[slot].item = -1;
+            }
+        }
+    }
+
+    /// settle_mission_result: the corporation's members gain the mission's rating (an acquisition its value on
+    /// success, a transaction the cash against what it was given) and ten times it in money when positive, and the
+    /// mission is decided.
+    pub(crate) fn settle_mission_result(&mut self, k: usize, slot: usize, success: bool, cash: i32) {
+        let m = self.corp_state[k].missions[slot];
+        let tenth = cash / 10;
+        let rating = match m.kind {
+            0 | 1 => (if success { m.value / 10 } else { FAILED_RATING }) + tenth,
+            2 => {
+                let r = tenth - m.provided_cash / 10;
+                if r >= 0 {
+                    r + SELLER_RATING + if success { SUCCESS_RATING } else { 0 }
+                } else if !success {
+                    r
+                } else if r >= FAILED_RATING {
+                    r + SUCCESS_RATING
+                } else {
+                    FAILED_RATING
+                }
+            }
+            _ => tenth - m.provided_cash / 10 + if success { m.value / 10 } else { 0 },
+        };
+        let team = Team::CORPORATIONS[k];
+        for (_, p) in self.players.iter_mut().filter(|(_, p)| p.team == team) {
+            if rating > 0 {
+                p.money += rating * RATING_MONEY;
+            }
+            p.corp_rating += rating;
+        }
+        let expired = self.world_time >= m.deadline;
+        let m = &mut self.corp_state[k].missions[slot];
+        m.result = Some((expired, rating));
+        m.done = true;
+        self.push_mission_event(k, slot);
+    }
+
     /// round_complete: each round corporation earns the round cash in its base and the value of the missions whose
     /// disks are there, less what its missions were given; its members share the earnings (larger teams split them
     /// further with bonusratio on) and its share price moves with them.

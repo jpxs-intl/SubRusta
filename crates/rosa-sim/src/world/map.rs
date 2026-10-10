@@ -51,8 +51,9 @@ impl Map {
 
         roads.compute_world_bounds();
         ground.build_city_blocks(&roads);
-        // TODO: driving mode (game type 1) builds no streets
         let streets = StreetMap::build(&roads);
+        let mut level = level;
+        crate::world::building::assign_streets(&mut level.buildings, &streets);
 
         let _ = write_world_ppm(&level.area, &ground, "map.ppm", 1);
 

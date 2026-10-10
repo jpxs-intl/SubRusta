@@ -17,10 +17,10 @@ const LANE_CHANGE_MAX: f32 = f32::from_bits(0x3c08_8889);
 /// The car steers for a point up to 10 ahead, less the further it is off its lane.
 const LOOK_AHEAD: f32 = 10.0;
 const LOOK_FALLOFF: f32 = 0.25;
-const STREET_STEER: f64 = 0.7853981633975;
-const STREET_STEER_MAX: f32 = f32::from_bits(0x3f49_0fdb);
-const TURN_STEER: f64 = 0.981747704246875;
-const TURN_STEER_MAX: f32 = f32::from_bits(0x3f7b_53d1);
+const STREET_STEER: f64 = 45.0_f64.to_radians();
+const STREET_STEER_MAX: f32 = 45.0_f32.to_radians();
+const TURN_STEER: f64 = 56.25_f64.to_radians();
+const TURN_STEER_MAX: f32 = 56.25_f32.to_radians();
 const STEER_RATE: f32 = 0.0625;
 const TURN_STEER_RATE: f32 = 0.25;
 const CRUISE: f32 = f32::from_bits(0x3e88_8889);
@@ -40,7 +40,7 @@ const QUEUE_REACH: f32 = 12.0;
 const SCAN_AHEAD: f32 = 12.0;
 const AMBER: i32 = 1;
 const LEFT_LIGHTS: i32 = 4;
-const BEZIER_EPSILON: f32 = 1.525_878_9e-5;
+const BEZIER_EPSILON: f32 = 1.0 / 65536.0;
 const CORNER_BIAS: f32 = 0.125;
 const NEXT_LOOK: f32 = 4.0;
 const SHARP: f32 = 0.5;
@@ -61,12 +61,12 @@ fn sincos(yaw: f32) -> (f32, f32) {
 /// The steering angle that turns from `yaw` towards `target`, wrapped the short way and clamped.
 fn steer_toward(yaw: f32, target: f32, limit: f64, max: f32) -> f32 {
     let mut a = target;
-    if ((yaw - a) as f64) >= std::f64::consts::PI {
-        a = (a as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if ((yaw - a) as f64) >= 180.0_f64.to_radians() {
+        a = (a as f64 + 360.0_f64.to_radians()) as f32;
     }
     let mut diff = a - yaw;
-    if (diff as f64) >= std::f64::consts::PI {
-        diff = a - (yaw as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if (diff as f64) >= 180.0_f64.to_radians() {
+        diff = a - (yaw as f64 + 360.0_f64.to_radians()) as f32;
     }
     let d = diff as f64;
     if -limit > d {
@@ -86,6 +86,7 @@ fn coop_speed(traffic: &Traffic, per: i32) -> f32 {
 /// The stuck count: it climbs while the car is stopped but means to go forwards, and runs on to 319 once past 179.
 fn update_stuck(traffic: &mut Traffic, id: usize) {
     let c = &mut traffic.cars[id];
+
     if c.stuck > STUCK_TICKS {
         c.stuck += 1;
         if c.stuck > STUCK_RESET {
@@ -93,9 +94,11 @@ fn update_stuck(traffic: &mut Traffic, id: usize) {
         }
         return;
     }
+
     let v = c.vel;
     let speed = (v.z * v.z + (v.y * v.y + v.x * v.x)).sqrt();
     let r2 = c.rot[2];
+
     if STOPPED > speed && (((v.y * r2.y) + (r2.x * v.x)) + (r2.z * v.z)) + c.target_speed > PUSHING {
         c.stuck += 1;
     } else {
@@ -192,19 +195,24 @@ fn pick_lane(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32) -> 
 /// and the curve across an intersection.
 pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     update_stuck(traffic, id);
+
     let street = traffic.cars[id].street;
     if street == -1 {
         return cross_intersection(traffic, map, id);
     }
+
     let n_streets = map.streets.len() as i32;
+
     if traffic.roundcity && (street == LOOP_STREET || street == LOOP_STREET_2) {
         let c = &traffic.cars[id];
         let end = c.step(c.route_index).end;
         let wrong_way = if street == LOOP_STREET { end != 0 } else { end == 0 };
+
         if wrong_way {
             roundcity_flip(traffic, map, id, street);
         }
     }
+
     {
         let c = &mut traffic.cars[id];
         if c.route_len - 1 <= c.route_index {
@@ -300,15 +308,16 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     if QUEUE_DISTANCE > remaining && nxt.street != -1 {
         let end = traffic.cars[id].step(traffic.cars[id].route_index + 1).end;
         let target_lane = traffic.cars[id].target_lane;
-        let list = traffic.street_cars.get(nxt.street as usize).cloned().unwrap_or_default();
-        for j in list {
-            if j == id || (traffic.cars[j].lane_mask >> (target_lane & 31)) & 1 == 0 {
+        let Traffic { street_cars, cars, .. } = &mut *traffic;
+        let list = street_cars.get(nxt.street as usize).map_or(&[][..], |v| v.as_slice());
+        for &j in list {
+            if j == id || (cars[j].lane_mask >> (target_lane & 31)) & 1 == 0 {
                 continue;
             }
             if aggressive {
                 approach = maxss(AGGRESSIVE_MIN, approach);
             }
-            let o = &traffic.cars[j];
+            let o = &cars[j];
             if !(QUEUE_REACH > o.near[(end & 1) as usize]) {
                 continue;
             }
@@ -317,7 +326,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
             if !(PUSHING > speed) {
                 continue;
             }
-            let c = &mut traffic.cars[id];
+            let c = &mut cars[id];
             if c.target_speed > approach {
                 c.target_speed = approach;
                 limited = true;

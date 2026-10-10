@@ -24,8 +24,10 @@ const DOOR_REACH: f32 = 4.0;
 /// A replacement phone costs 100; everything else costs its item type's price.
 const PHONE_PRICE: i32 = 100;
 /// A corporation member can requisition 10 items.
+/// A requisitioned disk's volume.
+const REQUISITION_DISK_CAPACITY: i32 = 360;
 const REQUISITION_LIMIT: i32 = 9;
-const TEAM_NAMES: [&str; CORPORATIONS] = ["Goldmen Inc", "Monsota", "OXS International", "Nexaco", "Pentacom", "Prodocon"];
+pub(crate) const TEAM_NAMES: [&str; CORPORATIONS] = ["Goldmen Inc", "Monsota", "OXS International", "Nexaco", "Pentacom", "Prodocon"];
 
 /// The tab buttons carry this flag with the tab in the low byte; a button of the open tab is greyed out as -1.
 const TAB: i32 = 0x1000000;
@@ -84,6 +86,12 @@ pub struct CorpState {
     pub car_space_taken: Vec<bool>,
     /// The accounts the round manager fired (+0xccc count, up to 128).
     pub fired: Vec<u32>,
+    /// The intel the corporation can ask for (money record +0xc: 1 to 8 can request, 0 requested, 11 faxed, others
+    /// none) and how many screens it has printed (+0x10, 4 at most).
+    pub intel: i32,
+    pub prints: i32,
+    /// The volumes of the base's computers (+0x320 count, from game_mode_state + 0x320 + k * 0x5bc4).
+    pub computers: Vec<i32>,
 }
 
 fn button(id: i32, text: &str) -> MenuButton {
@@ -273,7 +281,7 @@ impl Sim {
                     p.menu = MenuType::WorldCorpRequistion;
                 }
                 self.update_player_event(pid);
-                // TODO: mission_broadcast_text_lines for each of the corporation's active missions
+                self.broadcast_corp_missions(k);
                 self.corp_state[k].applicants.clear();
             }
             APPLY if self.corp_state[k].manager.is_some() => {
@@ -294,7 +302,7 @@ impl Sim {
         self.set_player_team(target, Team::CORPORATIONS[k]);
         self.update_player_event(target);
         self.remove_player_from_corps(target);
-        // TODO: mission_broadcast_text_lines for each of the corporation's active missions
+        self.broadcast_corp_missions(k);
     }
 
     fn corp_fire(&mut self, pid: PlayerId, k: usize, target: i32) {
@@ -332,7 +340,10 @@ impl Sim {
             }) else {
                 return;
             };
-            // TODO: a disk gets a computer file slot (computer_fs_alloc_slot(0x168), item +0x334)
+            if kind == ItemKind::DiskBlack {
+                let vol = self.fs.alloc_volume(REQUISITION_DISK_CAPACITY);
+                self.items.get_mut(item).unwrap().volume = vol;
+            }
             if kind == ItemKind::Phone {
                 self.phone_update(item);
             }
@@ -396,6 +407,15 @@ impl Sim {
     }
 
     /// remove_player_form_corp: takes the player off every corporation's list of applicants.
+    /// mission_broadcast_text_lines: each of the corporation's active missions is announced again.
+    fn broadcast_corp_missions(&mut self, k: usize) {
+        for slot in 0..super::missions::MISSION_SLOTS {
+            if self.corp_state[k].missions[slot].active {
+                self.push_mission_event(k, slot);
+            }
+        }
+    }
+
     pub(crate) fn remove_player_from_corps(&mut self, pid: PlayerId) {
         for c in &mut self.corp_state {
             if let Some(i) = c.applicants.iter().position(|&a| a == pid) {
@@ -406,17 +426,17 @@ impl Sim {
 
     /// set_team_manager: the manager gets the team phone on the table and, in world mode, their corporate rating as the
     /// account's credit.
-    fn set_team_manager(&mut self, k: usize, pid: PlayerId) {
+    pub(crate) fn set_team_manager(&mut self, k: usize, pid: PlayerId) {
         if self.gamemode == GameMode::World {
             let rating = self.players.get(pid.idx()).map_or(0, |p| p.corp_rating);
             self.corp_state[k].credit = rating.max(0);
-            // TODO: scale the rewards of the corporation's missions by the rating (min((rating - 1000) / 100, 1000)%)
+            self.scale_missions_for_manager(k, rating);
         }
         self.disconnect_phone(k);
         let base = &self.world.map.level.bases[k];
         let mut rot = IDENTITY;
         let axis = rot[1];
-        rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - (std::f64::consts::PI / 2.0)) as f32);
+        rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - 90.0_f64.to_radians()) as f32);
         if let Some(id) = self.create_item(ItemKind::Phone, base.table, None, rot) {
             if let Some(phone) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
                 phone.texture = 0;

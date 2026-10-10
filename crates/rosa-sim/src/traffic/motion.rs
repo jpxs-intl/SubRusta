@@ -79,10 +79,10 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     }
     let y = turn + c.yaw;
     let yd = y as f64;
-    c.yaw = if -std::f64::consts::PI > yd {
-        (yd + (std::f64::consts::PI * 2.0)) as f32
-    } else if yd > std::f64::consts::PI {
-        (yd - (std::f64::consts::PI * 2.0)) as f32
+    c.yaw = if -180.0_f64.to_radians() > yd {
+        (yd + 360.0_f64.to_radians()) as f32
+    } else if yd > 180.0_f64.to_radians() {
+        (yd - 360.0_f64.to_radians()) as f32
     } else {
         y
     };
@@ -126,7 +126,7 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     }
     let mut rot = IDENTITY;
     let axis = rot[1];
-    rotate_orientation(&mut rot, axis, std::f32::consts::FRAC_PI_2);
+    rotate_orientation(&mut rot, axis, 90.0_f32.to_radians());
     let axis = rot[1];
     rotate_orientation(&mut rot, axis, c.yaw);
     let back = -c.wheelbase;

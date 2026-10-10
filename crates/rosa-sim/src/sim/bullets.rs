@@ -10,13 +10,9 @@ use super::{
     vehicles::{TYRE_BURST, WINDOW_BROKEN},
 };
 use crate::{
-    PlayerId,
-    human::{
-        damage::{damage_human, trace_ray_human},
-        physics::{HumanOutput, add_bullet_hole},
-    },
-    vehicle::physics::{VehicleHit, VehiclePart, trace_vehicle_parts},
-    world::{capsule::CapsuleHit, trace::line_intersect_level},
+    PlayerId, human::{
+        BoneId, damage::{damage_human, trace_ray_human}, physics::{HumanOutput, add_bullet_hole},
+    }, vehicle::physics::{VehicleHit, VehiclePart, trace_vehicle_parts}, world::{capsule::CapsuleHit, trace::line_intersect_level},
 };
 
 pub const MAX_BULLETS: usize = 0x4000;
@@ -27,7 +23,6 @@ const HIT_BODY: i32 = 1;
 const HIT_VEHICLE: i32 = 2;
 const VEHICLE_DAMAGE_SCALE: f32 = 1.5;
 const TYRE_BURST_RADIUS: f32 = 0.75;
-const HEAD: usize = 3;
 const DAMAGE_SCALE: f32 = 5.5;
 const TICKS_PER_SECOND: f32 = 60.0;
 const DAMAGE_FLOOR: f32 = 2.0;
@@ -122,47 +117,61 @@ impl Sim {
     }
 
     /// bullet_simulation: every bullet slows down with drag and moves; the nearest human bone or level surface on
-    /// the way stops it. A human takes damage (more on the head) and a push; the level shows a hit.
+    /// the way stops it. A human takes damage (more on the head) and a push; the level shows a hit, and an item-set
+    /// cell makes its items real (a watermelon hit bursts) without one.
     pub fn bullet_simulation(&mut self) {
-        // TODO: level hits on item-set cells spawn their items
         for i in 0..self.bullets.len() {
-            let b = &mut self.bullets[i];
-            let vy = b.vel.y - b.gravity;
-            let (vx, vz) = (b.vel.x, b.vel.z);
-            b.prev = b.pos;
-            b.vel.y = vy;
+            let bullet = &mut self.bullets[i];
+
+            let vy = bullet.vel.y - bullet.gravity;
+
+            let (vx, vz) = (bullet.vel.x, bullet.vel.z);
+
+            bullet.prev = bullet.pos;
+            bullet.vel.y = vy;
+
             let speed = ((vy * vy + vx * vx) + vz * vz).sqrt();
-            let drag = BULLET_DATA.get(b.kind as usize).map_or(0.0, |d| d.1);
+            let drag = BULLET_DATA.get(bullet.kind as usize).map_or(0.0, |d| d.1);
+
             let k = (-speed * speed) * drag;
             let dir = if speed != 0.0 {
                 let inv = 1.0 / speed;
+
                 Vec3::new(inv * vx, inv * vy, inv * vz)
             } else {
                 Vec3::ZERO
             };
-            b.vel = Vec3::new(vx + dir.x * k, vy + dir.y * k, vz + k * dir.z);
-            b.pos = Vec3::new(b.vel.x + b.pos.x, b.vel.y + b.pos.y, b.vel.z + b.pos.z);
-            let (from, to, shooter) = (b.prev, b.pos, b.player);
+
+            bullet.vel = Vec3::new(vx + dir.x * k, vy + dir.y * k, vz + k * dir.z);
+            bullet.pos = Vec3::new(bullet.vel.x + bullet.pos.x, bullet.vel.y + bullet.pos.y, bullet.vel.z + bullet.pos.z);
+
+            let (from, to, shooter) = (bullet.prev, bullet.pos, bullet.player);
 
             let mut best = 1.0f32;
             let mut human_hit = None;
+
             for (id, h) in self.humans.iter() {
                 let Some(hit) = trace_ray_human(h, from, to, 0.0) else { continue };
                 if !(best > hit.fraction) {
                     continue;
                 }
-                if h.player == shooter && matches!(hit.bone, 5 | 6 | 8 | 9) {
+
+                if h.player == shooter && matches!(hit.bone, BoneId::ForearmLeft | BoneId::HandLeft | BoneId::ForearmRight | BoneId::HandRight) {
                     continue;
                 }
+
                 if h.player.and_then(|p| self.players.get(p.idx())).is_some_and(|p| p.god_mode) {
                     continue;
                 }
+
                 best = hit.fraction;
                 human_hit = Some((id, hit));
             }
+
             let mut vehicle_hit = None;
             for (vid, v) in self.vehicles.iter() {
                 let Some(t) = self.vehicle_types.get(v.kind as usize) else { continue };
+
                 if let Some(hit) = trace_vehicle_parts(v, t, from, to, true)
                     && !(best <= hit.fraction)
                 {
@@ -171,6 +180,7 @@ impl Sim {
                     human_hit = None;
                 }
             }
+
             let block = |a: f32, b: f32| {
                 let (p, q) = ((0.25 * a) as i32, (0.25 * b) as i32);
                 if a <= b { (p, q) } else { (q, p) }
@@ -178,6 +188,7 @@ impl Sim {
             let ((x0, x1), (y0, y1), (z0, z1)) = (block(from.x, to.x), block(from.y, to.y), block(from.z, to.z));
             let found = self.item_grid.query(IVec3::new(x0, y0, z0), IVec3::new(x1, y1, z1));
             let mut item_hit = None;
+
             for &id in &found {
                 let Some(item) = self.items.get(id) else { continue };
                 let Some(hull) = &self.item_types[item.item_type as usize].hull else { continue };
@@ -196,10 +207,21 @@ impl Sim {
             if let Some(level) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to)
                 && best > level.hit.fraction
             {
-                // TODO: a hit on an item-set cell spawns that cell's items (spawn_item_from_grid_cell), bursting a
-                // watermelon it hit, instead of adding a bullet hole
+                if let Some(set) = level.set {
+                    for (index, id) in self.spawn_hit_set(set, level.block) {
+                        if index == set.index
+                            && let Some(item) = self.items.get_mut(id).filter(|i| i.item_type == ItemKind::Watermelon)
+                        {
+                            item.health = 0;
+                        }
+                    }
+                    let b = &mut self.bullets[i];
+                    b.pos = level.hit.pos;
+                    b.time = 0;
+                    continue;
+                }
                 let vel = self.bullets[i].vel;
-                let hole = CapsuleHit { pos: level.hit.pos, normal: level.hit.normal, dist: 0.0, area: level.area, block: level.block, cell: level.cell, face_attr: level.face_attr };
+                let hole = CapsuleHit { pos: level.hit.pos, normal: level.hit.normal, dist: 0.0, area: level.area, block: level.block, cell: level.cell, face_attr: level.face_attr, set: level.set };
                 let mut out = Vec::new();
                 let kind = if add_bullet_hole(&mut self.world.map, hole, level.hit.pos, vel, &mut out)
                     && let Some(HumanOutput::Glass(b)) = out.pop()
@@ -228,28 +250,34 @@ impl Sim {
                 self.bullet_hit_vehicle(i, vid, hit);
                 continue;
             }
+
             if let Some(hit_id) = item_hit {
                 if let Some(item) = self.items.get_mut(hit_id).filter(|i| i.item_type == ItemKind::Watermelon) {
                     item.health = 0;
                 }
+
                 for &id in &found {
                     if let Some(item) = self.items.get_mut(id) {
                         item.physics_settled = false;
                         item.settled_timer = 0;
                     }
                 }
+
                 self.bullets[i].time = 0;
                 continue;
             }
+
             let Some((id, hit)) = human_hit else { continue };
             let b = self.bullets[i].clone();
             let v = b.vel;
             let speed = ((v.x * v.x + v.y * v.y) + v.z * v.z).sqrt();
             let mut damage = (b.mass * (speed * DAMAGE_SCALE) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
+
             if damage > 0 {
                 let e = EventBulletHit { unk: 0, hit_type: HIT_BODY, pos: Vector(hit.pos), normal: Vector(hit.normal) };
                 self.events.push(Event { tick_created: self.tick, kind: ServerEvent::BulletHit(e) });
-                if hit.bone == HEAD {
+
+                if hit.bone == BoneId::Head {
                     damage = if damage <= 24 {
                         if damage < 10 { damage * 2 } else { damage + damage * 2 }
                     } else {
@@ -266,7 +294,7 @@ impl Sim {
                 damage = 0;
             }
             damage_human(h, hit.bone, damage);
-            let bone = &h.bones[hit.bone];
+            let bone = &h.bones[hit.bone.index()];
             let mass = bone.mass;
             let weight = if LIGHT_BONE > mass { LIGHT_BONE_MASS } else { 0.5 * mass };
             let f = IMPULSE * (b.mass / (weight + b.mass));
@@ -285,17 +313,17 @@ impl Sim {
 
     /// bullet_TTL: every bullet loses a tick of life and is gone at 0, the last bullet taking its place.
     pub fn bullet_ttl(&mut self) {
-        let mut i = 0;
-        while i < self.bullets.len() {
+        for i in 0..self.bullets.len() {
             let b = &mut self.bullets[i];
+
             if b.time <= 0xffff {
                 b.time -= 1;
+
                 if b.time <= 0 {
                     self.bullets.swap_remove(i);
                     continue;
                 }
             }
-            i += 1;
         }
     }
 }

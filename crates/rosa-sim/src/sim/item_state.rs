@@ -32,7 +32,12 @@ pub enum ItemState {
     Key { vehicle: Option<usize> },
     /// A stack of world cash.
     Cash(Cash),
-    // TODO: computers, disks, doors, pay phone home positions
+    /// A computer's screen, shell and programs.
+    Computer(Box<crate::computer::Computer>),
+    /// A memo's text (item +0x368).
+    Memo(Box<[u8; super::memos::MEMO_LEN]>),
+    /// A door on its hinges: its axis (+0x2e8) and the two points it hangs from (+0x300, +0x30c).
+    Door { axis: glam::Vec3, hinges: [glam::Vec3; 2] },
 }
 
 /// What each bill code is worth (raw 0x2e9e80).
@@ -151,6 +156,8 @@ pub struct Phone {
     pub cooldown: i32,
     /// +0x278
     pub texture: i32,
+    /// Where a pay phone was put (+0x300).
+    pub home: glam::Vec3,
 }
 
 impl ItemState {
@@ -166,6 +173,7 @@ impl ItemState {
             ItemKind::Arcade => Self::Arcade { frame: 0, top_line: 0 },
             ItemKind::Key => Self::Key { vehicle: None },
             ItemKind::CashWorld => Self::Cash(Cash::default()),
+            ItemKind::Paper | ItemKind::PaperWorld => Self::Memo(Box::new([0; super::memos::MEMO_LEN])),
             _ if ty.is_gun => Self::Gun { rounds: left, cooldown: 0, trigger_ticks: 0 },
             _ if left > 0 => Self::Stock { left },
             _ => Self::Plain,

@@ -6,6 +6,7 @@ use crate::world::{
     collide::{calculate_face_normal, segment_intersect_face},
     ground::{Ground, ORIGIN},
     mesh::{CUBE_CORNERS, CUBE_FACES},
+    item_sets::{SetHit, entry_pose},
     meshes::BlockMeshes,
     trace::{AreaFrame, cvtt},
 };
@@ -23,6 +24,8 @@ pub struct CapsuleHit {
     pub block: IVec3,
     pub cell: u32,
     pub face_attr: u32,
+    /// The item-set item the area pass ended on, which the binary leaves set even when the terrain is nearer.
+    pub set: Option<SetHit>,
 }
 
 fn dist(a: Vec3, b: Vec3) -> f32 {
@@ -78,7 +81,12 @@ pub fn segment_closest_points(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3, radius: f3
 
 /// Capsule `start..end` with `radius` against triangle `a, b, c`: (contact point, normal, axis distance).
 pub fn capsule_intersect_triangle(start: Vec3, end: Vec3, a: Vec3, b: Vec3, c: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32)> {
-    let n = calculate_face_normal(a, b, c);
+    capsule_intersect_triangle_facing(start, end, a, b, c, calculate_face_normal(a, b, c), radius)
+}
+
+/// capsule_intersect_triangle with the face's normal given (a window traced from its back reuses the front's,
+/// negated).
+pub fn capsule_intersect_triangle_facing(start: Vec3, end: Vec3, a: Vec3, b: Vec3, c: Vec3, n: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32)> {
     let d0 = ((start.y - a.y) * n.y + (start.x - a.x) * n.x) + (start.z - a.z) * n.z;
     let d1 = ((end.x - a.x) * n.x + (end.y - a.y) * n.y) + (end.z - a.z) * n.z;
     if d0 >= radius && d1 >= radius {
@@ -257,7 +265,9 @@ fn custom_shape(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f3
     (NO_HIT > best.dist).then_some((best.pos, best.normal, best.dist, attr))
 }
 
-pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32, IVec3, u32)> {
+pub type CapsuleAreaHit = (Vec3, Vec3, f32, IVec3, u32, Option<SetHit>);
+
+pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleAreaHit> {
     let f = AreaFrame::new(area);
     let (s3, e3, mn, mx) = (start.to_array(), end.to_array(), f.min.to_array(), f.max.to_array());
     for k in 0..3 {
@@ -283,18 +293,41 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
     let mut best = Best::new();
     let mut block = IVec3::ZERO;
     let mut word = 0u32;
+    let mut set: Option<SetHit> = None;
+    let mut raw = false;
     for y in lo[1]..=hi[1] {
         for z in lo[2]..=hi[2] {
             for x in lo[0]..=hi[0] {
                 let Some(rec) = area.record(x, y, z) else { continue };
                 let cell = IVec3::new(x, y, z);
                 let idx = cell_index(x, y, z);
-                // TODO: item-set objects (+0x1400, skipping taken ones in +0x1600) are tested first
+                let sw = rec.item_set[idx];
+                if sw != 0
+                    && let Some(items) = area.item_sets.set(sw)
+                {
+                    let turn = (sw >> 24) & 3;
+                    for (i, e) in items.entries.iter().enumerate() {
+                        if rec.taken[idx] & 1u32.wrapping_shl(i as u32) != 0 {
+                            continue;
+                        }
+                        let (pos, rot) = entry_pose(e, cell, f.size, turn);
+                        let Some(hull) = area.item_sets.hull(e.kind) else { continue };
+                        if let Some((p, n, d)) = hull.intersect_capsule(&hull.world_verts(pos, &rot), ls, le, radius)
+                            && !(best.dist <= d)
+                        {
+                            best = Best { dist: d, pos: p, normal: n };
+                            block = cell;
+                            word = 0;
+                            set = Some(SetHit { set: sw & 1023, turn, index: i });
+                            raw = true;
+                        }
+                    }
+                }
                 let object = rec.object[idx];
                 if object as i32 > 0 {
                     let (kind, pos, rot) = object_pose(object, cell, f.size);
                     if let Some((p, n, d)) = capsule_intersect_object(kind, pos, &rot, ls, le, radius) {
-                        return Some((p, n, d, IVec3::new(-1, block.y, block.z), word));
+                        return Some((p, n, d, IVec3::new(-1, block.y, block.z), word, set));
                     }
                 }
                 for layer in 0..2 {
@@ -317,6 +350,8 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
                     if best.take(hit) {
                         block = at;
                         word = w;
+                        set = None;
+                        raw = false;
                     }
                 }
             }
@@ -325,9 +360,12 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
     if !(NO_HIT > best.dist) {
         return None;
     }
+    if raw {
+        return Some((best.pos, best.normal, best.dist, block, word, set));
+    }
     let p = f.rotate_back(best.pos);
     let pos = Vec3::new(p.x + f.origin.x, p.y + f.origin.y, p.z + f.origin.z);
-    Some((pos, f.rotate_back(best.normal), best.dist, block, word))
+    Some((pos, f.rotate_back(best.normal), best.dist, block, word, set))
 }
 
 pub fn capsule_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleHit> {
@@ -363,12 +401,14 @@ pub fn capsule_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockM
         && best_d > d
     {
         best_d = d;
-        best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block: IVec3::splat(-1), cell: 0, face_attr: 0 });
+        best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block: IVec3::splat(-1), cell: 0, face_attr: 0, set: None });
     }
-    if let Some((pos, normal, d, block, cell)) = capsule_intersect_area(area, meshes, start, end, radius)
+    let area_hit = capsule_intersect_area(area, meshes, start, end, radius);
+    let set = area_hit.and_then(|h| h.5);
+    if let Some((pos, normal, d, block, cell, _)) = area_hit
         && best_d > d
     {
-        best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block, cell, face_attr: 0 });
+        best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block, cell, face_attr: 0, set });
     }
-    best.map(|h| CapsuleHit { face_attr: area.face_attr.get(), ..h })
+    best.map(|h| CapsuleHit { face_attr: area.face_attr.get(), set, ..h })
 }

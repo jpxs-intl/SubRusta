@@ -1,9 +1,10 @@
-use rosa_physics::rotation::IDENTITY;
+use glam::Vec3;
+use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::clientbound::game::MenuType;
 
 use rosa_protocol::clientbound::game::ItemKind;
 
-use super::{Sim, item_types::ItemType};
+use super::{Sim, item_state::{BILL_VALUES, ItemState}, item_types::ItemType};
 use crate::{
     PlayerId,
     vehicle::types::VehicleType,
@@ -24,10 +25,18 @@ const GUN_STORE_LIMIT: i32 = 19;
 const BURGER_LIMIT: i32 = 9;
 /// The button that leaves a shop's list for its front page.
 const BACK: u32 = 16;
+const SELL: u32 = 1;
+const MAX_VEHICLES_BOUGHT: i32 = 2;
 /// The clothing store's buttons: three suits (colours 3, 8 and 7) and two necklaces.
 const SUITS: [u8; 3] = [3, 8, 7];
 const POCKETS: std::ops::Range<usize> = 2..7;
 const ANY_SLOT: std::ops::Range<usize> = 0..7;
+/// The bank's buttons: 1 to 6 withdraw a $5 to $1000 bill (the button is the bill's code), 7 deposits the cash in hand.
+const WITHDRAW_BILLS: std::ops::RangeInclusive<u32> = 1..=6;
+const DEPOSIT: u32 = 7;
+/// $5 and $10 bills: a player can take 40 of them a day.
+const SMALL_BILL: u32 = 2;
+const SMALL_BILL_LIMIT: i32 = 39;
 
 fn menu(id: u8) -> MenuType {
     match id {
@@ -148,8 +157,7 @@ impl Sim {
                 if button > 0 && button <= count {
                     match kind {
                         CLOTHING_STORE => self.clothing_store_purchase(pid, button),
-                        // TODO: dealership_buy_vehicle (spawn the car at the dealership with its key), then the front page
-                        CAR_DEALER => {}
+                        CAR_DEALER => self.dealership_buy_vehicle(pid, button),
                         GUN_STORE if p.items_bought <= GUN_STORE_LIMIT => self.buy_shop_item(pid, button),
                         BURGER_SHOP => self.burger_shop_menu(pid, button),
                         _ => {}
@@ -162,7 +170,9 @@ impl Sim {
                 }
             }
             11 => {
-                // TODO: player_sell_vehicle (button 1)
+                if button == SELL {
+                    self.player_sell_vehicle(pid);
+                }
                 if button == BACK
                     && let Some(p) = self.players.get_mut(pid.idx())
                 {
@@ -173,10 +183,157 @@ impl Sim {
         }
     }
 
+    /// The bank menu (13) of logic_playerinteractions; any other button (16) leaves it.
+    pub(crate) fn bank_menu_action(&mut self, pid: PlayerId, button: u32) {
+        let Some(human) = self.players.get(pid.idx()).and_then(|p| p.human) else { return };
+        match button {
+            b if WITHDRAW_BILLS.contains(&b) => self.bank_withdraw(pid, human, b),
+            DEPOSIT => self.bank_deposit(pid, human),
+            BACK => {
+                if let Some(p) = self.players.get_mut(pid.idx()) {
+                    p.menu = MenuType::EmptyBase;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A bill of `code` from the player's money: new cash in an empty right hand, or onto the cash held there; the
+    /// money goes even when no cash could be made.
+    fn bank_withdraw(&mut self, pid: PlayerId, human: usize, code: u32) {
+        let value = BILL_VALUES[code as usize];
+        let Some(p) = self.players.get(pid.idx()) else { return };
+        if p.money < value || (code <= SMALL_BILL && p.bills_withdrawn > SMALL_BILL_LIMIT) {
+            return;
+        }
+        let Some(hand) = self.humans.get(human).map(|h| h.inventory[0]) else { return };
+        if hand.count <= 0 {
+            self.give_item(human, ItemKind::CashWorld as u8, 0..1, |state| {
+                if let ItemState::Cash(cash) = state {
+                    cash.bills = 0;
+                    cash.codes = code;
+                }
+            });
+        } else {
+            let Some(cash) = self.items.get_mut(hand.items[0] as usize).filter(|i| i.item_type == ItemKind::CashWorld).and_then(|i| i.state.cash_mut()) else { return };
+            if !cash.insert(0, code) {
+                return;
+            }
+        }
+        let Some(p) = self.players.get_mut(pid.idx()) else { return };
+        p.money -= value;
+        if code <= SMALL_BILL {
+            p.bills_withdrawn += 1;
+        }
+    }
+
+    /// The cash in the right hand goes into the player's money.
+    fn bank_deposit(&mut self, pid: PlayerId, human: usize) {
+        let Some(hand) = self.humans.get(human).map(|h| h.inventory[0]) else { return };
+        if hand.count <= 0 {
+            return;
+        }
+        let id = hand.items[0] as usize;
+        let Some(value) = self.items.get(id).filter(|i| i.item_type == ItemKind::CashWorld).and_then(|i| i.state.cash()).map(|c| c.value()) else { return };
+        if let Some(p) = self.players.get_mut(pid.idx()) {
+            p.money += value;
+        }
+        self.mark_item_for_deletion(id);
+    }
+
+    /// dealership_buy_vehicle: a player with a human and fewer than 3 cars bought this round buys the car on list line
+    /// `button`: it is put in the dealership's next space, turned a quarter from the building, owned by the player,
+    /// with its key in the first free pocket, and the line goes (the last one takes its place).
+    fn dealership_buy_vehicle(&mut self, pid: PlayerId, button: u32) {
+        let Some(p) = self.players.get(pid.idx()) else { return };
+        let Some(human) = p.human else { return };
+        if p.vehicles_bought > MAX_VEHICLES_BOUGHT {
+            return;
+        }
+        let Some(k) = usize::try_from(p.menu_tab).ok() else { return };
+        let money = p.money;
+        let Some(b) = self.world.map.level.buildings.get_mut(k) else { return };
+        let Some(e) = b.shop.get(button as usize - 1).copied() else { return };
+        if money < e.price {
+            return;
+        }
+        let n = b.car_counter;
+        let d = (-n) as f32 * 4.0;
+        let r2 = b.rot[2];
+        let s = b.car_spawn;
+        let pos = Vec3::new(r2.x * d + s.x, r2.y * d + s.y, d * r2.z + s.z);
+        b.car_counter = (n + 1) & 7;
+        let mut rot = b.rot;
+        rotate_orientation(&mut rot, Vec3::Y, 90.0_f32.to_radians());
+        let kind = u8::try_from(e.kind).ok().and_then(|k| rosa_protocol::clientbound::game::VehicleKind::try_from(k).ok());
+        let vid = kind.and_then(|kind| self.spawn_vehicle(kind, e.extra, pos, rot));
+        if let Some(v) = vid.and_then(|v| self.vehicles.get_mut(v)) {
+            v.owner = pid.0 as i32;
+        }
+        if let Some(p) = self.players.get_mut(pid.idx()) {
+            p.money -= e.price;
+        }
+        if let Some(key) = self.create_item(ItemKind::Key, pos, None, rot) {
+            if let Some(i) = self.items.get_mut(key) {
+                i.state = super::item_state::ItemState::Key { vehicle: vid };
+            }
+            self.link_first_free(human, key, POCKETS);
+        }
+        if let Some(p) = self.players.get_mut(pid.idx()) {
+            p.vehicles_bought += 1;
+            let e = p.make_update_player_event(self.tick);
+            self.events.push(e);
+        }
+        if self.gamemode == rosa_protocol::GameMode::Round
+            && let Some(p) = self.players.get(pid.idx())
+        {
+            let e = p.make_update_round_event(self.tick);
+            self.events.push(e);
+        }
+        if let Some(b) = self.world.map.level.buildings.get_mut(k) {
+            b.shop.swap_remove(button as usize - 1);
+        }
+    }
+
+    /// player_sell_vehicle: the key in the right hand sells its standing vehicle for three quarters of its price; the
+    /// car and the key go.
+    fn player_sell_vehicle(&mut self, pid: PlayerId) {
+        let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|h| self.humans.get(h)) else { return };
+        let hand = &h.inventory[0];
+        if hand.count <= 0 {
+            return;
+        }
+        let key = hand.items[0] as usize;
+        let Some(super::item_state::ItemState::Key { vehicle: Some(vid) }) = self.items.get(key).map(|i| i.state.clone()) else { return };
+        let Some(v) = self.vehicles.get(vid).filter(|v| v.health > 0) else { return };
+        let price = self.vehicle_types.get(v.kind as usize).map_or(0, |t| t.price);
+        if let Some(p) = self.players.get_mut(pid.idx()) {
+            p.money = (price as f32 * 0.75 + p.money as f32) as i32;
+        }
+        if let Some(v) = self.vehicles.get_mut(vid) {
+            v.despawn_time = 0;
+        }
+        if let Some(i) = self.items.get_mut(key) {
+            i.despawn_time = 0;
+        }
+    }
+
     fn shop_entry(&self, pid: PlayerId, button: u32) -> Option<ShopEntry> {
         let p = self.players.get(pid.idx())?;
         let b = self.world.map.level.buildings.get(usize::try_from(p.menu_tab).ok()?)?;
         b.shop.get((button as usize).checked_sub(1)?).copied()
+    }
+
+    /// The item put into the first of `slots` of the human that takes it.
+    fn link_first_free(&mut self, human: usize, item: usize, slots: std::ops::Range<usize>) {
+        let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
+        let Some(h) = humans.get_mut(human) else { return };
+        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
+        for slot in slots {
+            if crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, item, slot) {
+                break;
+            }
+        }
     }
 
     /// An item at the human, set up by `init` and put into the first of `slots` that takes it. Returns the item.
@@ -303,5 +460,45 @@ pub fn stock_gun_stores(buildings: &mut [BuildingRecord], item_types: &[ItemType
     
     for b in buildings.iter_mut().filter(|b| b.kind == GUN_STORE) {
         b.shop = stock.clone();
+    }
+}
+
+impl Sim {
+    pub fn buildings(&self) -> &[BuildingRecord] {
+        &self.world.map.level.buildings
+    }
+
+    pub fn building(&self, k: usize) -> Option<&BuildingRecord> {
+        self.world.map.level.buildings.get(k)
+    }
+
+    pub fn building_mut(&mut self, k: usize) -> Option<&mut BuildingRecord> {
+        self.world.map.level.buildings.get_mut(k)
+    }
+
+    pub fn run_dealership_buy(&mut self, pid: PlayerId, button: u32) {
+        self.dealership_buy_vehicle(pid, button);
+    }
+
+    pub fn run_sell_vehicle(&mut self, pid: PlayerId) {
+        self.player_sell_vehicle(pid);
+    }
+
+    /// Puts `item` alone in the human's right hand without linking it.
+    pub fn force_hand_item(&mut self, h: usize, item: usize) {
+        if let Some(hu) = self.humans.get_mut(h) {
+            hu.inventory[0].count = 1;
+            hu.inventory[0].items[0] = item as i32;
+        }
+    }
+}
+
+impl Sim {
+    /// The bank menu's button `button`, pressed with the menu open.
+    pub fn run_bank_action(&mut self, pid: PlayerId, button: u32) {
+        if let Some(p) = self.players.get_mut(pid.idx()) {
+            p.menu = MenuType::WorldBank2;
+        }
+        self.bank_menu_action(pid, button);
     }
 }

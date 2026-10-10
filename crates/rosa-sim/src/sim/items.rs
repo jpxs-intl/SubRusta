@@ -20,6 +20,12 @@ use crate::{PlayerId, world::trace::line_intersect_level};
 
 pub const MAX_ITEMS: usize = 1024;
 
+/// A disk in a computer sits in the drive: 0.15625 down and 0.09375 back from the computer (computer type +0x760, +0x764).
+/// A door hangs from two hinges 0.4375 across and 0.5 up and down from its middle.
+const DOOR_HINGE_ACROSS: f32 = -0.4375;
+const DOOR_HINGE_UP: f32 = 0.5;
+const DRIVE_DOWN: f32 = -0.15625;
+const DRIVE_BACK: f32 = 0.09375;
 const SETTLE_SPEED: f32 = f32::from_bits(0x3b88_8889);
 const SETTLE_TICKS: i32 = 60;
 const CONTACT_FRICTION: f32 = f32::from_bits(0x3f19_999a);
@@ -73,6 +79,16 @@ pub struct Item {
     /// Keys pressed on the item this tick by the hand holding it (+0x150: 1 use, 2 secondary), and last tick (+0x154).
     pub input_flags: u32,
     pub last_input_flags: u32,
+    /// The item-set cell the item was taken out of, if any.
+    pub set_origin: Option<super::item_sets::SetOrigin>,
+    /// The file system volume of a disk or computer (+0x334), 0 until one is given.
+    pub volume: i32,
+    /// The line links the item's text is sent through (+0x178), and which of them are in use (+0x170).
+    pub links: [i32; crate::computer::links::ITEM_SLOTS],
+    pub link_mask: u64,
+    /// num_item_events: bumped when what the item shows changes (a computer's line committed); a client that has not
+    /// seen the latest count gives the item's packet more priority.
+    pub events: i32,
 }
 
 /// What a human needs to collide with items and vehicles: the broadphase grid, the items and their hulls, the
@@ -118,6 +134,11 @@ impl Sim {
             state: ItemState::new(item_type, ty),
             input_flags: 0,
             last_input_flags: 0,
+            set_origin: None,
+            volume: 0,
+            links: [0; crate::computer::links::ITEM_SLOTS],
+            link_mask: 0,
+            events: 0,
         };
 
         let Some(id) = self.items.insert(item) else {
@@ -129,12 +150,44 @@ impl Sim {
             b.owner = id as i32;
         }
 
+        if item_type == ItemKind::Computer {
+            self.create_computer(id);
+        }
+        let item = self.items.get_mut(id).unwrap();
+        match item_type {
+            ItemKind::Door => {
+                let [r0, r1, r2] = rot;
+                let hinge = |up: f32| {
+                    Vec3::new(
+                        (r0.x * DOOR_HINGE_ACROSS + pos.x) + r1.x * up,
+                        (r0.y * DOOR_HINGE_ACROSS + pos.y) + r1.y * up,
+                        (r0.z * DOOR_HINGE_ACROSS + pos.z) + r1.z * up,
+                    )
+                };
+                item.state = ItemState::Door { axis: r2, hinges: [hinge(-DOOR_HINGE_UP), hinge(DOOR_HINGE_UP)] };
+                // TODO: each hinge pins the door to the level with a type 4 bond (create_bond_rigidbody_level: body
+                // point (-0.4375, ∓0.5, 0) held at the hinge, 0.125 and 0.25), which rosa-physics lacks
+            }
+            ItemKind::PhonePay => {
+                if let Some(p) = item.state.phone_mut() {
+                    p.home = pos;
+                }
+            }
+            _ => {}
+        }
+
         Some(id)
     }
 
     /// delete_item: takes the item out of its holder's inventory first.
     pub fn delete_item(&mut self, id: usize) {
-        // TODO: item-set grid bits, the counter at 0x45385f08 for type 0x1d, child items and a key's vehicle
+        if self.items.get(id).is_some_and(|i| i.set_origin.is_some() && i.health > 0) {
+            self.return_set_item(id);
+        }
+        if self.items.get(id).is_some_and(|i| i.item_type == ItemKind::PaperWorld) {
+            self.world_paper_deleted();
+        }
+        self.free_item_links(id);
         let parent = self.items.get(id).map_or(-1, |i| i.parent_human);
         let slot = self.items.get(id).map_or(0, |i| i.parent_slot as usize);
         if parent != -1
@@ -142,6 +195,20 @@ impl Sim {
         {
             let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: Vec::new() };
             crate::human::inventory::detach_item(h, &mut self.bodies, &mut touch, id, slot);
+        }
+        while let Some(child) = self.items.get_mut(id).and_then(|i| i.children.pop()) {
+            if let Some(c) = self.items.get_mut(child) {
+                c.parent_item = -1;
+            }
+        }
+        if let Some(parent) = self.items.get(id).and_then(|i| usize::try_from(i.parent_item).ok()) {
+            remove_link(&mut self.items, id, parent);
+        }
+        // TODO: the 64 sound-source bits clearing their sources
+        if let Some(ItemState::Key { vehicle: Some(vid) }) = self.items.get(id).map(|i| i.state.clone())
+            && let Some(v) = self.vehicles.get_mut(vid)
+        {
+            v.despawn_time = 0;
         }
         if let Some(item) = self.items.remove(id) {
             self.bodies.remove(item.body);
@@ -324,6 +391,9 @@ impl Sim {
                 item.despawn_time = 0;
             }
             item.physics_sim = false;
+            if matches!(item.item_type, ItemKind::Computer | ItemKind::Arcade | ItemKind::TableTest | ItemKind::Wall) {
+                item.physics_settled = true;
+            }
             let (body_id, item_type, parent) = (item.body, item.item_type, item.parent_human);
             let holder = (parent != -1).then(|| self.humans.get(parent as usize)).flatten();
             if item.parent_item != -1 {
@@ -442,7 +512,7 @@ impl Sim {
     fn place_mounted_items(&mut self) {
         const CASH_SPREAD: f32 = 0.1875;
         const CASH_SCALE: f32 = 0.75;
-        const CASH_START: f32 = 0.2109375;
+        const CASH_START: f32 = 27.0 / 128.0;
         const BELOW: f32 = -0.0625;
         for id in self.items.ids() {
             let item = self.items.get(id).unwrap();
@@ -453,7 +523,7 @@ impl Sim {
             let Some(parent) = self.items.get(item.parent_item as usize) else { continue };
             let Some(body) = self.bodies.get(parent.body) else { continue };
             let (p, rot) = (body.pos, body.rot);
-            let [r0, r1, _] = rot;
+            let [r0, r1, r2] = rot;
             let pos = match parent.item_type {
                 ItemKind::Briefcase | ItemKind::BriefcaseOpen => {
                     if matches!(kind, ItemKind::CashRound | ItemKind::CashWorld) {
@@ -463,8 +533,11 @@ impl Sim {
                         p
                     }
                 }
-                // TODO: disks in a computer sit at the computer type's drive offset (item type 0x27 +0x11c8, +0x11cc)
-                ItemKind::Computer => p,
+                ItemKind::Computer => Vec3::new(
+                    (p.x + r1.x * DRIVE_DOWN) + r2.x * DRIVE_BACK,
+                    (r1.y * DRIVE_DOWN + p.y) + r2.y * DRIVE_BACK,
+                    (r1.z * DRIVE_DOWN + p.z) + r2.z * DRIVE_BACK,
+                ),
                 _ => Vec3::new(p.x + r1.x * BELOW, r1.y * BELOW + p.y, r1.z * BELOW + p.z),
             };
             let item = self.items.get_mut(id).unwrap();
@@ -495,8 +568,7 @@ impl Sim {
                 (-0.25 * r1.z + p.z) + 0.125 * r0.z,
             );
             item.pocket_pose = Some((pos, rot));
-            // TODO: a seated human's pocket keeps the vehicle's position as the previous position
-            item.pos2 = pelvis.pos;
+            item.pos2 = h.vehicle.and_then(|v| self.vehicles.get(v)).map_or(pelvis.pos, |v| v.pos);
             let vel = pelvis.vel;
             if let Some(body) = self.bodies.get_mut(item.body) {
                 body.vel = vel;
@@ -594,8 +666,8 @@ impl Sim {
         let bounds = self.item_types[item_type as usize].bounds;
         let Some(body) = self.bodies.get(body_id) else { return };
         let (pos, [r0, r1, r2]) = (body.pos, body.rot);
-        let map = &self.world.map;
         for i in 0..8 {
+            let map = &self.world.map;
             let q = i & 3;
             let sx = if q == 0 || q == 3 { -bounds.x } else { bounds.x };
             let sy = if i <= 3 { -bounds.y } else { bounds.y };
@@ -610,7 +682,9 @@ impl Sim {
             let offset = Vec3::new(hp.x - pos.x, hp.y - pos.y, hp.z - pos.z);
             let depth = (n.x * (hp.x - corner.x) + (hp.y - corner.y) * n.y) + (hp.z - corner.z) * n.z;
             self.bodies.add_world_contact(body_id, offset, n, depth, CONTACT_FRICTION, CONTACT_DEPTH_SCALE, CONTACT_SOFTNESS);
-            // TODO: spawn_item_from_grid_cell when the ray hits an item-set cell
+            if let Some(set) = h.set {
+                self.spawn_hit_set(set, h.block);
+            }
         }
     }
 
@@ -644,11 +718,16 @@ impl Sim {
                     (ItemState::Radio { transmitting, .. }, _) => ItemTail::Radio(*transmitting),
                     (_, ItemKind::CashWorld) => ItemTail::Cash { bills: 0, spread: 0, codes: 0 },
                     (_, ItemKind::Radio) => ItemTail::Radio(false),
-                    // TODO: the computer's cursor (item +0x370) once computers are ported
+                    (ItemState::Computer(c), _) => ItemTail::Computer(c.cursor & 0xfff),
                     (_, ItemKind::Computer) => ItemTail::Computer(0),
                     _ => ItemTail::None,
                 };
-                Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot, tail })
+                let screen = match &item.state {
+                    ItemState::Computer(c) => Some((c.current_line, c.top_line)),
+                    _ if item.item_type == ItemKind::Computer => Some((0, 0)),
+                    _ => None,
+                };
+                Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot, screen, tail })
             })
             .collect()
     }

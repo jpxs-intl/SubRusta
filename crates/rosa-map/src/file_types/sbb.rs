@@ -34,8 +34,11 @@ pub struct BuildingFileBot {
     pub waypoints: Vec<BuildingFileWaypoint>,
 }
 
+/// A building: from its own .sbb file, which has waypoints from version 14 (load_sbb), or from a city file, which
+/// always does (load_building_csx), the bots read only when they are switched on (load_building_waypoints).
 #[derive(BinRead, Debug, Clone)]
 #[brw(little)]
+#[br(import(from_csx: bool))]
 pub struct BuildingFile {
     pub version: u32,
     pub name: Char64,
@@ -64,11 +67,11 @@ pub struct BuildingFile {
     #[br(if(height > 0), count = height * (length + 1) * (width + 1))]
     pub tiles: Vec<BuildingFileTile>,
 
-    #[br(if(version > 13))]
+    #[br(if(from_csx || version > 13))]
     pub waypoints_enabled: u32,
-    #[br(if(version > 13))]
+    #[br(if((from_csx || version > 13) && waypoints_enabled == 1))]
     pub bot_count: u32,
-    #[br(if(version > 13), count = bot_count)]
+    #[br(if((from_csx || version > 13) && waypoints_enabled == 1), count = bot_count)]
     pub bots: Vec<BuildingFileBot>,
 }
 

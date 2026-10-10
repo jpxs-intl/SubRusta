@@ -10,12 +10,12 @@ use super::{
     inventory::{action_simulation, hand_grab_and_inventory, unlink_item},
     bones::BoneId,
     locomotion::{FOOT_FREE, FOOT_PLANTED, Surface, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint, update_locomotion_constraints},
-    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_world_contacts, find_nearby_vehicles, human_contacts, joint_limits, update_networked_bones, vehicle_contacts},
+    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_track_contacts, bone_world_contacts, find_nearby_vehicles, human_contacts, joint_limits, update_networked_bones, vehicle_contacts},
     seated::{ENTER_KEY, fall_out, simulate_seated, walk_simulation},
 };
 use crate::{sim::items::Touchables, world::map::Map};
 
-const TURN_STEP: f32 = 0.046875;
+const TURN_STEP: f32 = 3.0 / 64.0;
 const DESPAWN_TICKS: i32 = 3600;
 const DEAD_PLAYER_TICKS: i32 = 3480;
 
@@ -45,8 +45,8 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     }
     let v = h.unk_6adc;
     let len = (v.z * v.z + (v.y * v.y + v.x * v.x)).sqrt();
-    h.unk_6adc = if len > 0.0009765625 {
-        let k = 0.984375;
+    h.unk_6adc = if len > (1.0 / 1024.0) {
+        let k = 63.0 / 64.0;
         Vec3::new(v.x * k, v.y * k, k * v.z)
     } else {
         Vec3::ZERO
@@ -108,8 +108,8 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         let mut pitch = 0.0;
         if 0.0 > s {
             pitch = s * 3.0;
-            if -(std::f64::consts::PI / 2.0) > pitch as f64 {
-                pitch = -1.5707964;
+            if -90.0_f64.to_radians() > pitch as f64 {
+                pitch = -90.0_f32.to_radians();
             }
         }
         h.locomotion.feet[k].plant_pitch = pitch;
@@ -150,7 +150,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         h.old_health = -100;
     }
     if h.vehicle.is_none() {
-        // TODO: train track triangles come first in human_generate_world_item_self_contacts
+        bone_track_contacts(h, bodies, &map.level.area.track);
         bone_item_contacts(h, bodies, touch);
         human_contacts(h, bodies, others);
     }
@@ -204,7 +204,7 @@ fn drop_everything(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchabl
         let item_id = h.inventory[slot].items[0] as usize;
         let Some(body) = touch.items.get(item_id).map(|item| item.body) else { continue };
         let vel = h.bones[0].vel;
-        let s = calculate_spread_vector(noise_seed, 0.016666668, 0.0);
+        let s = calculate_spread_vector(noise_seed, 1.0 / 60.0, 0.0);
         if let Some(b) = bodies.get_mut(body) {
             b.vel = Vec3::new(vel.x + s.x, vel.y + s.y, vel.z + s.z);
         }
@@ -229,7 +229,6 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>, keep_bodies: bool) -
     } else if h.despawn_ticks < DEAD_PLAYER_TICKS
         && let Some(player) = h.player
     {
-        // TODO: versus releases at 3300 with its setting at 0x44f85618 on
         out.push(HumanOutput::ReleasePlayer(player));
         h.player = None;
         h.account = None;
@@ -249,35 +248,35 @@ fn despawn_timer(h: &mut Human, out: &mut Vec<HumanOutput>, keep_bodies: bool) -
 fn turn_towards_view(h: &mut Human) {
     let (a, b) = (h.client_body_yaw, h.body_yaw);
     let mut b2 = b;
-    if ((a - b) as f64) >= std::f64::consts::PI {
-        b2 = (b as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if ((a - b) as f64) >= 180.0_f64.to_radians() {
+        b2 = (b as f64 + 360.0_f64.to_radians()) as f32;
     }
     let mut d = b2 - a;
-    if (d as f64) >= std::f64::consts::PI {
-        d = b2 - (a as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if (d as f64) >= 180.0_f64.to_radians() {
+        d = b2 - (a as f64 + 360.0_f64.to_radians()) as f32;
     }
     let mut c = h.look_yaw;
-    if ((d - c) as f64) >= std::f64::consts::PI {
-        c = (c as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if ((d - c) as f64) >= 180.0_f64.to_radians() {
+        c = (c as f64 + 360.0_f64.to_radians()) as f32;
     }
     let mut e = c - d;
-    if (e as f64) >= std::f64::consts::PI {
-        e = c - (d as f64 + (std::f64::consts::PI * 2.0)) as f32;
+    if (e as f64) >= 180.0_f64.to_radians() {
+        e = c - (d as f64 + 360.0_f64.to_radians()) as f32;
     }
     h.view_turn = e;
     let step = e.clamp(-TURN_STEP, TURN_STEP);
     let (step, rest) = if h.is_standing { (step, e - step) } else { (0.0, e) };
-    h.yaw_offset = if -(std::f64::consts::PI / 2.0) > rest as f64 {
-        -1.5707964
-    } else if rest as f64 > (std::f64::consts::PI / 2.0) {
-        1.5707964
+    h.yaw_offset = if -90.0_f64.to_radians() > rest as f64 {
+        -90.0_f32.to_radians()
+    } else if rest as f64 > 90.0_f64.to_radians() {
+        90.0_f32.to_radians()
     } else {
         rest
     };
     let mut body = b + step;
     let mut yaw = h.view_yaw + step;
     yaw += h.locomotion.support_ang_vel.y;
-    let tiny = 1.5258789e-5;
+    let tiny = 1.0 / 65536.0;
     if tiny > yaw.abs() {
         yaw = 0.0;
         if tiny > body.abs() {
@@ -287,16 +286,16 @@ fn turn_towards_view(h: &mut Human) {
         if tiny > body.abs() {
             body = 0.0;
         }
-        if -std::f64::consts::PI > yaw as f64 {
-            yaw = (yaw as f64 + (std::f64::consts::PI * 2.0)) as f32;
-        } else if yaw as f64 > std::f64::consts::PI {
-            yaw = (yaw as f64 - (std::f64::consts::PI * 2.0)) as f32;
+        if -180.0_f64.to_radians() > yaw as f64 {
+            yaw = (yaw as f64 + 360.0_f64.to_radians()) as f32;
+        } else if yaw as f64 > 180.0_f64.to_radians() {
+            yaw = (yaw as f64 - 360.0_f64.to_radians()) as f32;
         }
     }
-    if -std::f64::consts::PI > body as f64 {
-        body = (body as f64 + (std::f64::consts::PI * 2.0)) as f32;
-    } else if body as f64 > std::f64::consts::PI {
-        body = (body as f64 - (std::f64::consts::PI * 2.0)) as f32;
+    if -180.0_f64.to_radians() > body as f64 {
+        body = (body as f64 + 360.0_f64.to_radians()) as f32;
+    } else if body as f64 > 180.0_f64.to_radians() {
+        body = (body as f64 - 360.0_f64.to_radians()) as f32;
     }
     h.view_yaw = yaw;
     h.body_yaw = body;
@@ -309,8 +308,8 @@ fn turn_towards_view(h: &mut Human) {
 fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
     let id = id as i32;
     let t = (id.wrapping_mul(id).wrapping_mul(id).wrapping_add(ticks as i32)) & 0x1ff;
-    let x = t as f32 * 0.001953125;
-    let s = ((x as f64 * (std::f64::consts::PI * 2.0)) as f32 as f64).sin();
+    let x = t as f32 * (1.0 / 512.0);
+    let s = ((x as f64 * 360.0_f64.to_radians()) as f32 as f64).sin();
     let hp = old_health as f32;
     let a = hp / 25.0;
     let mut r = (s * 0.25 * (base - a) as f64 + (a * 0.5 + 0.375) as f64) as f32;
@@ -327,7 +326,6 @@ fn weak_strength(id: usize, old_health: i32, ticks: u32, base: f32) -> f32 {
 /// - mortal and bleeding: health every 64 ticks, nothing else;
 /// - mortal: health every 32 ticks, parts every 64, blood every 256.
 fn health_sim(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
-    // TODO: game mode 6 and the owning player's flag (player +0x2d18) kill humans below 50 health here
     if h.is_immortal {
         if h.down_timer > 0 {
             h.down_timer -= 1;
@@ -403,7 +401,6 @@ fn parts(h: &mut Human) -> [&mut i32; 6] {
 }
 
 fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
-    // TODO: game mode 6 stops bleeding at random (1 in 512 ticks)
     let blood = h.blood_level;
     if blood <= 19 {
         let cap = blood * 2 + 10;

@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::thread::Builder::new().name("sim".into()).spawn(move || {
             let mut sim = Sim::new(in_rx, out_tx, map_name, config.gamemode, config.max_players);
             sim.set_admin_password(config.admin_password.clone());
+            sim.set_world_max_time(config.round_time as i32 * 60);
             sim.run()
         }).unwrap();
     }

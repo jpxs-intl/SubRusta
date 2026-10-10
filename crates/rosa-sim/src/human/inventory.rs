@@ -12,6 +12,12 @@ use crate::sim::items::{Touchables, attach_child, remove_link};
 const PICKUP_REACH: f32 = 1.5;
 const PICKUP_RADIUS: f32 = 0.5;
 const HAND_DROP_DISTANCE: f32 = 1.75;
+/// A computer in hand is let go farther than 1 from the 2 in front of the pelvis; a disk goes into a computer up to
+/// 0.5 from the 1.5 in front of the head.
+const COMPUTER_REACH: f32 = -2.0;
+const COMPUTER_HOLD: f32 = 1.0;
+const DISK_REACH: f32 = -1.5;
+const DISK_RADIUS: f32 = 0.5;
 
 /// point_segment_distance: how far `p` is from the segment `a`..`b`.
 pub fn point_segment_distance(a: Vec3, b: Vec3, p: Vec3) -> f32 {
@@ -128,7 +134,13 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             }
             break;
         }
-        // TODO: grabbing other humans, items and vehicles with an empty hand; disks, doors, ropes and computers in hand
+        if h.inventory[slot].count > 0 {
+            computer_and_disk(h, bodies, touch, slot);
+        }
+        if slot == 0 && h.input_flags & 1 == 0 && h.last_input_flags & 1 != 0 && h.inventory[0].count == 0 {
+            grab_item(h, touch);
+        }
+        // TODO: grabbing other humans and vehicles with an empty hand; doors and ropes in hand
         let released = h.input_flags & 1 == 0 && h.last_input_flags & 1 != 0;
         if !probed && released && h.inventory[slot].count == 0 && h.input_flags & 0x7c0 == 0 {
             probed = true;
@@ -164,6 +176,42 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
     if armed {
         h.spawn_protection = 0;
     }
+}
+
+/// A computer being used is let go once the human walks off from it; a disk is put into the computer ahead when the
+/// use key is let go.
+fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, slot: usize) {
+    let item_id = h.inventory[slot].items[0] as usize;
+    let Some(item) = touch.items.get(item_id) else { return };
+    let (kind, pos) = (item.item_type, item.pos2);
+    if kind == ItemKind::Computer {
+        let (p, [_, _, r2]) = (h.bones[0].pos, h.bones[0].rot);
+        let end = Vec3::new(r2.x * COMPUTER_REACH + p.x, r2.y * COMPUTER_REACH + p.y, COMPUTER_REACH * r2.z + p.z);
+        if point_segment_distance(p, end, pos) > COMPUTER_HOLD {
+            unlink_item(h, bodies, touch, item_id);
+        }
+        return;
+    }
+    if !kind.is_disk() || h.input_flags & 1 != 0 || h.last_input_flags & 1 == 0 {
+        return;
+    }
+    let (p, [_, _, r2]) = (h.bones[3].pos, h.bones[3].rot);
+    let end = Vec3::new(r2.x * DISK_REACH + p.x, r2.y * DISK_REACH + p.y, DISK_REACH * r2.z + p.z);
+    let mut best = DISK_RADIUS;
+    let mut found = None;
+    for (id, c) in touch.items.iter() {
+        if c.item_type != ItemKind::Computer || c.parent_human != -1 {
+            continue;
+        }
+        let d = point_segment_distance(p, end, c.pos2);
+        if best > d {
+            best = d;
+            found = Some(id);
+        }
+    }
+    let Some(computer) = found.filter(|&c| touch.items.get(c).is_some_and(|c| c.children.is_empty())) else { return };
+    unlink_item(h, bodies, touch, item_id);
+    attach_child(touch.items, touch.types, computer, item_id);
 }
 
 /// The hand swap key (input 0x2000): the right hand's item goes to the left hand and the left hand's to the right.
@@ -230,7 +278,7 @@ pub fn action_simulation(h: &mut Human, human_id: usize, bodies: &mut RigidBodie
             }
         }
         3 => pickup(h, human_id, bodies, touch, f),
-        // TODO: using a computer (4)
+        4 => use_computer(h, human_id, bodies, touch),
         _ => {}
     }
     h.actions_finished = (h.actions_finished + 1) & 7;
@@ -273,7 +321,7 @@ fn dismount(touch: &mut Touchables, item: usize) {
 /// a loaded gun. A loaded gun drops its old magazine at 87.5% and the loading starts over. Returns whether the
 /// action is finished.
 fn mount(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables, f: usize, out: &mut Vec<HumanOutput>) -> bool {
-    const STEP: f32 = 0.033_333_335;
+    const STEP: f32 = 1.0 / 30.0;
     const EJECT_AT: f32 = 0.875;
     const UNLOAD_PITCH: f32 = 0.875;
     let mut hand = h.actions[f].slot;
@@ -415,7 +463,7 @@ fn move_item(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &m
         h.actions[f].slot = hand;
         hand
     };
-    let progress = 0.06666667 + h.actions[f].progress;
+    let progress = (1.0 / 15.0) + h.actions[f].progress;
     h.actions[f].progress = progress;
     h.action_hand = hand;
     h.action_slot = pocket;
@@ -460,7 +508,7 @@ fn drop(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, f: usiz
         return true;
     }
     let tp = h.throw_pitch as f64;
-    if !(tp <= -0.196349540849375) && !(0.0981747704246875 <= tp) {
+    if !(tp <= -11.25_f64.to_radians()) && !(5.625_f64.to_radians() <= tp) {
         let s = &h.inventory[slot as usize];
         if s.count > 0 {
             let item = s.items[0] as usize;
@@ -468,14 +516,61 @@ fn drop(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, f: usiz
         }
         return true;
     }
-    h.throw_pitch = if -0.159_534_001_940_117_2 > tp {
-        (tp + 0.159_534_001_940_117_2) as f32
-    } else if tp <= 0.14726215563703127 {
+    h.throw_pitch = if -9.140625_f64.to_radians() > tp {
+        (tp + 9.140625_f64.to_radians()) as f32
+    } else if tp <= 8.4375_f64.to_radians() {
         0.0
     } else {
-        (tp - 0.14726215563703127) as f32
+        (tp - 8.4375_f64.to_radians()) as f32
     };
     false
+}
+
+/// The nearest free item within 0.5 of the line of sight (1.5 from the head) that `free` accepts.
+fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&crate::sim::items::Item) -> bool) -> Option<usize> {
+    let head = &h.bones[3];
+    let (p, r2) = (head.pos, head.rot[2]);
+    let end = Vec3::new(r2.x * -PICKUP_REACH + p.x, r2.y * -PICKUP_REACH + p.y, -PICKUP_REACH * r2.z + p.z);
+    let mut best = PICKUP_RADIUS;
+    let mut found = None;
+    for (id, item) in touch.items.iter() {
+        if !free(item) {
+            continue;
+        }
+        let d = point_segment_distance(p, end, item.pos2);
+        if best > d {
+            best = d;
+            found = Some(id);
+        }
+    }
+    found
+}
+
+/// The use key let go with the right hand empty: the item in sight (a disk taken out of its computer) is picked up,
+/// a computer used instead (action 4, queued for the right hand).
+fn grab_item(h: &mut Human, touch: &mut Touchables) {
+    let items = &*touch.items;
+    let free = |i: &crate::sim::items::Item| i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1);
+    let Some(item_id) = item_in_sight(h, touch, free) else { return };
+    let item = touch.items.get(item_id).unwrap();
+    let kind = item.item_type;
+    if let Some(parent) = usize::try_from(item.parent_item).ok().filter(|&p| touch.items.get(p).is_some_and(|p| p.item_type == ItemKind::Computer)) {
+        remove_link(touch.items, item_id, parent);
+    }
+    let q = h.actions_queued as usize;
+    h.actions[q] = QueuedAction { kind: if kind == ItemKind::Computer { 4 } else { 3 }, progress: 0.0, slot: 0, arg: 0 };
+    h.actions_queued = (h.actions_queued + 1) & 7;
+}
+
+/// Action 4: a computer in sight goes into the empty right hand to be used; nothing while seated.
+fn use_computer(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut Touchables) {
+    if h.vehicle.is_some() {
+        return;
+    }
+    let Some(item_id) = item_in_sight(h, touch, |i| i.parent_human == -1 && i.parent_item == -1) else { return };
+    if touch.items.get(item_id).is_some_and(|i| i.item_type == ItemKind::Computer) && h.inventory[0].count == 0 {
+        link_item_to_human(h, human_id, bodies, touch, item_id, 0);
+    }
 }
 
 /// Action 3: picks up the nearest free item along the line of sight, into the requested hand (3 picks one).
@@ -507,7 +602,7 @@ fn pickup(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut 
         return;
     };
     let kind = touch.items.get(item_id).unwrap().item_type;
-    if matches!(kind, ItemKind::Computer | ItemKind::Table | ItemKind::TableTest) {
+    if matches!(kind, ItemKind::Table | ItemKind::TableTest | ItemKind::Computer) {
         return;
     }
     let mut slot = h.actions[f].slot;

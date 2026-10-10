@@ -4,20 +4,10 @@ use rosa_protocol::{GameMode, Team, clientbound::game::events::chat::ChatType};
 use super::Sim;
 use crate::{PlayerId, human::damage::damage_human};
 
-/// The crime settings (crimecivciv=, crimecivteam=, ... in config.txt) at their defaults: the criminal rating a
-/// hundred points of damage earns, by who hurt whom.
-const CRIME_CIV_CIV: i32 = 100;
-const CRIME_CIV_TEAM: i32 = 200;
-const CRIME_TEAM_CIV: i32 = 50;
-const CRIME_TEAM_TEAM: i32 = 0;
-const CRIME_TEAM_TEAM_IN_BASE: i32 = 100;
-/// A rating this high kills the player's human (crimekick=).
-const CRIME_KICK: i32 = 1000;
 const MAX_CRIMINAL_RATING: i32 = 1023;
 /// The share of team damage turned back on the attacker in round and versus modes (both settings default to 50).
 /// The versus team damage share until its config is ported.
 pub(crate) const VERSUS_TEAM_DAMAGE: i32 = 50;
-const HEAD: usize = 3;
 /// The damage a run-over kill scores.
 const RUN_OVER_SCORE: i32 = 100;
 
@@ -26,9 +16,12 @@ impl Sim {
     /// (civilian or corporation, and whether the victim was in their own base), less the more criminal the victim
     /// already is. A player who reaches crimekick has their human killed.
     pub(crate) fn handle_criminal_rating(&mut self, attacker: PlayerId, victim: PlayerId, damage: i32) {
-        // TODO: bots are left out
+        let cfg = self.world_cfg;
         let (Some(a), Some(v)) = (self.players.get(attacker.idx()), self.players.get(victim.idx())) else { return };
         let (Some(attacker_human), Some(victim_human)) = (a.human, v.human) else { return };
+        if a.is_bot || v.is_bot {
+            return;
+        }
         if self.gamemode != GameMode::World {
             return;
         }
@@ -40,9 +33,9 @@ impl Sim {
             if last_vehicle != -1 && attacker.idx() as i32 == owner && owner != -1 {
                 return;
             }
-            if v.team == Team::Spectator { CRIME_CIV_CIV } else { CRIME_CIV_TEAM }
+            if v.team == Team::Spectator { cfg.crimecivciv } else { cfg.crimecivteam }
         } else if !(0..=5).contains(&a_team) {
-            CRIME_CIV_CIV
+            cfg.crimecivciv
         } else {
             if self.in_base(a_team, victim_pos) {
                 return;
@@ -51,11 +44,11 @@ impl Sim {
                 return;
             }
             if v.team == Team::Spectator {
-                CRIME_TEAM_CIV
+                cfg.crimeteamciv
             } else if (0..=5).contains(&v_team) && self.in_base(v_team, victim_pos) {
-                CRIME_TEAM_TEAM_IN_BASE
+                cfg.crimeteamteaminbase
             } else {
-                CRIME_TEAM_TEAM
+                cfg.crimeteamteam
             }
         };
         let mut k = rate as f32 / 100.0;
@@ -75,7 +68,7 @@ impl Sim {
         if a.crim_rating > MAX_CRIMINAL_RATING {
             a.crim_rating = MAX_CRIMINAL_RATING;
         }
-        if CRIME_KICK <= a.crim_rating
+        if cfg.crimekick <= a.crim_rating
             && let Some(h) = self.humans.get_mut(attacker_human)
         {
             h.old_health = 0;
@@ -113,7 +106,7 @@ impl Sim {
 
         let share = self.team_damage;
         if let Some(h) = p.human.and_then(|h| self.humans.get_mut(h)) {
-            damage_human(h, HEAD, damage * share / 100);
+            damage_human(h, crate::human::BoneId::Head, damage * share / 100);
         }
 
         let (update, round) = (p.make_update_player_event(self.tick), p.make_update_round_event(self.tick));

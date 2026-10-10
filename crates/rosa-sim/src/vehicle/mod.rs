@@ -5,7 +5,7 @@ pub mod physics;
 pub mod types;
 
 use glam::Vec3;
-use rosa_physics::{RigidBodies, RotMatrix, Table, body::RigidBodyType};
+use rosa_physics::{RigidBodies, RotMatrix, Table, body::RigidBodyType, bond::{Bond, ItemAngular, ItemPoint}};
 
 use types::VehicleType;
 
@@ -17,6 +17,9 @@ const WHEEL_HALF_WIDTH: f32 = 0.125;
 const WHEEL_HEALTH: i32 = 8;
 const ENGINE_POWER_SCALE: f32 = 213.0;
 const FULL_HEALTH: i32 = 100;
+/// A train's bogies: 80000 each, set 6 along and 1 (the front 1.25) below the chassis.
+const BOGIE_MASS: f32 = 80000.0;
+const BOGIE_INERTIA: Vec3 = Vec3::new(0.9375, 1.5, 0.9375);
 /// The control flags a vehicle starts with: the handbrake on.
 pub const HANDBRAKE: i32 = 4;
 
@@ -142,6 +145,16 @@ pub struct Vehicle {
     pub seats: Vec<Vec3>,
     // TODO: name once its readers are ported (+0x5164, -1 from spawn)
     pub unk_5164: i32,
+    /// A train's two bogies (+0x4fbc, 12 apart): each one's body and the angular bond turning it with the train.
+    pub bogies: Vec<(usize, usize)>,
+    /// The track piece a train's bogies last touched (+0x4fb0) and which train spawn it came from (+0x4fb8).
+    pub train_segment: i32,
+    pub train_index: i32,
+    /// Ticks a train has stood at its station (+0x4fac), its running direction (+0x4fb4, 1 reversed) and whether its
+    /// horn is sounding (+0x2808).
+    pub train_wait: i32,
+    pub train_reverse: i32,
+    pub horn: bool,
 }
 
 /// The chassis body's centre: the vehicle's position plus its centre of mass turned by `rot`.
@@ -159,8 +172,7 @@ fn body_centre(pos: Vec3, rot: &RotMatrix, com: Vec3) -> Vec3 {
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, types: &[VehicleType], kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: RotMatrix, vel: Option<Vec3>) -> Option<usize> {
     // TODO: the helicopter's rotor body (type 12: 160 at 1.5 up, coefs 4, 0.125, 4, a point bond at (0, 1.5, 0) and an
-    // angular bond); the train's two bogies (type 13: 80000 each, point bonds at (0, -1, -6) and (0, -1, 6) and
-    // angular bonds); the cage weights the record keeps; the per-connection update state
+    // angular bond); the cage weights the record keeps; the per-connection update state
     let t = types.get(kind as usize)?;
     let centre = body_centre(pos, &rot, t.center_of_mass);
     let body = bodies.create(RigidBodyType::Vehicle, centre, rot, vel, t.inertia, t.mass)?;
@@ -176,7 +188,7 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
                 ((r0.z * l.x + centre.z) + r1.z * l.y) + l.z * r2.z,
             );
             let r = w.radius;
-            let side = (r * r * 3.0 + 0.0625) * 0.083333336;
+            let side = (r * r * 3.0 + 0.0625) * (1.0 / 12.0);
             let inertia = Vec3::new(r * r * 0.5, side, side);
             let wheel_body = bodies.create(RigidBodyType::Wheel, world_pos, rot, vel, inertia, w.mass)?;
             Some(Wheel {
@@ -202,6 +214,20 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
             })
         })
         .collect();
+    let mut bogies = Vec::new();
+    if kind == rosa_protocol::clientbound::game::VehicleKind::Train {
+        let [_, r1, r2] = rot;
+        let ends = [
+            (Vec3::new((centre.x - r1.x) + r2.x * -6.0, r2.y * -6.0 + (centre.y - r1.y), -6.0 * r2.z + (centre.z - r1.z)), Vec3::new(0.0, -1.0, -6.0)),
+            (Vec3::new((-1.25 * r1.x + centre.x) + r2.x * 6.0, r2.y * 6.0 + (r1.y * -1.25 + centre.y), 6.0 * r2.z + (r1.z * -1.25 + centre.z)), Vec3::new(0.0, -1.0, 6.0)),
+        ];
+        for (at, anchor) in ends {
+            let bogie = bodies.create(RigidBodyType::Vehicle, at, rot, vel, BOGIE_INERTIA, BOGIE_MASS)?;
+            bodies.create_bond(Bond::ItemPoint(ItemPoint::vehicle(body, bogie, anchor, Vec3::ZERO)));
+            let turn = bodies.create_bond(Bond::ItemAngular(ItemAngular::vehicle(body, bogie)))?;
+            bogies.push((bogie, turn));
+        }
+    }
     let driven = if kind == rosa_protocol::clientbound::game::VehicleKind::Hatchback { vec![0, 1] } else { vec![2, 3] };
     let vel = vel.unwrap_or(Vec3::ZERO);
     vehicles.insert(Vehicle {
@@ -262,5 +288,11 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         wheelbase: t.wheelbase,
         seats: t.seats.clone(),
         unk_5164: -1,
+        bogies,
+        train_segment: 0,
+        train_index: 0,
+        train_wait: 0,
+        train_reverse: 0,
+        horn: false,
     })
 }
