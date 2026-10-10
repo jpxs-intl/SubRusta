@@ -4,7 +4,13 @@ use rosa_protocol::clientbound::game::MenuType;
 
 use rosa_protocol::clientbound::game::ItemKind;
 
-use super::{Sim, item_state::{BILL_VALUES, ItemState}, item_types::ItemType};
+use super::{
+    Sim,
+    item_state::{BILL_VALUES, ItemState},
+    item_types::ItemType,
+    items::touchables,
+};
+use crate::time::WORLD_HOUR;
 use crate::{
     PlayerId,
     vehicle::types::VehicleType,
@@ -18,7 +24,7 @@ const GUN_STORE_STOCK: [u8; 12] = [11, 12, 7, 8, 1, 2, 3, 4, 9, 10, 14, 13];
 const DEALERSHIP_SLOTS: usize = 8;
 const VEHICLE_COLORS: i32 = 6;
 /// The burger shop is stocked while the world clock is before closing time.
-const SHOPS_CLOSE: i32 = 0x3e9f3f;
+const SHOPS_CLOSE: i32 = 19 * WORLD_HOUR - 1;
 const BURGER_PRICE: i32 = 20;
 /// A player can buy 20 items from a gun store, or 10 burgers.
 const GUN_STORE_LIMIT: i32 = 19;
@@ -215,7 +221,9 @@ impl Sim {
                 }
             });
         } else {
-            let Some(cash) = self.items.get_mut(hand.items[0] as usize).filter(|i| i.item_type == ItemKind::CashWorld).and_then(|i| i.state.cash_mut()) else { return };
+            let Some(cash) = self.items.get_mut(hand.items[0] as usize).filter(|i| i.item_type == ItemKind::CashWorld).and_then(|i| i.state.cash_mut()) else {
+                return;
+            };
             if !cash.insert(0, code) {
                 return;
             }
@@ -251,17 +259,15 @@ impl Sim {
             return;
         }
         let Some(k) = usize::try_from(p.menu_tab).ok() else { return };
-        let money = p.money;
         let Some(b) = self.world.map.level.buildings.get_mut(k) else { return };
         let Some(e) = b.shop.get(button as usize - 1).copied() else { return };
-        if money < e.price {
+        if p.money < e.price {
             return;
         }
         let n = b.car_counter;
         let d = (-n) as f32 * 4.0;
         let r2 = b.rot[2];
-        let s = b.car_spawn;
-        let pos = r2 * d + s;
+        let pos = r2 * d + b.car_spawn;
         b.car_counter = (n + 1) & 7;
         let mut rot = b.rot;
         rotate_orientation(&mut rot, Vec3::Y, 90.0_f32.to_radians());
@@ -326,32 +332,30 @@ impl Sim {
 
     /// The item put into the first of `slots` of the human that takes it.
     fn link_first_free(&mut self, human: usize, item: usize, slots: std::ops::Range<usize>) {
-        let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
-        let Some(h) = humans.get_mut(human) else { return };
-        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
+        let Some(h) = self.humans.get_mut(human) else { return };
+        let mut touch = touchables!(self, Vec::new());
         for slot in slots {
-            if crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, item, slot) {
+            if crate::human::inventory::link_item_to_human(h, human, &mut self.bodies, &mut touch, item, slot) {
                 break;
             }
         }
     }
 
     /// An item at the human, set up by `init` and put into the first of `slots` that takes it. Returns the item.
-    pub(super) fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>, init: impl FnOnce(&mut super::item_state::ItemState)) -> Option<usize> {
+    pub(super) fn give_item(
+        &mut self,
+        human: usize,
+        kind: u8,
+        slots: std::ops::Range<usize>,
+        init: impl FnOnce(&mut super::item_state::ItemState),
+    ) -> Option<usize> {
         let kind = ItemKind::try_from(kind).ok()?;
         let pos = self.humans.get(human).map(|h| h.pos)?;
         let item = self.create_item(kind, pos, None, IDENTITY)?;
         if let Some(i) = self.items.get_mut(item) {
             init(&mut i.state);
         }
-        let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
-        let Some(h) = humans.get_mut(human) else { return Some(item) };
-        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
-        for slot in slots {
-            if crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, item, slot) {
-                break;
-            }
-        }
+        self.link_first_free(human, item, slots);
         Some(item)
     }
 
@@ -457,7 +461,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
 /// The gun stores' fixed stock.
 pub fn stock_gun_stores(buildings: &mut [BuildingRecord], item_types: &[ItemType]) {
     let stock: Vec<ShopEntry> = GUN_STORE_STOCK.iter().map(|&k| ShopEntry { kind: k as i32, price: item_types[k as usize].price, extra: 0 }).collect();
-    
+
     for b in buildings.iter_mut().filter(|b| b.kind == GUN_STORE) {
         b.shop = stock.clone();
     }

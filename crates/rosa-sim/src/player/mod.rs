@@ -1,8 +1,18 @@
-use rosa_protocol::{CharacterCustomization, Team, clientbound::game::{MenuButton, MenuType, events::{Event, ServerEvent, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound}}, serverbound::game::{ClientGamePacket, InputFlags}};
+use rosa_protocol::{
+    CharacterCustomization, Team,
+    clientbound::game::{
+        MenuButton, MenuType,
+        events::{Event, ServerEvent, update_player::EventUpdatePlayer, update_player_round::EventUpdatePlayerRound},
+    },
+    serverbound::game::{ClientGamePacket, InputFlags},
+};
 
 use glam::Vec3;
 
-use crate::{PlayerId, SimJoinMsg, player::{actions::ActionQueue, voice::PlayerVoice}};
+use crate::{
+    PlayerId, SimJoinMsg,
+    player::{actions::ActionQueue, voice::PlayerVoice},
+};
 
 pub mod actions;
 pub mod voice;
@@ -191,7 +201,7 @@ impl Player {
                 necklace: 0,
                 skin: avatar_info.skin_color,
                 suit_color: 0,
-                tie_color: 0
+                tie_color: 0,
             },
             camera_pos: Default::default(),
             view_yaw: 0.0,
@@ -313,8 +323,8 @@ impl Player {
                 human_id: self.human.map_or(-1, |h| h as i32),
                 is_bot: self.is_bot,
                 team: self.team,
-                name: self.username.clone()
-            })
+                name: self.username.clone(),
+            }),
         }
     }
 
@@ -325,8 +335,8 @@ impl Player {
                 client_id: self.player_id.0,
                 money: self.money,
                 phone_number: self.phone_number,
-                stocks: self.stocks
-            })
+                stocks: self.stocks,
+            }),
         }
     }
 }

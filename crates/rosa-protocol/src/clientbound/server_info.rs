@@ -1,4 +1,7 @@
-use crate::{GameMode, codec::{WireWrite, Writer}};
+use crate::{
+    GameMode,
+    codec::{WireWrite, Writer},
+};
 
 pub struct ServerInfo {
     pub server_name: String,
@@ -9,12 +12,12 @@ pub struct ServerInfo {
     pub gamemode: GameMode,
     pub address: [u8; 4],
     pub port: u16,
-    pub password_protected: bool
+    pub password_protected: bool,
 }
 
 impl WireWrite for ServerInfo {
     fn write(&self, w: &mut Writer) {
-        w.byte(0x01);
+        w.byte(1);
         w.byte(self.build);
         w.bytes(&self.timestamp.to_le_bytes());
 
@@ -31,7 +34,7 @@ impl WireWrite for ServerInfo {
         w.bytes(&self.port.to_le_bytes());
 
         w.bits(self.password_protected as i32, 1);
-        w.bits(0x04, 8);
-        w.bits(0x47, 8);
+        w.bits(4, 8);
+        w.bits(71, 8);
     }
 }

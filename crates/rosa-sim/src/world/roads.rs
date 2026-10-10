@@ -51,18 +51,16 @@ pub struct RoadNetwork {
 impl RoadNetwork {
     pub fn from_city(city: &rosa_map::file_types::sbc::CityFileSBC) -> Self {
         let inters: Vec<IVec3> = city.intersections.iter().map(|i| i.0.as_ivec3()).collect();
-        let streets: Vec<(usize, usize, i32, i32)> = city.streets.iter()
+        let streets: Vec<(usize, usize, i32, i32)> = city
+            .streets
+            .iter()
             .map(|s| (s.intersection_indices[0] as usize, s.intersection_indices[1] as usize, s.left_lane as i32, s.right_lane as i32))
             .collect();
         Self::build(&inters, &streets)
     }
 
     pub fn intersection_fields(&self) -> Vec<(IVec3, [i32; 4], [i32; 4])> {
-        self.intersections.iter().map(|it| (
-            it.pos,
-            [it.ext_px, it.ext_pz, it.ext_nx, it.ext_nz],
-            it.streets.map(|s| s.map_or(-1, |s| s as i32)),
-        )).collect()
+        self.intersections.iter().map(|it| (it.pos, [it.ext_px, it.ext_pz, it.ext_nx, it.ext_nz], it.streets.map(|s| s.map_or(-1, |s| s as i32)))).collect()
     }
 
     /// Each street's two intersections and its left and right lane counts, in city file order.
@@ -71,10 +69,8 @@ impl RoadNetwork {
     }
 
     pub fn build(city_inters: &[IVec3], city_streets: &[(usize, usize, i32, i32)]) -> Self {
-        let mut intersections: Vec<Intersection> = city_inters
-            .iter()
-            .map(|&p| Intersection { pos: IVec3::new(p.x, p.y - 1, p.z), ..Default::default() })
-            .collect();
+        let mut intersections: Vec<Intersection> =
+            city_inters.iter().map(|&p| Intersection { pos: IVec3::new(p.x, p.y - 1, p.z), ..Default::default() }).collect();
 
         let mut streets = Vec::with_capacity(city_streets.len());
         for (si, &(i0, i1, left, right)) in city_streets.iter().enumerate() {
@@ -113,10 +109,9 @@ impl RoadNetwork {
 
     pub fn bounds(&self) -> Option<(i32, i32, i32, i32)> {
         let first = self.intersections.first()?;
-        Some(self.intersections.iter().fold(
-            (first.pos.x, first.pos.x, first.pos.z, first.pos.z),
-            |(a, b, c, d), it| (a.min(it.pos.x), b.max(it.pos.x), c.min(it.pos.z), d.max(it.pos.z)),
-        ))
+        Some(self.intersections.iter().fold((first.pos.x, first.pos.x, first.pos.z, first.pos.z), |(a, b, c, d), it| {
+            (a.min(it.pos.x), b.max(it.pos.x), c.min(it.pos.z), d.max(it.pos.z))
+        }))
     }
 
     pub fn city_block(&self, id: usize) -> Option<CityBlock> {

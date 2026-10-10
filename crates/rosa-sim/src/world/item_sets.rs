@@ -56,7 +56,15 @@ fn entry(kind: ItemKind, x: f32, y: f32) -> SetEntry {
 
 /// The table with three boxes stacked either side.
 fn table_set() -> ItemSet {
-    let entries = [(ItemKind::Table, 0.0, 0.75), (ItemKind::Box, 0.5, 1.5), (ItemKind::Box, 0.5, 2.0), (ItemKind::Box, 0.5, 2.5), (ItemKind::Box, -0.5, 1.5), (ItemKind::Box, -0.5, 2.0), (ItemKind::Box, -0.5, 2.5)];
+    let entries = [
+        (ItemKind::Table, 0.0, 0.75),
+        (ItemKind::Box, 0.5, 1.5),
+        (ItemKind::Box, 0.5, 2.0),
+        (ItemKind::Box, 0.5, 2.5),
+        (ItemKind::Box, -0.5, 1.5),
+        (ItemKind::Box, -0.5, 2.0),
+        (ItemKind::Box, -0.5, 2.5),
+    ];
     ItemSet { name: String::new(), entries: entries.iter().map(|&(k, x, y)| entry(k, x, y)).collect() }
 }
 

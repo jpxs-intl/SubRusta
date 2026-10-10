@@ -4,7 +4,7 @@ use crate::codec::WireRead;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerAddress {
-    pub addr: SocketAddr
+    pub addr: SocketAddr,
 }
 
 impl WireRead for ServerAddress {
@@ -15,8 +15,6 @@ impl WireRead for ServerAddress {
         let fourth = r.u8()?;
         let port = r.u16()?;
 
-        Ok(Self {
-            addr: SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(fourth, third, second, first)), port)
-        })
+        Ok(Self { addr: SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(fourth, third, second, first)), port) })
     }
 }

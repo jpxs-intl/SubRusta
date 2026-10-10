@@ -6,7 +6,7 @@ use rosa_math::vector::{IntVector, Vector};
 pub struct BlockSurfaceVertex {
     pub pos: Vector,
     #[br(count = 2)]
-    pub tex_coord: Vec<f32>
+    pub tex_coord: Vec<f32>,
 }
 
 #[derive(BinRead, Debug, Clone)]
@@ -18,7 +18,7 @@ pub struct BlockSurface {
     pub texture: u32,
     pub project_texture: u32,
 
-    pub vertex_data: [[BlockSurfaceVertex; 4]; 4]
+    pub vertex_data: [[BlockSurfaceVertex; 4]; 4],
 }
 
 #[derive(BinRead, Debug, Clone)]
@@ -27,7 +27,7 @@ pub struct BlockBox {
     pub pos: Vec<Vector>,
     #[br(count = 6)]
     pub texture: Vec<u32>,
-    pub side_flag: u32
+    pub side_flag: u32,
 }
 
 #[derive(BinRead, Debug, Clone)]
@@ -48,5 +48,5 @@ pub struct BlockFile {
 
     pub box_count: u32,
     #[br(count = box_count)]
-    pub boxes: Vec<BlockBox>
+    pub boxes: Vec<BlockBox>,
 }

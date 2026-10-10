@@ -266,11 +266,7 @@ pub struct PortalGroups {
 
 impl PortalGroups {
     pub fn load(dir: &std::path::Path, names: &[String]) -> Self {
-        let groups = names
-            .iter()
-            .take(64)
-            .map(|name| std::fs::read(dir.join(format!("{name}.sbl"))).map(|b| Self::parse(&b)).unwrap_or_default())
-            .collect();
+        let groups = names.iter().take(64).map(|name| std::fs::read(dir.join(format!("{name}.sbl"))).map(|b| Self::parse(&b)).unwrap_or_default()).collect();
         Self { groups, empty: Portal::default() }
     }
 

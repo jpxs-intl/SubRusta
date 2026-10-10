@@ -5,13 +5,14 @@ use rosa_protocol::{
     clientbound::game::{GameState, ItemKind, MenuType, events::chat::ChatType},
 };
 
-use super::{Sim, item_state::ItemState};
+use super::{Sim, item_state::ItemState, items::touchables};
 use crate::PlayerId;
+use crate::time::TICKS_PER_MINUTE;
 
 /// The round corporations: Goldmen, Monsota and OXS.
 const ROUND_CORPS: usize = 3;
 /// The intermission starts at 7200 ticks; spawning begins below 5400, where the round is set up.
-pub const ROUND_MAX_TIME: i32 = 7200;
+pub const ROUND_MAX_TIME: i32 = 2 * TICKS_PER_MINUTE;
 const ROUND_START: i32 = 5400;
 /// With nobody on a team the intermission timer rests at 6900.
 const IDLE_TIME: i32 = 6900;
@@ -102,7 +103,7 @@ impl VersusConfig {
 
         if let Ok(text) = std::fs::read_to_string(path) {
             let num = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).and_then(|v| v.trim().parse::<i32>().ok());
-            
+
             c.movedelay = num("movedelay=").unwrap_or(c.movedelay);
         }
 
@@ -224,9 +225,8 @@ impl Sim {
         if self.game_timer > ROUND_START - 1 {
             return;
         }
-        let all_driving = self.players.iter().all(|(_, p)| {
-            round_corp(p.team).is_none() || p.human.and_then(|h| self.humans.get(h)).is_none_or(|h| h.vehicle.is_some())
-        });
+        let all_driving =
+            self.players.iter().all(|(_, p)| round_corp(p.team).is_none() || p.human.and_then(|h| self.humans.get(h)).is_none_or(|h| h.vehicle.is_some()));
         if all_driving {
             self.game_timer -= 7;
         }
@@ -267,7 +267,17 @@ impl Sim {
         for k in 0..ROUND_CORPS {
             if let Some(v) = self.corporation_spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::TownCar, k, 0) {
                 let map = &self.world.map;
-                let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, 0, 0, 0, 0.0);
+                let car = crate::traffic::spawn::create_traffic_car(
+                    &mut self.traffic,
+                    map,
+                    &self.vehicle_types,
+                    rosa_protocol::clientbound::game::VehicleKind::TownCar,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0.0,
+                );
                 self.traffic.cars[car].is_bot = 0;
                 self.traffic.cars[car].vehicle = v as i32;
                 if let Some(veh) = self.vehicles.get_mut(v) {
@@ -711,10 +721,9 @@ impl Sim {
     }
 
     pub(crate) fn link_to_slot(&mut self, human: usize, item: usize, slot: usize) {
-        let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
-        let Some(h) = humans.get_mut(human) else { return };
-        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
-        crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, item, slot);
+        let Some(h) = self.humans.get_mut(human) else { return };
+        let mut touch = touchables!(self, Vec::new());
+        crate::human::inventory::link_item_to_human(h, human, &mut self.bodies, &mut touch, item, slot);
     }
 
     /// The lobby buttons (menu 2) in a round's intermission: 1 to 3 join a corporation (not one that fired the

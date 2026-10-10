@@ -3,21 +3,19 @@ use rosa_protocol::{Team, clientbound::game::ItemKind};
 
 use super::{Sim, item_state::ItemState};
 use crate::computer::links::{ITEM_SLOTS, KIND_MEMO, Link};
+use crate::time::{WORLD_HOUR, WORLD_MINUTE};
 
 /// A memo holds up to 1023 characters (item +0x368), sent in 64 character blocks.
-pub const MEMO_LEN: usize = 0x400;
+pub const MEMO_LEN: usize = 1024;
 const BLOCK: usize = 64;
 /// The newspaper is made of readme.txt's lines (124 characters each, up to 1021) and the 10 richest accounts.
-const LINE_LEN: usize = 0x7c;
-const MAX_LINES: usize = 0x3fd;
-const NEWSPAPER_LEN: usize = 0x3fd;
+const LINE_LEN: usize = 124;
+const MAX_LINES: usize = 1021;
+const NEWSPAPER_LEN: usize = 1021;
 const TOP: usize = 10;
-/// The world clock: an hour is 216000, a minute 3600; noon is 0x278d00.
-const HOUR: i32 = 0x34bc0;
-const MINUTE: i32 = 0xe10;
-const NOON: i32 = 0x278cff;
+const NOON: i32 = 12 * WORLD_HOUR - 1;
 const MEMO_BACK: f32 = -0.5;
-const KEEP: i32 = 0x10000;
+const KEEP: i32 = 65536;
 
 /// sprintf_comma: the amount with thousands separated by commas.
 pub fn with_commas(n: i32) -> String {
@@ -34,8 +32,8 @@ pub fn with_commas(n: i32) -> String {
 
 /// The time of day the clock shows, as hour (1 to 12), minute and whether it is afternoon.
 pub fn clock_time(t: i32) -> (i32, i32, bool) {
-    let h = (t / HOUR) % 12;
-    (if h == 0 { 12 } else { h }, (t / MINUTE) % 60, t > NOON)
+    let h = (t / WORLD_HOUR) % 12;
+    (if h == 0 { 12 } else { h }, (t / WORLD_MINUTE) % 60, t > NOON)
 }
 
 impl Sim {
@@ -123,14 +121,12 @@ impl Sim {
         let (h, m, pm) = clock_time(self.world_time);
         let mut memo = format!("\n{} Internal Memo\n{}:{:02} {}\n\n", Team::CORPORATION_NAMES[k], h, m, if pm { "PM" } else { "AM" }).into_bytes();
         memo.extend_from_slice(&text[..text.iter().position(|&c| c == 0).unwrap_or(text.len())]);
-        memo.truncate(0x7ff);
+        memo.truncate(2047);
         let base = &self.world.map.level.bases[k];
         let mut rot = IDENTITY;
         let axis = rot[1];
         rotate_orientation(&mut rot, axis, (base.table_orientation as f64 - 90.0_f64.to_radians()) as f32);
-        let t = base.table;
-        let r0 = rot[0];
-        let pos = r0 * MEMO_BACK + t;
+        let pos = rot[0] * MEMO_BACK + base.table;
         let Some(id) = self.create_item(ItemKind::Paper, pos, None, rot) else { return };
         self.write_memo(id, &memo);
         if let Some(i) = self.items.get_mut(id) {

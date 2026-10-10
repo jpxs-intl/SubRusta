@@ -1,4 +1,4 @@
-use crate::codec::{Reader, WireRead, };
+use crate::codec::{Reader, WireRead};
 
 pub mod server_addr;
 
@@ -20,12 +20,6 @@ impl WireRead for AuthPacket {
 
         let name = reader.string(32)?;
 
-        Ok(AuthPacket {
-            account_id,
-            phone_number,
-            steam_id,
-            auth_ticket,
-            player_name: name
-        })
+        Ok(AuthPacket { account_id, phone_number, steam_id, auth_ticket, player_name: name })
     }
 }

@@ -36,7 +36,8 @@ const ARC: f32 = 114.75;
 const SPAWN_SOUTH: f32 = 270.0_f32.to_radians();
 const SPAWN_EAST: f32 = 90.0_f32.to_radians();
 /// The curved ramps: a 32 by 64 slab, then 21 pieces bending a quarter turn a piece around 64 radius.
-const RAMP_CORNERS: [Vec3; 4] = [Vec3::new(3056.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1248.0), Vec3::new(3056.0, 24.0625, 1248.0)];
+const RAMP_CORNERS: [Vec3; 4] =
+    [Vec3::new(3056.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1184.0), Vec3::new(3088.0, 24.0625, 1248.0), Vec3::new(3056.0, 24.0625, 1248.0)];
 const RAMP_PIECES: i32 = 21;
 const RAMP_TURN: f64 = 45.0_f64.to_radians();
 const RAMP_RADIUS: f32 = 64.0;
@@ -268,12 +269,7 @@ impl Track {
             let d = dir(t);
             let quad = match side_of(d) {
                 None => [p, 0.0 + p, p + 0.0, p],
-                Some(sd) => [
-                    BED_OUTER * sd + p,
-                    sd + sd + p,
-                    p + sd,
-                    BED_INNER * sd + p,
-                ],
+                Some(sd) => [BED_OUTER * sd + p, sd + sd + p, p + sd, BED_INNER * sd + p],
             };
             m.verts.extend([quad[0], quad[1], Vec3::new(quad[2].x, quad[2].y - BED_DROP, quad[2].z), Vec3::new(quad[3].x, quad[3].y - BED_DROP, quad[3].z)]);
             t += RING_STEP;
@@ -298,7 +294,16 @@ impl Track {
         m.pieces[2] = m.tris.len() as i32;
         let walls = (0..15).flat_map(|k| {
             let d = 64 + 4 * k;
-            [[d, d + 4, d + 5], [d, d + 5, d + 1], [d + 3, d + 7, d + 4], [d + 3, d + 4, d], [d + 1, d + 5, d + 6], [d + 1, d + 6, d + 2], [d + 2, d + 6, d + 7], [d + 2, d + 7, d + 3]]
+            [
+                [d, d + 4, d + 5],
+                [d, d + 5, d + 1],
+                [d + 3, d + 7, d + 4],
+                [d + 3, d + 4, d],
+                [d + 1, d + 5, d + 6],
+                [d + 1, d + 6, d + 2],
+                [d + 2, d + 6, d + 7],
+                [d + 2, d + 7, d + 3],
+            ]
         });
         m.tris.extend(walls);
         m.pieces[6] = m.tris.len() as i32;

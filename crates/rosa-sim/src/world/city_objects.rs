@@ -33,9 +33,7 @@ impl CityObjectType {
     /// cityobject_add_box: a box of `size` around `centre`.
     fn add_box(&mut self, centre: Vec3, size: Vec3) {
         let base = self.verts.len();
-        self.verts.extend(CUBE_CORNERS.iter().map(|c| {
-            (c - 0.5) * size + centre
-        }));
+        self.verts.extend(CUBE_CORNERS.iter().map(|c| (c - 0.5) * size + centre));
         self.quads.extend(CUBE_FACES.iter().map(|f| f.map(|i| i + base)));
     }
 }

@@ -252,7 +252,6 @@ impl Sim {
     fn round_fire(&mut self, pid: PlayerId, human: Buyer, target: i32) {
         let Some(p) = self.players.get(pid.idx()) else { return };
         let Some(k) = team_index(p.team) else { return };
-        let team = p.team;
         if self.corp_state[k].manager != Some(pid) {
             return;
         }
@@ -262,7 +261,7 @@ impl Sim {
         }
         let tid = PlayerId(target as u32);
         let Some(t) = self.players.get(tid.idx()) else { return };
-        if t.team != team {
+        if t.team != p.team {
             return;
         }
         self.corp_state[k].fired.push(t.account_id);
@@ -330,11 +329,10 @@ impl Sim {
             for &id in &slot.items[..slot.count.max(0) as usize] {
                 let Some(item) = self.items.get_mut(id as usize) else { continue };
                 let ty = &self.item_types[item.item_type as usize];
-                let kind = item.item_type;
-                if !(ty.is_gun || ty.magazine_ammo > 0 || matches!(kind, ItemKind::Key | ItemKind::Grenade | ItemKind::Bandage)) {
+                if !(ty.is_gun || ty.magazine_ammo > 0 || matches!(item.item_type, ItemKind::Key | ItemKind::Grenade | ItemKind::Bandage)) {
                     continue;
                 }
-                
+
                 item.despawn_time = 0;
 
                 if let Some(&child) = item.children.first() {

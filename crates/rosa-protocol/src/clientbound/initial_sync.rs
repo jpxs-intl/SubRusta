@@ -14,7 +14,7 @@ pub struct InitialSync {
 
 impl WireWrite for InitialSync {
     fn write(&self, w: &mut crate::codec::Writer) {
-        w.byte(0x06);
+        w.byte(6);
         w.u32(self.round_number);
         w.bits(self.gamemode as i32, 4);
         w.bits(self.weekly_enabled as i32, 4);

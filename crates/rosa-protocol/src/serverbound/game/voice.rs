@@ -15,14 +15,7 @@ pub struct VoiceFrame {
 }
 
 pub fn decode_voice_data(reader: &mut Reader) -> Result<VoiceData, CodecError> {
-    let mut frames = core::array::from_fn(|_| {
-        VoiceFrame {
-            index: 0,
-            size: 0,
-            volume: 0,
-            data: Vec::new()
-        }
-    });
+    let mut frames = core::array::from_fn(|_| VoiceFrame { index: 0, size: 0, volume: 0, data: Vec::new() });
 
     for frame in &mut frames {
         frame.index = reader.bits(6)? as u8;
@@ -34,8 +27,5 @@ pub fn decode_voice_data(reader: &mut Reader) -> Result<VoiceData, CodecError> {
 
     let is_silenced = reader.bits(1)? != 0;
 
-    Ok(VoiceData {
-        frames,
-        is_silenced
-    })
+    Ok(VoiceData { frames, is_silenced })
 }

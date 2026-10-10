@@ -36,7 +36,28 @@ pub struct ItemType {
 
 impl ItemType {
     fn new(name: &str, price: i32, mass: f32, can_collide: bool, bounds: Vec3) -> Self {
-        Self { name: name.to_string(), price, mass, can_collide, bounds, inv_inertia: inverse_inertia(bounds), hull: None, is_gun: false, mirrored_aim: 0, hands: 0, magazine_ammo: 0, pockets: [0; 5], hold_pos: [Vec3::ZERO; 2], hold_rot: [[0.0; 4]; 2], fire_rate: 0, bullet_type: 0, bullet_velocity: 0.0, bullet_spread: 0.0, can_mount_to: [0; ItemKind::COUNT], gun_hold_pos: Vec3::ZERO }
+        Self {
+            name: name.to_string(),
+            price,
+            mass,
+            can_collide,
+            bounds,
+            inv_inertia: inverse_inertia(bounds),
+            hull: None,
+            is_gun: false,
+            mirrored_aim: 0,
+            hands: 0,
+            magazine_ammo: 0,
+            pockets: [0; 5],
+            hold_pos: [Vec3::ZERO; 2],
+            hold_rot: [[0.0; 4]; 2],
+            fire_rate: 0,
+            bullet_type: 0,
+            bullet_velocity: 0.0,
+            bullet_spread: 0.0,
+            can_mount_to: [0; ItemKind::COUNT],
+            gun_hold_pos: Vec3::ZERO,
+        }
     }
 }
 
@@ -132,12 +153,12 @@ pub fn item_types() -> Vec<ItemType> {
     for (t, ammo) in types.iter_mut().zip(MAGAZINE_AMMO) {
         t.magazine_ammo = ammo;
     }
-    for (k, t) in types.iter_mut().enumerate() {
-        t.fire_rate = FIRE_RATE[k];
-        t.bullet_type = BULLET_TYPE[k];
-        t.bullet_velocity = BULLET_VELOCITY[k];
-        t.bullet_spread = BULLET_SPREAD[k];
-        t.gun_hold_pos = GUN_HOLD_POS[k];
+    for (kind, fire_rate, bullet_type, bullet_velocity, bullet_spread) in GUNS {
+        let t = &mut types[kind as usize];
+        (t.fire_rate, t.bullet_type, t.bullet_velocity, t.bullet_spread) = (fire_rate, bullet_type, bullet_velocity, bullet_spread);
+    }
+    for (t, hold) in types.iter_mut().zip(GUN_HOLD_POS) {
+        t.gun_hold_pos = hold;
     }
     for (kind, onto) in MOUNTS {
         for &o in onto {
@@ -183,17 +204,24 @@ pub fn item_types() -> Vec<ItemType> {
             Err(e) => eprintln!("[Items] could not load {}: {e}", path.display()),
         }
     }
-    
+
     types
 }
 
 /// The item types whose collision hull comes from an .it3 mesh (load_it3_file).
-const IT3_MESHES: [(ItemKind, &str); 4] = [(ItemKind::Computer, "computer.it3"), (ItemKind::Arcade, "computer.it3"), (ItemKind::TableTest, "tabletest2.it3"), (ItemKind::Wall, "cubewall.it3")];
+const IT3_MESHES: [(ItemKind, &str); 4] =
+    [(ItemKind::Computer, "computer.it3"), (ItemKind::Arcade, "computer.it3"), (ItemKind::TableTest, "tabletest2.it3"), (ItemKind::Wall, "cubewall.it3")];
 
-const FIRE_RATE: [i32; ItemKind::COUNT] = [6, 8, 0, 7, 0, 30, 0, 5, 0, 6, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-const BULLET_TYPE: [i32; ItemKind::COUNT] = [2, 0, 0, 1, 0, 3, 0, 2, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-const BULLET_VELOCITY: [f32; ItemKind::COUNT] = [20.0 / 3.0, 32.0 / 3.0, 0.0, 44.0 / 3.0, 0.0, 23.0 / 3.0, 0.0, 20.0 / 3.0, 0.0, 20.0 / 3.0, 0.0, 20.0 / 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-const BULLET_SPREAD: [f32; ItemKind::COUNT] = [1.0 / 12.0, 1.0 / 12.0, 0.0, 0.05, 0.0, 1.0 / 30.0, 0.0, 1.0 / 30.0, 0.0, 0.05, 0.0, 1.0 / 30.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+/// Each gun's ticks between shots, bullet type, muzzle velocity and spread.
+const GUNS: [(ItemKind, i32, i32, f32, f32); 7] = [
+    (ItemKind::Auto5, 6, 2, 20.0 / 3.0, 1.0 / 12.0),
+    (ItemKind::Ak47, 8, 0, 32.0 / 3.0, 1.0 / 12.0),
+    (ItemKind::M16, 7, 1, 44.0 / 3.0, 0.05),
+    (ItemKind::Magnum, 30, 3, 23.0 / 3.0, 1.0 / 30.0),
+    (ItemKind::Mp5, 5, 2, 20.0 / 3.0, 1.0 / 30.0),
+    (ItemKind::Uzi, 6, 2, 20.0 / 3.0, 0.05),
+    (ItemKind::Pistol, 30, 2, 20.0 / 3.0, 1.0 / 30.0),
+];
 const GUN_HOLD_POS: [Vec3; ItemKind::COUNT] = {
     let mut p = [Vec3::ZERO; ItemKind::COUNT];
     p[ItemKind::Ak47 as usize] = Vec3::new(0.0, -0.0625, 0.375);
@@ -219,9 +247,8 @@ const MOUNTS: [(ItemKind, &[ItemKind]); 14] = [
     (ItemKind::DiskRed, &[ItemKind::BriefcaseOpen, ItemKind::Computer]),
 ];
 
-const MAGAZINE_AMMO: [i32; ItemKind::COUNT] = [
-    300, 0, 30, 0, 30, 0, 6, 0, 30, 0, 30, 0, 12, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
+const MAGAZINE_AMMO: [i32; ItemKind::COUNT] =
+    [300, 0, 30, 0, 30, 0, 6, 0, 30, 0, 30, 0, 12, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 const POCKETS: [[i32; 5]; ItemKind::COUNT] = [
     [0, 0, 0, 0, 0],
@@ -278,16 +305,46 @@ const POCKETS: [[i32; 5]; ItemKind::COUNT] = [
 fn hold_data() -> [(i32, i32, i32, [Vec3; 2], [[f32; 4]; 2]); ItemKind::COUNT] {
     let v = Vec3::new;
     [
-        (1, 0, 2, [v(1.237418e-9, -0.06208252, 0.03192755), v(-4.274715e-9, -0.017045714, -0.09417537)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]]),
-        (1, 0, 2, [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]]),
+        (
+            1,
+            0,
+            2,
+            [v(1.237418e-9, -0.06208252, 0.03192755), v(-4.274715e-9, -0.017045714, -0.09417537)],
+            [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]],
+        ),
+        (
+            1,
+            0,
+            2,
+            [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)],
+            [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]],
+        ),
         (0, 0, 0, [v(0.0, 0.0, 0.0), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),
-        (1, 0, 2, [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]]),
+        (
+            1,
+            0,
+            2,
+            [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)],
+            [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]],
+        ),
         (0, 0, 0, [v(0.0, -0.0625, -0.09375), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),
         (1, 1, 0, [v(0.0, -0.125, 0.0625), v(0.0, 0.0, 0.0)], [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]),
         (0, 0, 0, [v(0.0, 0.0, 0.0), v(0.0, 0.0, 0.0)], [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]),
-        (1, 0, 2, [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]]),
+        (
+            1,
+            0,
+            2,
+            [v(0.0, -0.09375, 0.0625), v(0.0, -0.0625, -0.125)],
+            [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]],
+        ),
         (0, 0, 0, [v(0.0, -0.0625, -0.09375), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),
-        (1, 0, 2, [v(1.237418e-9, -0.06208252, 0.03192755), v(-4.274715e-9, -0.017045714, -0.09417537)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]]),
+        (
+            1,
+            0,
+            2,
+            [v(1.237418e-9, -0.06208252, 0.03192755), v(-4.274715e-9, -0.017045714, -0.09417537)],
+            [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.99999994, 0.0, 0.0, 90.0_f32.to_radians()]],
+        ),
         (0, 0, 0, [v(0.0, 0.0, 0.0), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),
         (1, 1, 1, [v(0.0, -0.0625, -0.03125), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),
         (0, 0, 0, [v(0.0, 0.0, 0.0), v(0.0, 0.0, 0.0)], [[0.99999994, 0.0, 0.0, 90.0_f32.to_radians()], [0.0, 0.0, 0.0, 0.0]]),

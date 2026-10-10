@@ -56,7 +56,7 @@ pub struct EventSound {
     pub sound_type: Sound,
     pub pos: Vector,
     pub volume: f32,
-    pub pitch: f32
+    pub pitch: f32,
 }
 
 impl WireWrite for EventSound {

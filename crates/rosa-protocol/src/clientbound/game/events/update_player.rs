@@ -8,7 +8,7 @@ pub struct EventUpdatePlayer {
     pub active: bool,
     pub is_bot: bool,
     pub human_id: i32,
-    pub name: String
+    pub name: String,
 }
 
 impl WireWrite for EventUpdatePlayer {

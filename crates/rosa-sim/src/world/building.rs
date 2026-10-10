@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
 use glam::{IVec3, Vec3};
+use rosa_map::file_types::{
+    csx::CityFileCSX,
+    sbb::{BuildingFile, BuildingFileTile},
+};
 use rosa_physics::{
     RotMatrix,
     rotation::{IDENTITY, rotate_orientation},
 };
 use rosa_protocol::{Team, clientbound::game::ItemKind};
-use rosa_map::file_types::{
-    csx::CityFileCSX,
-    sbb::{BuildingFile, BuildingFileTile},
-};
 
 use crate::world::{
     area::{AreaGrid, BlockDims, CUBE, FOOTPRINT, MESH, TYPE_MASK},
@@ -125,7 +125,12 @@ impl BuildingRecord {
     /// is_in_building: whether `pos` is inside the box, grown by `margin`.
     pub fn contains(&self, pos: Vec3, margin: f32) -> bool {
         let (a, b) = (self.interior_min, self.interior_max);
-        !(pos.x < a.x - margin) && !(b.x + margin <= pos.x) && !(pos.y < a.y - margin) && !(b.y + margin <= pos.y) && !(pos.z < a.z - margin) && margin + b.z > pos.z
+        !(pos.x < a.x - margin)
+            && !(b.x + margin <= pos.x)
+            && !(pos.y < a.y - margin)
+            && !(b.y + margin <= pos.y)
+            && !(pos.z < a.z - margin)
+            && margin + b.z > pos.z
     }
 }
 
@@ -326,8 +331,7 @@ impl<'a> Buildings<'a> {
             if n == 4 {
                 let axis = m[1];
                 rotate_orientation(&mut m, axis, 180.0_f32.to_radians());
-                let r2 = m[2];
-                p += r2 * CAR_ROW_GAP;
+                p += m[2] * CAR_ROW_GAP;
             } else if n != CAR_SPACES {
                 let r0 = m[0];
                 p += r0 * CAR_STEP;
@@ -345,7 +349,6 @@ impl<'a> Buildings<'a> {
             b.spawn = Vec3::new((a.x + bb.x) * 0.5, (a.y + VERSUS_SPAWN_LIFT) + VERSUS_SPAWN_LIFT2, (a.z + bb.z) * 0.5);
         }
     }
-
 
     fn setup(&self, b: &BuildingFile) -> Vec<Tile> {
         let mut special = [0u32; 1024];
@@ -373,11 +376,7 @@ impl<'a> Buildings<'a> {
             }
         }
         let resolve = |v: u32| {
-            if v & TYPE_MASK == MESH {
-                ((v >> 24) & 3).wrapping_add(special[(v & 1023) as usize] | MESH)
-            } else {
-                v
-            }
+            if v & TYPE_MASK == MESH { ((v >> 24) & 3).wrapping_add(special[(v & 1023) as usize] | MESH) } else { v }
         };
         b.tiles
             .iter()
@@ -390,11 +389,7 @@ impl<'a> Buildings<'a> {
                 floor: t.floor,
                 top: 0,
                 faces: t.texture_indices.iter().enumerate().fold(0, |m, (i, &w)| if w & 32768 == 0 { m | 1 << i } else { m }),
-                item_set: if t.item_set == 0 {
-                    0
-                } else {
-                    (t.item_set & (3 << 24)) | isets[(t.item_set & 1023) as usize] | (1 << 30)
-                },
+                item_set: if t.item_set == 0 { 0 } else { (t.item_set & (3 << 24)) | isets[(t.item_set & 1023) as usize] | (1 << 30) },
             })
             .collect()
     }
@@ -459,10 +454,7 @@ impl<'a> Buildings<'a> {
     }
 
     fn is_animated(&self, id: u32) -> bool {
-        self.custom_names
-            .iter()
-            .position(|n| *n == "garagedoor")
-            .is_some_and(|k| (BlockTable::custom(k)..BlockTable::custom(k) + 4).contains(&id))
+        self.custom_names.iter().position(|n| *n == "garagedoor").is_some_and(|k| (BlockTable::custom(k)..BlockTable::custom(k) + 4).contains(&id))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -523,13 +515,7 @@ impl<'a> Buildings<'a> {
                     if v == 65535 {
                         let zp = self.rt(x, z + 1, y);
                         let xp = self.rt(x + 1, z, y);
-                        let mut key = (zp.edge_x << 8)
-                            | t.edge_x
-                            | (t.floor << 16)
-                            | (t.top << 17)
-                            | (xp.edge_z << 4)
-                            | (t.edge_z << 12)
-                            | (t.build << 18);
+                        let mut key = (zp.edge_x << 8) | t.edge_x | (t.floor << 16) | (t.top << 17) | (xp.edge_z << 4) | (t.edge_z << 12) | (t.build << 18);
 
                         if t.edge_x == 0 {
                             if t.edge_z == 0 && (is_p(self.rt(x - 1, z, y).edge_x) || is_p(self.rt(x, z - 1, y).edge_z)) {
@@ -577,7 +563,7 @@ impl<'a> Buildings<'a> {
                         if id >= garage[0] && id <= garage[3] {
                             let dir = (id.wrapping_sub(garage[0]) + 2) & 3;
                             let mut second = p;
-                            
+
                             match dir {
                                 0 | 2 => second.x = p.x + 1,
                                 _ => second.z = p.z + 1,

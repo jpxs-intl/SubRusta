@@ -1,21 +1,19 @@
 use glam::Vec3;
-use rosa_protocol::clientbound::game::VehicleKind;
 use rosa_physics::{
     RigidBodies, RigidBody, RotMatrix, Table,
     bond::Bond,
     rotation::{multiply_matrixes, quaternion_to_rotation_vector, rot_matrix_to_quaternion, rotate_vector_about_axis},
 };
+use rosa_protocol::clientbound::game::VehicleKind;
 use rosa_protocol::clientbound::game::events::sound::Sound;
 
 use super::{Vehicle, types::VehicleType};
-use crate::{
-    world::{
-        capsule::{capsule_intersect_triangle, capsule_intersect_triangle_facing},
-        collide::{calculate_face_normal, point_in_triangle_oriented, segment_intersect_face},
-        map::Map,
-        sphere::{segment_intersect_plane_two_sided, segment_intersect_sphere, sphere_intersect_level},
-        trace::line_intersect_level,
-    },
+use crate::world::{
+    capsule::{capsule_intersect_triangle, capsule_intersect_triangle_facing},
+    collide::{calculate_face_normal, point_in_triangle_oriented, segment_intersect_face},
+    map::Map,
+    sphere::{segment_intersect_plane_two_sided, segment_intersect_sphere, sphere_intersect_level},
+    trace::line_intersect_level,
 };
 
 const WATER_LEVEL: f32 = 23.0;
@@ -26,12 +24,12 @@ const UNCONTROLLED: i32 = -1;
 const CLUTCH_HELD: i32 = 2;
 const HANDBRAKE: i32 = 4;
 const HUGE: f32 = 65536.0;
-const TICKS_PER_SECOND: f32 = 60.0;
+const TICKS_PER_SECOND: f32 = crate::time::TICKS_PER_SECOND as f32;
 const BLOCK_SCALE: f32 = 0.25;
 const DAMAGE_SPEED: f32 = 7.0 / 60.0;
 const CRASH_SPEED: f32 = 1.0 / 30.0;
 const SHIFT_DELAY: i32 = 30;
-const MAX_RPM: i32 = 0x1fff;
+const MAX_RPM: i32 = 8191;
 const TINY: f32 = 1.0 / 65536.0;
 const QUARTER_TURN: f64 = 90.0_f64.to_radians();
 const FULL_TURN: f64 = 360.0_f64.to_radians();
@@ -67,8 +65,7 @@ pub fn update_vehicle_bounds(v: &mut Vehicle, bodies: &RigidBodies, types: &[Veh
         v.prev_rot = v.rot;
         let c = t.centroid_offset;
         let [r0, r1, r2] = b.rot;
-        let p = b.pos;
-        v.pos = c.x * r0 + p + c.y * r1 + c.z * r2;
+        v.pos = c.x * r0 + b.pos + c.y * r1 + c.z * r2;
         v.rot = b.rot;
         v.vel = b.vel;
         v.ang_vel = b.ang_vel;
@@ -385,7 +382,16 @@ fn sweep_chassis(map: &mut Map, bodies: &mut RigidBodies, v: &Vehicle, t: &Vehic
         let end = side + r2 * p.z;
         let m = &map.level;
         let Some(hit) = line_intersect_level(&map.ground, &m.area, &m.meshes, pos, end) else { continue };
-        let hole = crate::world::capsule::CapsuleHit { pos: hit.hit.pos, normal: hit.hit.normal, dist: 0.0, area: hit.area, block: hit.block, cell: hit.cell, face_attr: hit.face_attr, set: hit.set };
+        let hole = crate::world::capsule::CapsuleHit {
+            pos: hit.hit.pos,
+            normal: hit.hit.normal,
+            dist: 0.0,
+            area: hit.area,
+            block: hit.block,
+            cell: hit.cell,
+            face_attr: hit.face_attr,
+            set: hit.set,
+        };
         let broke = crate::human::physics::add_bullet_hole(map, hole, end, v.vel, &mut glass);
         if hit.set.is_some() {
             continue;
@@ -685,7 +691,13 @@ fn update_helicopter(v: &mut Vehicle, bodies: &mut RigidBodies, driven: bool) {
 
 /// vehicleSimulation: crashes and drag, then for each vehicle its drivetrain, wheels and the chassis against the
 /// level. `driven` holds the vehicles with someone in the driver's seat.
-pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, map: &mut Map, types: &[VehicleType], driven: &[usize]) -> (Vec<VehicleOutput>, Vec<crate::human::physics::HumanOutput>) {
+pub fn vehicle_simulation(
+    vehicles: &mut Table<Vehicle>,
+    bodies: &mut RigidBodies,
+    map: &mut Map,
+    types: &[VehicleType],
+    driven: &[usize],
+) -> (Vec<VehicleOutput>, Vec<crate::human::physics::HumanOutput>) {
     let mut out = Vec::new();
     let mut glass = Vec::new();
     for (id, v) in vehicles.iter_mut() {
@@ -757,8 +769,7 @@ pub fn step_wheel_constraints(vehicles: &mut Table<Vehicle>, bodies: &mut Table<
                 axle = rotate_vector_about_axis(axle, r1, v.wheels[k].steer);
             }
             let wr = wb.rot[0];
-            let ww = wb.ang_vel;
-            let dw = cw - ww;
+            let dw = cw - wb.ang_vel;
             let p = -dw.dot(axle);
             let perp = p * axle + dw;
             let min_i = wb.min_inertia;
@@ -768,13 +779,11 @@ pub fn step_wheel_constraints(vehicles: &mut Table<Vehicle>, bodies: &mut Table<
             let mut wang = wb.ang_impulse;
             wang = Vec3::new(share * tx + wang.x, share * ty + wang.y, share * tz + wang.z);
             cang = Vec3::new(tx * f + cang.x, ty * f + cang.y, tz * f + cang.z);
-            let body = v.body;
-            let wbody = w.body;
-            if let Some(wb) = bodies.get_mut(wbody) {
+            if let Some(wb) = bodies.get_mut(w.body) {
                 wb.impulse = wimp;
                 wb.ang_impulse = wang;
             }
-            if let Some(c) = bodies.get_mut(body) {
+            if let Some(c) = bodies.get_mut(v.body) {
                 c.impulse = cimp;
                 c.ang_impulse = cang;
             }

@@ -58,7 +58,7 @@ fn edge(p: Vec3, v0: Vec3, v1: Vec3, n: Vec3) -> f32 {
     let cx = e.z * py - e.y * pz;
     let cy = pz * e.x - e.z * px;
     let cz = e.y * px - e.x * py;
-    
+
     cx * n.x + cy * n.y + cz * n.z
 }
 

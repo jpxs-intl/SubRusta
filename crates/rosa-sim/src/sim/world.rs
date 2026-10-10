@@ -7,15 +7,16 @@ use rosa_protocol::{
 
 use super::{Sim, economy::CORPORATIONS};
 use crate::PlayerId;
+use crate::time::WORLD_HOUR;
 
-/// The world clock starts each day at 1728000 and moves 10 a tick; the day's missions are handed out at 1728060, the
-/// corporations' memos and manager pay every 54000 until 0x3807bf, and the day ends past 0x3e9f3f.
-const CLOCK_START: i32 = 1728000;
+/// The world clock starts each day at 8 AM and moves 10 a tick; the day's missions are handed out a world second later,
+/// the corporations' memos and manager pay every quarter hour until 5 PM, and the day ends past 7 PM.
+const CLOCK_START: i32 = 8 * WORLD_HOUR;
 const CLOCK_RATE: i32 = 10;
-const MISSIONS_AT: i32 = 0x1a5e3c;
-const DAY_STEP: i32 = 54000;
-const LAST_DAY_STEP: i32 = 0x3807bf;
-const DAY_END: i32 = 0x3e9f3f;
+const MISSIONS_AT: i32 = CLOCK_START + 60;
+const DAY_STEP: i32 = WORLD_HOUR / 4;
+const LAST_DAY_STEP: i32 = 17 * WORLD_HOUR - 1;
+const DAY_END: i32 = 19 * WORLD_HOUR - 1;
 const SAVE_PERIOD: i32 = 18000;
 /// A mission disk's despawn time while its mission is active.
 const KEEP_DESPAWN: i32 = 65535;
@@ -132,7 +133,8 @@ impl WorldConfig {
     /// Reads config_world.txt, writing the defaults there first when there is no such file.
     pub fn load(path: &std::path::Path) -> Self {
         let mut c = WorldConfig::default();
-        if !path.exists() && let Err(e) = std::fs::write(path, c.to_text())
+        if !path.exists()
+            && let Err(e) = std::fs::write(path, c.to_text())
         {
             eprintln!("[World] could not write {}: {e}", path.display());
         }
@@ -275,7 +277,9 @@ impl Sim {
             let mut rot = rosa_physics::rotation::IDENTITY;
             rosa_physics::rotation::rotate_orientation(&mut rot, Vec3::Y, angle);
             let pos = Vec3::new(p.x, p.y + TRAIN_LIFT, p.z);
-            if let Some(v) = self.spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::Train, TRAIN_COLOR, pos, rot).and_then(|id| self.vehicles.get_mut(id)) {
+            if let Some(v) =
+                self.spawn_vehicle(rosa_protocol::clientbound::game::VehicleKind::Train, TRAIN_COLOR, pos, rot).and_then(|id| self.vehicles.get_mut(id))
+            {
                 v.train_index = i as i32;
             }
         }
@@ -384,7 +388,9 @@ impl Sim {
 
     fn release_bot_human(&mut self, h: usize) {
         let Some(hu) = self.humans.get(h) else { return };
-        if let Some(c) = hu.vehicle.and_then(|v| self.vehicles.get(v)).and_then(|v| usize::try_from(v.traffic_car).ok()).and_then(|t| self.traffic.cars.get_mut(t)) {
+        if let Some(c) =
+            hu.vehicle.and_then(|v| self.vehicles.get(v)).and_then(|v| usize::try_from(v.traffic_car).ok()).and_then(|t| self.traffic.cars.get_mut(t))
+        {
             c.is_bot = crate::traffic::DRIVEN;
             c.is_aggressive = 0;
         }
@@ -417,7 +423,8 @@ impl Sim {
         if !map.streets.streets.is_empty() {
             crate::traffic::spawn::create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, self.world_cfg.traffic);
         }
-        let labs: Vec<usize> = self.world.map.level.buildings.iter().enumerate().filter(|(_, b)| b.kind == crate::world::building::LAB).map(|(i, _)| i).collect();
+        let labs: Vec<usize> =
+            self.world.map.level.buildings.iter().enumerate().filter(|(_, b)| b.kind == crate::world::building::LAB).map(|(i, _)| i).collect();
         for building in labs {
             self.spawn_building_patrol_npcs(building, LAB_GUARD);
         }

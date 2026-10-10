@@ -7,6 +7,7 @@ use super::{Human, InventorySlot, QueuedAction};
 use rosa_protocol::clientbound::game::events::sound::Sound;
 
 use super::physics::HumanOutput;
+use crate::input::{DROP_ITEM, ITEM_SECONDARY, ITEM_USE, LEFT_MOUSE, MODE_KEYS, RELOAD, SHIFT, SWITCH_HANDS};
 use crate::sim::items::{Touchables, attach_child, remove_link};
 
 const PICKUP_REACH: f32 = 1.5;
@@ -131,12 +132,12 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
         if h.inventory[slot].count > 0 {
             computer_and_disk(h, bodies, touch, slot);
         }
-        if slot == 0 && h.input_flags & 1 == 0 && h.last_input_flags & 1 != 0 && h.inventory[0].count == 0 {
+        if slot == 0 && h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0 && h.inventory[0].count == 0 {
             grab_item(h, touch);
         }
         // TODO: grabbing other humans and vehicles with an empty hand; doors and ropes in hand
-        let released = h.input_flags & 1 == 0 && h.last_input_flags & 1 != 0;
-        if !probed && released && h.inventory[slot].count == 0 && h.input_flags & 0x7c0 == 0 {
+        let released = h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0;
+        if !probed && released && h.inventory[slot].count == 0 && h.input_flags & MODE_KEYS == 0 {
             probed = true;
             let (head, [_, _, ahead]) = (h.bones[3].pos, h.bones[3].rot);
             let end = ahead * -2.5 + head;
@@ -146,16 +147,16 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             && let Some(item) = touch.items.get_mut(h.inventory[slot].items[0] as usize)
         {
             let input = h.input_flags;
-            let this_hand = input & 1 != 0 && (input & 0x10 != 0) == (slot == 1);
-            let mode_key = input & 0x7c0 != 0;
-            if input & 0x1000 != 0 {
-                item.input_flags |= 2;
-            } else if !mode_key && this_hand && input & 0x20 == 0 {
-                item.input_flags |= 1;
+            let this_hand = input & LEFT_MOUSE != 0 && (input & SHIFT != 0) == (slot == 1);
+            let mode_key = input & MODE_KEYS != 0;
+            if input & RELOAD != 0 {
+                item.input_flags |= ITEM_SECONDARY;
+            } else if !mode_key && this_hand && input & DROP_ITEM == 0 {
+                item.input_flags |= ITEM_USE;
             }
         }
     }
-    if h.input_flags & 0x2000 != 0 && h.last_input_flags & 0x2000 == 0 {
+    if h.input_flags & SWITCH_HANDS != 0 && h.last_input_flags & SWITCH_HANDS == 0 {
         swap_hands(h, human_id, bodies, touch);
     }
     let mut armed = false;
@@ -186,7 +187,7 @@ fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Toucha
         }
         return;
     }
-    if !kind.is_disk() || h.input_flags & 1 != 0 || h.last_input_flags & 1 == 0 {
+    if !kind.is_disk() || h.input_flags & LEFT_MOUSE != 0 || h.last_input_flags & LEFT_MOUSE == 0 {
         return;
     }
     let (p, [_, _, r2]) = (h.bones[3].pos, h.bones[3].rot);
@@ -330,10 +331,18 @@ fn mount(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut T
                 }
             }
             (None, Some(_)) => {
-                if loaded(h, touch, 1) { 0 } else { -1 }
+                if loaded(h, touch, 1) {
+                    0
+                } else {
+                    -1
+                }
             }
             (Some(_), None) => {
-                if loaded(h, touch, 0) { 1 } else { -1 }
+                if loaded(h, touch, 0) {
+                    1
+                } else {
+                    -1
+                }
             }
             (None, None) => 1,
         };
@@ -433,8 +442,8 @@ fn move_item(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &m
         let mut hand = 1;
         let s = &h.inventory[(pocket + 2) as usize];
         if s.count > 0 {
-            let kind = touch.items.get(s.items[0] as usize).map_or(0, |i| i.item_type as i32);
-            let magazine = touch.types[kind as usize].magazine_ammo > 0 && (kind - 0xd) as u32 > 1;
+            let kind = touch.items.get(s.items[0] as usize).map_or(ItemKind::Auto5, |i| i.item_type);
+            let magazine = touch.types[kind as usize].magazine_ammo > 0 && !matches!(kind, ItemKind::Grenade | ItemKind::Bandage);
             hand = (magazine as i32) ^ 1;
         }
         if h.inventory[hand as usize].count == 0 {
@@ -470,12 +479,12 @@ fn move_item(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &m
     if held.count > 0 {
         let item = held.items[0] as usize;
         let kind = touch.items.get(item).map_or(0, |i| i.item_type as usize);
-        if touch.types[kind].pockets[pocket as usize] != 0 && item <= 0x3ff {
+        if touch.types[kind].pockets[pocket as usize] != 0 && item <= 1023 {
             link_item_to_human(h, human_id, bodies, touch, item, (pocket + 2) as usize);
         }
     } else if held.count == 0 {
         let s = h.inventory[(pocket + 2) as usize];
-        if s.count > 0 && s.items[0] <= 0x3ff {
+        if s.count > 0 && s.items[0] <= 1023 {
             link_item_to_human(h, human_id, bodies, touch, s.items[0] as usize, hand as usize);
         }
     }
@@ -542,7 +551,9 @@ fn item_in_sight(h: &Human, touch: &Touchables, free: impl Fn(&crate::sim::items
 /// a computer used instead (action 4, queued for the right hand).
 fn grab_item(h: &mut Human, touch: &mut Touchables) {
     let items = &*touch.items;
-    let free = |i: &crate::sim::items::Item| i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1);
+    let free = |i: &crate::sim::items::Item| {
+        i.parent_human == -1 && usize::try_from(i.parent_item).ok().and_then(|p| items.get(p)).is_none_or(|p| p.parent_human == -1)
+    };
     let Some(item_id) = item_in_sight(h, touch, free) else { return };
     let item = touch.items.get(item_id).unwrap();
     let kind = item.item_type;
@@ -601,7 +612,7 @@ fn pickup(h: &mut Human, human_id: usize, bodies: &mut RigidBodies, touch: &mut 
     if slot == 3 {
         let t = &touch.types[kind as usize];
         slot = (t.magazine_ammo > 0 && !t.is_gun) as i32;
-        if (kind as u32) <= 0x24 && (0x10_0201_e000u64 >> kind as u32) & 1 != 0 {
+        if matches!(kind, ItemKind::Grenade | ItemKind::Bandage | ItemKind::Briefcase | ItemKind::BriefcaseOpen | ItemKind::Phone | ItemKind::Rope) {
             slot = 0;
         }
         if h.inventory[slot as usize].count > 0 {

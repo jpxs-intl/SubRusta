@@ -4,9 +4,16 @@ use rosa_physics::{
     RigidBodies, RotMatrix,
     rotation::{IDENTITY, rot_matrix_to_quaternion},
 };
-use rosa_protocol::{GameMode, clientbound::game::{ItemKind, OwnHumanData, ServerHumanObject, events::{Event, ServerEvent, bullet_hit::EventBulletHit, sound::EventSound, bullet_hole::EventBulletHole}}};
+use rosa_protocol::{
+    GameMode,
+    clientbound::game::{
+        ItemKind, OwnHumanData, ServerHumanObject,
+        events::{Event, ServerEvent, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, sound::EventSound},
+    },
+};
 
-use super::{Sim, economy, items::Touchables};
+use super::{Sim, economy, items::touchables};
+use crate::time::TICKS_PER_SECOND;
 use crate::{
     PlayerId,
     human::{
@@ -18,8 +25,6 @@ use crate::{
     },
 };
 
-/// The versus start delay is configured in seconds.
-const TICKS_PER_SECOND: i32 = 60;
 pub const HUMAN_SLOTS: usize = crate::human::MAX_HUMANS;
 pub const OBJECT_SLOTS: usize = 1024;
 
@@ -111,13 +116,14 @@ impl Sim {
         }
         let map = &mut self.world.map;
         let mut out = Vec::new();
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
+        let mut touch = touchables!(self, occupied_seats(&self.humans));
         let mut deleted = Vec::new();
         let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
         for id in self.humans.ids() {
             let others = later_humans(&self.humans, id);
             let h = self.humans.get_mut(id).unwrap();
-            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed, keep_bodies) {
+            if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed, keep_bodies)
+            {
                 deleted.push(id);
             }
         }
@@ -169,7 +175,7 @@ impl Sim {
     pub fn simulate_human_at(&mut self, id: usize, ticks: u32, noise_seed: &mut i32) -> HumanTick {
         let map = &mut self.world.map;
         let mut out = Vec::new();
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
+        let mut touch = touchables!(self, occupied_seats(&self.humans));
         let others = later_humans(&self.humans, id);
         let Some(h) = self.humans.get_mut(id) else { return HumanTick::Keep };
         let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
@@ -180,7 +186,7 @@ impl Sim {
 
     pub fn calculate_arm_angles_at(&mut self, id: usize, noise_seed: &mut i32) {
         let map = &self.world.map;
-        let touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
+        let touch = touchables!(self, occupied_seats(&self.humans));
         let Some(h) = self.humans.get_mut(id) else { return };
         crate::human::arms::calculate_arm_angles(h, &mut self.bodies, map, &touch, noise_seed);
     }
@@ -189,7 +195,7 @@ impl Sim {
     /// binary's per-player update counter), and its bonds and bodies removed.
     pub(crate) fn delete_human(&mut self, id: usize) {
         let Some(mut h) = self.humans.remove(id) else { return };
-        let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
+        let mut touch = touchables!(self, occupied_seats(&self.humans));
         for slot in 0..h.inventory.len() {
             while h.inventory[slot].count > 0 {
                 let item = h.inventory[slot].items[h.inventory[slot].count as usize - 1] as usize;
@@ -217,7 +223,12 @@ impl Sim {
     pub(crate) fn kill_human_for(&mut self, player_id: PlayerId) {
         let Some(player) = self.players.get(player_id.idx()) else { return };
         let eye = player.camera_pos.0;
-        let target = self.humans.iter().filter(|(_, h)| h.old_health > 0).min_by(|(_, a), (_, b)| (a.pos - eye).length().total_cmp(&(b.pos - eye).length())).map(|(id, _)| id);
+        let target = self
+            .humans
+            .iter()
+            .filter(|(_, h)| h.old_health > 0)
+            .min_by(|(_, a), (_, b)| (a.pos - eye).length().total_cmp(&(b.pos - eye).length()))
+            .map(|(id, _)| id);
         let Some(id) = target else { return println!("[Sim] No living human to kill") };
         if let Some(h) = self.humans.get_mut(id) {
             h.old_health = 0;

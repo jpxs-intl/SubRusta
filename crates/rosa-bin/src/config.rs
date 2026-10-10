@@ -35,7 +35,7 @@ impl Default for ConfigMain {
             round_time: 300, // 5 minutes
             voice_chat: false,
             voice_min: 1000, // Default to 1 second
-            voice_boost: 0, // No boost by default
+            voice_boost: 0,  // No boost by default
             help: true,
             manual_hands: false,
         }

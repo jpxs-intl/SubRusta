@@ -1,11 +1,14 @@
-use glam::Vec3;
 use crate::{
     sim::{item_types::ItemType, items::Touchables},
     world::{capsule::segment_closest_points, map::Map, trace::line_intersect_level},
 };
+use glam::Vec3;
 use rosa_physics::{
     Bond, ItemAngular, ItemPoint, RigidBodies, RotMatrix,
-    rotation::{IDENTITY, multiply_matrixes, quaternion_multiply, quaternion_to_axis_angle, quaternion_to_rot_matrix, rot_matrix_to_quaternion, rotate_orientation, rotate_vector_about_axis},
+    rotation::{
+        IDENTITY, multiply_matrixes, quaternion_multiply, quaternion_to_axis_angle, quaternion_to_rot_matrix, rot_matrix_to_quaternion, rotate_orientation,
+        rotate_vector_about_axis,
+    },
 };
 
 use super::{
@@ -13,15 +16,12 @@ use super::{
     bones::BONES,
     ik::{IkParams, three_bone_ik},
 };
+use crate::input::{CROUCH, DROP_ITEM, LEFT_MOUSE, RIGHT_MOUSE};
+use rosa_protocol::clientbound::game::ItemKind;
 
 /// A seated human's empty hands reach straight ahead: the arm length turned a quarter turn, as the binary stores it.
 /// This is possibly a decomp artifact
 const SEATED_REACH_Y: f64 = 2.868559968872221e-08;
-/// The item types with their own hold pose.
-const BRIEFCASE: u32 = 0xf;
-const PHONE: u32 = 0x19;
-const RADIO: u32 = 0x1a;
-const COMPUTER: u32 = 0x27;
 
 fn hash_noise(n: i32) -> f32 {
     let h = (n << 13) ^ n;
@@ -158,7 +158,7 @@ fn add_turn(pose: [f32; 4], frame: &mut RotMatrix, row: usize, angle: f32) -> [f
 /// human_calculate_arm_angles: turns the waist, chest and head towards where the human looks and drives the arms
 /// (through the arm IK) towards their pose.
 pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, touch: &Touchables, seed: &mut i32) {
-    if h.action_type != 0 && h.input_flags & 0x20 != 0 {
+    if h.action_type != 0 && h.input_flags & DROP_ITEM != 0 {
         h.throw_pitch = 8.0 * h.free_look_pitch;
     }
     let mut arm_hp = [1.0f32; 2];
@@ -180,7 +180,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
     };
     let has_gun = hand_type(0).is_some_and(|t| t.is_gun) || hand_type(1).is_some_and(|t| t.is_gun);
     let mut aim = if h.movement_mode == 2 { 45.0_f32.to_radians() } else { 22.5_f32.to_radians() };
-    if h.input_flags & 2 != 0 || !has_gun {
+    if h.input_flags & RIGHT_MOUSE != 0 || !has_gun {
         aim = 0.0;
     }
     if hand_type(0).is_some_and(|t| t.mirrored_aim != 0) {
@@ -189,7 +189,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
 
     let (vehicle_yaw, vehicle_pitch) = if h.vehicle.is_some() { (0.0 + h.look_yaw, 0.0 + h.look_pitch) } else { (0.0f32, 0.0f32) };
     let body_yaw = if h.vehicle.is_some() { (aim + vehicle_yaw) * 0.5 } else { (((vehicle_yaw + h.free_look_yaw * 0.5) + h.yaw_offset) + aim) * 0.5 };
-    let aiming = h.input_flags & 0x20 != 0;
+    let aiming = h.input_flags & DROP_ITEM != 0;
 
     let identity = [0.0, 0.0, 0.0, 1.0];
     let mut frames = [IDENTITY; 3];
@@ -267,10 +267,10 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
             Some((m, v)) => 0.0625 * m[1] + v - BONES[first].joint,
             None => Vec3::new(if k == 0 { -0.0625 } else { 0.0625 }, y, z),
         };
-        if k == 1 && h.inventory[0].count <= 0 && h.inventory[1].count <= 0 && h.input_flags & 3 == 3 {
+        if k == 1 && h.inventory[0].count <= 0 && h.inventory[1].count <= 0 && h.input_flags & (LEFT_MOUSE | RIGHT_MOUSE) == LEFT_MOUSE | RIGHT_MOUSE {
             target = point_target(h);
         }
-        if state != 2 && h.is_on_ground && 0.5 > h.locomotion.torso_rot[1].y && h.input_flags & 8 != 0 {
+        if state != 2 && h.is_on_ground && 0.5 > h.locomotion.torso_rot[1].y && h.input_flags & CROUCH != 0 {
             target = crouch_reach(h, map, first);
         }
 
@@ -282,16 +282,16 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
             max_turn = 45.0_f32.to_radians();
         }
         if let Some((item, hand)) = held {
-            let kind = touch.items.get(item).unwrap().item_type as u32;
+            let kind = touch.items.get(item).unwrap().item_type;
             let mut twist = match kind {
-                0xb => 22.5_f32.to_radians(),
-                3 => 78.75_f32.to_radians(),
+                ItemKind::Pistol => 22.5_f32.to_radians(),
+                ItemKind::M16 => 78.75_f32.to_radians(),
                 _ => 45.0_f32.to_radians(),
             };
             if k == 0 {
                 twist = -twist;
             }
-            if h.input_flags & 0x20 != 0 || h.action_type == 0 {
+            if h.input_flags & DROP_ITEM != 0 || h.action_type == 0 {
                 twist = 0.0;
             }
             let mut spin_limit = [0.0; 3];
@@ -303,7 +303,7 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
             let params = IkParams { length: 21.0 / 32.0, twist, max_turn, clamp_max: 16.875_f32.to_radians(), spin_limit, flags: 0x16 + (1.0 > hp) as u32 };
             three_bone_ik(h, bodies, 2, first, target, &IDENTITY, Vec3::ZERO, &params, &mut end_rot);
             attach_item_to_bone(h, bodies, touch, first + 2, item, hand);
-            if touch.types[kind as usize].is_gun && k == 1 && h.input_flags & 0x20 == 0 && h.action_type != 0 && h.vehicle.is_none() {
+            if touch.types[kind as usize].is_gun && k == 1 && h.input_flags & DROP_ITEM == 0 && h.action_type != 0 && h.vehicle.is_none() {
                 arm_item_collision(h, bodies, touch, item);
             }
             continue;
@@ -314,7 +314,9 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         if one_arm {
             max_turn = 22.5_f32.to_radians();
         }
-        let airborne = !one_arm && h.vehicle.is_none() && ((state == 1 && h.input_flags & 8 == 0) || (state == 3 && !(0.125 + h.locomotion.feet[0].swing_phase < 1.0)));
+        let airborne = !one_arm
+            && h.vehicle.is_none()
+            && ((state == 1 && h.input_flags & CROUCH == 0) || (state == 3 && !(0.125 + h.locomotion.feet[0].swing_phase < 1.0)));
         let params = if airborne {
             IkParams { length: 21.0 / 32.0, twist: 0.0, max_turn, clamp_max: 4.21875_f32.to_radians(), spin_limit: [0.0625; 3], flags }
         } else {
@@ -355,14 +357,18 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         }
     }
     if state == 2 {
-        for (parent, child, spin_limit) in [(0, 1, 1.0 / 128.0), (1, 2, 1.0 / 128.0), (2, 3, 1.0 / 128.0), (2, 4, 0.03125), (4, 5, 0.03125), (2, 7, 0.03125), (7, 8, 0.03125)] {
+        for (parent, child, spin_limit) in
+            [(0, 1, 1.0 / 128.0), (1, 2, 1.0 / 128.0), (2, 3, 1.0 / 128.0), (2, 4, 0.03125), (4, 5, 0.03125), (2, 7, 0.03125), (7, 8, 0.03125)]
+        {
             limit_joint(h, bodies, parent, child, spin_limit);
         }
     }
     if h.pain > 0 {
         let p = h.pain as f32 / 60.0;
         let limit = if p > 1.0 { 1.0 / 128.0 } else { 0.125 - (p * 0.125) * 0.9375 };
-        for (parent, child, spin_limit) in [(0, 1, limit), (1, 2, limit), (2, 3, limit), (2, 4, limit * 0.25), (4, 5, limit * 0.25), (2, 7, limit * 0.25), (7, 8, limit * 0.25)] {
+        for (parent, child, spin_limit) in
+            [(0, 1, limit), (1, 2, limit), (2, 3, limit), (2, 4, limit * 0.25), (4, 5, limit * 0.25), (2, 7, limit * 0.25), (7, 8, limit * 0.25)]
+        {
             limit_joint(h, bodies, parent, child, spin_limit);
         }
     }
@@ -390,8 +396,8 @@ fn point_target(h: &Human) -> Vec3 {
 }
 
 /// Paper (a newspaper or document) is held open in both hands: the left arm takes its second grip.
-fn is_paper(kind: u32) -> bool {
-    matches!(kind, 0x22 | 0x1d)
+fn is_paper(kind: ItemKind) -> bool {
+    matches!(kind, ItemKind::Paper | ItemKind::PaperWorld)
 }
 
 /// The item an arm holds and which of the item's grips it holds it by: the right arm holds the right hand's item,
@@ -399,7 +405,7 @@ fn is_paper(kind: u32) -> bool {
 /// paper by its second grip.
 fn held_item(h: &Human, touch: &Touchables, k: usize) -> Option<(usize, usize)> {
     let (item, grip) = arm_item(h, touch, k)?;
-    let paper = touch.items.get(item).is_some_and(|i| is_paper(i.item_type as u32));
+    let paper = touch.items.get(item).is_some_and(|i| is_paper(i.item_type));
     Some((item, if paper && k & 1 == 0 { 1 } else { grip }))
 }
 
@@ -413,8 +419,8 @@ fn arm_item(h: &Human, touch: &Touchables, k: usize) -> Option<(usize, usize)> {
         return None;
     }
     let item = slots[0].items[0] as usize;
-    let kind = touch.items.get(item)?.item_type as usize;
-    if (touch.types[kind].hands <= 1 && kind != 0x24) || (!(h.bones[0].rot[1].y > 0.707) && h.input_flags & 8 != 0) {
+    let kind = touch.items.get(item)?.item_type;
+    if (touch.types[kind as usize].hands <= 1 && kind != ItemKind::Rope) || (!(h.bones[0].rot[1].y > 0.707) && h.input_flags & CROUCH != 0) {
         return None;
     }
     Some((item, 1))
@@ -425,7 +431,16 @@ fn arm_item(h: &Human, touch: &Touchables, k: usize) -> Option<(usize, usize)> {
 /// below and in front of the shoulder (a gun at the right shoulder), moved by the item's grip and pulled against the
 /// item's motion relative to the torso.
 #[allow(clippy::too_many_arguments)]
-fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, item_id: usize, hand: usize, yaw: f32, aim: Option<[f32; 4]>) -> (RotMatrix, Vec3) {
+fn hold_frame(
+    h: &Human,
+    bodies: &RigidBodies,
+    touch: &Touchables,
+    k: usize,
+    item_id: usize,
+    hand: usize,
+    yaw: f32,
+    aim: Option<[f32; 4]>,
+) -> (RotMatrix, Vec3) {
     let item = touch.items.get(item_id).unwrap();
     let ty = &touch.types[item.item_type as usize];
     let mut m = IDENTITY;
@@ -438,10 +453,10 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         let axis = m[2];
         rotate_orientation(&mut m, axis, 22.5_f32.to_radians());
     }
-    if h.vehicle.is_none() && h.input_flags & 2 != 0 {
+    if h.vehicle.is_none() && h.input_flags & RIGHT_MOUSE != 0 {
         rotate_orientation(&mut m, Vec3::X, 45.0_f32.to_radians());
     }
-    let throwing = h.input_flags & 0x20 != 0 || h.action_type == 0;
+    let throwing = h.input_flags & DROP_ITEM != 0 || h.action_type == 0;
     if throwing {
         let tp = h.throw_pitch;
         rotate_orientation(&mut m, Vec3::X, tp + tp);
@@ -453,7 +468,7 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         m = quaternion_to_rot_matrix([-q[0], -q[1], -q[2], q[3]]);
         let axis = m[0];
         rotate_orientation(&mut m, axis, (h.view_pitch as f64 - 2.109375_f64.to_radians()) as f32);
-        if h.input_flags & 2 != 0 {
+        if h.input_flags & RIGHT_MOUSE != 0 {
             let axis = m[0];
             rotate_orientation(&mut m, axis, 45.0_f32.to_radians());
         }
@@ -466,7 +481,7 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
     if k == 0 && h.inventory[1].count > 0 {
         v = Vec3::new(-0.125, 0.125, 0.0);
     }
-    let paper = is_paper(item.item_type as u32);
+    let paper = is_paper(item.item_type);
     if paper {
         v = if h.vehicle.is_none() { Vec3::ZERO } else { Vec3::new(0.0, -0.125, 0.0) };
     }
@@ -480,32 +495,28 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         v = Vec3::new(v.x + k * r2.x, v.y + k * r2.y, 0.0 + k * r2.z);
     }
     v = -0.1875 * r2 + v + -0.375 * r2 + 0.0625 * m1;
-    let kind = item.item_type as u32;
-    let other_hand_check = if kind == COMPUTER {
+    let kind = item.item_type;
+    let other_hand_check = if kind == ItemKind::Computer {
         v = m1 * -0.125 + (v + r2 * 0.275);
         k == 0
-    } else if k == 1 && kind == PHONE {
+    } else if k == 1 && kind == ItemKind::Phone {
         if item.state.phone().is_some_and(|p| p.status == crate::sim::item_state::PhoneStatus::Connected) {
             v = 0.0625 * m1 + (v + r2 * 0.4375);
         }
         false
     } else {
-        if kind == 0xb && h.vehicle.is_none() {
-            v = if h.movement_mode == 2 {
-                -0.25 * r2 + v
-            } else {
-                m1 * -0.125 + v
-            };
+        if kind == ItemKind::Pistol && h.vehicle.is_none() {
+            v = if h.movement_mode == 2 { -0.25 * r2 + v } else { m1 * -0.125 + v };
         }
         k == 0 && !paper
     };
     if other_hand_check && h.inventory[1].count > 0 {
         v = r2 * 0.125 + v;
     }
-    let thrown = h.input_flags & 0x20 != 0;
+    let thrown = h.input_flags & DROP_ITEM != 0;
     let quarter = 90.0_f32.to_radians();
     let side = if k == 0 { -quarter } else { quarter };
-    if kind == BRIEFCASE && !thrown && h.action_type != 0 {
+    if kind == ItemKind::Briefcase && !thrown && h.action_type != 0 {
         let up = if h.vehicle.is_some() { 0.125 } else { 0.0 };
         v = Vec3::new(if k == 0 { -0.1875 } else { 0.1875 }, up + -0.65625, 0.0 * 0.125 + 0.0 * -0.65625);
         rotate_orientation(&mut m, Vec3::X, quarter);
@@ -515,15 +526,15 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
     let [m0, m1, r2] = m;
     let p = ty.hold_pos[hand];
     v = p.x * m0 + v + p.y * m1 + r2 * p.z;
-    if kind == RADIO && matches!(item.state, crate::sim::item_state::ItemState::Radio { transmitting: true, .. }) {
+    if kind == ItemKind::Radio && matches!(item.state, crate::sim::item_state::ItemState::Radio { transmitting: true, .. }) {
         v += r2 * 0.1875;
-    } else if kind == BRIEFCASE && (thrown || h.action_type == 0) {
+    } else if kind == ItemKind::Briefcase && (thrown || h.action_type == 0) {
         let axis = m[0];
         rotate_orientation(&mut m, axis, quarter);
         let axis = m[2];
         rotate_orientation(&mut m, axis, side);
     }
-    if ty.is_gun && item.item_type as u32 != 0xb && (k | hand) != 0 {
+    if ty.is_gun && item.item_type != ItemKind::Pistol && (k | hand) != 0 {
         v = gun_hold_pos(h, ty, hand, &m);
     }
     if h.action_type == 1 {
@@ -532,16 +543,15 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         v = a * t + v;
     }
     let vel = bodies.get(item.body).map_or(Vec3::ZERO, |b| b.vel);
-    let tv = h.locomotion.torso_vel;
-    let d = vel - tv;
+    let d = vel - h.locomotion.torso_vel;
     let [c0, c1, c2] = h.bones[2].rot;
     let l = Vec3::new(c0.dot(d), c1.dot(d), d.dot(c2));
-    if h.input_flags & 0x20 == 0 && h.action_type != 0 {
+    if h.input_flags & DROP_ITEM == 0 && h.action_type != 0 {
         v = l * -0.75 + v;
     }
     let tilt = match kind {
-        0x22 | 0x1d => Some((-78.75_f32).to_radians()),
-        0x12 => Some((-67.5_f32).to_radians()),
+        ItemKind::Paper | ItemKind::PaperWorld => Some((-78.75_f32).to_radians()),
+        ItemKind::CashWorld => Some((-67.5_f32).to_radians()),
         _ => None,
     };
     if let Some(angle) = tilt {
@@ -598,10 +608,7 @@ fn arm_item_collision(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, i
                 Vec3::new((p.x + a.x * front) + ux, (p.y + a.y * front) + uy, (front * a.z + p.z) + uz),
             )
         } else {
-            (
-                37.0 / 128.0 * a + p,
-                21.0 / 128.0 * a + p,
-            )
+            (37.0 / 128.0 * a + p, 21.0 / 128.0 * a + p)
         };
         let gy = if i & 1 != 0 { g.y + 0.0625 } else { g.y - 0.0625 };
         let grip = base + r1 * gy;
@@ -628,14 +635,14 @@ fn arm_item_collision(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, i
 /// bond turns the item towards its hold orientation in the hand.
 fn attach_item_to_bone(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, bone: usize, item_id: usize, hand: usize) {
     let item = touch.items.get(item_id).unwrap();
-    let kind = item.item_type as u32;
-    if kind == 0x27 {
+    let kind = item.item_type;
+    if kind == ItemKind::Computer {
         return;
     }
     let ty = &touch.types[kind as usize];
     let body_a = h.bones[bone].body;
     bodies.create_bond(Bond::ItemPoint(ItemPoint::new(body_a, item.body, Vec3::ZERO, ty.hold_pos[hand])));
-    if kind == 0x1c {
+    if kind == ItemKind::Door {
         return;
     }
     let Some(item_body) = bodies.get(item.body) else { return };

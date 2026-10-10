@@ -9,7 +9,7 @@ const NO_CAR: f32 = 65536.0;
 /// lane_clearance keeps this far behind the car ahead and closes the rest of the gap over two seconds.
 const FOLLOW_GAP: f32 = 2.0;
 const CLOSE_RATE: f32 = 0.5;
-const TICKS_PER_SECOND: f32 = 60.0;
+const TICKS_PER_SECOND: f32 = crate::time::TICKS_PER_SECOND as f32;
 
 fn inside(min: Vec3, max: Vec3, p: Vec3) -> bool {
     p.x >= min.x && max.x >= p.x && p.z >= min.z && max.z >= p.z && p.y >= min.y && max.y >= p.y

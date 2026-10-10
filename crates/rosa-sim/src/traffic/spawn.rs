@@ -47,7 +47,9 @@ pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], m
         }
         let mut lane = rand::random_range(0..2);
         let st = &streets.streets[street as usize];
-        let flat_three = mode == GameMode::Eliminator && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y && st.left_lanes == 3;
+        let flat_three = mode == GameMode::Eliminator
+            && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y
+            && st.left_lanes == 3;
         if flat_three {
             lane = rand::random_range(0..3);
         }
@@ -64,7 +66,17 @@ pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], m
 /// create_traffic_car: a car on a street's lane `lane` from the middle (towards its first intersection's side for
 /// slot 0), `progress` of the way along, on the ground, with a route to a random street.
 #[allow(clippy::too_many_arguments)]
-pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType], kind: VehicleKind, color: i32, street: i32, slot: i32, lane: i32, progress: f32) -> usize {
+pub fn create_traffic_car(
+    traffic: &mut Traffic,
+    map: &Map,
+    types: &[VehicleType],
+    kind: VehicleKind,
+    color: i32,
+    street: i32,
+    slot: i32,
+    lane: i32,
+    progress: f32,
+) -> usize {
     let streets = &map.streets;
     let st = &streets.streets[street as usize];
     let n = st.lanes.len() as i32;

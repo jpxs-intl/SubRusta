@@ -5,10 +5,10 @@ use crate::sim::Sim;
 const ROWS: usize = 16;
 const SHOWN_ROWS: usize = 8;
 const DRAWN_ROWS: std::ops::Range<usize> = 2..17;
-const WRAP_MIN: i32 = 0x1e;
-const WRAP_MAX: i32 = 0x3b;
-const MAX_TEXT: usize = 0x200;
-const ROW_COLUMNS: usize = 0x3e;
+const WRAP_MIN: i32 = 30;
+const WRAP_MAX: i32 = 59;
+const MAX_TEXT: usize = 512;
+const ROW_COLUMNS: usize = 62;
 const HEADER: &[u8] = b"DECRYPTER     Ctrl-R RESET   Ctrl-P PRINT    Ctrl-X EXIT";
 const HEADER_COLOR: u8 = 0x1f;
 const SELECTED: u8 = 0xc;
@@ -45,8 +45,8 @@ impl Default for Decrypter {
 /// The wrap width for text starting at `from`: up to 60, backed off to a space but not below 30.
 fn wrap(s: &[u8], from: i32, left: i32) -> i32 {
     let at = |k: i32| s.get(k as usize).copied().unwrap_or(0);
-    let mut w = if left > 0x3a { WRAP_MAX } else { left };
-    if !(left > 0x3a || w > WRAP_MIN) || at(from + w) == b' ' {
+    let mut w = if left > 58 { WRAP_MAX } else { left };
+    if !(left > 58 || w > WRAP_MIN) || at(from + w) == b' ' {
         return w;
     }
     loop {
@@ -76,7 +76,7 @@ impl Sim {
         let mut w = wrap(&s, 0, len);
         let (mut row, mut col) = (0usize, 0usize);
         let mut k = 1i32;
-        while k <= 0x100 {
+        while k <= 256 {
             let ch = s.get(k as usize - 1).copied().unwrap_or(0);
             if ch == 0 {
                 break;
@@ -225,16 +225,16 @@ impl Sim {
     pub(crate) fn decrypt_key(&mut self, id: usize, c: &mut Computer, key: i32) {
         let mut k = (key as u8).to_ascii_uppercase() as i32;
         if key & CTRL != 0 {
-            match k {
-                0x52 => {
+            match k as u8 {
+                b'R' => {
                     c.decrypt.guesses = [-1; 26];
                     k = 0;
                 }
-                0x50 => {
+                b'P' => {
                     self.print_to_memo(id, c);
                     return;
                 }
-                0x58 => {
+                b'X' => {
                     c.mode = Mode::Shell;
                     for l in 0..SCREEN_LINES {
                         c.lines[l][0] = 0;
@@ -246,7 +246,7 @@ impl Sim {
             }
         }
         let t = c.decrypt.timer;
-        if k == 0xa {
+        if k == 10 {
             if t != 0 {
                 c.lines[STATUS_LINE][0] = 0;
                 self.register_line(id, c, STATUS_LINE as i32);

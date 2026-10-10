@@ -10,24 +10,25 @@ use rosa_protocol::{
 
 use super::{Sim, missions::MISSION_SPOTS};
 use crate::PlayerId;
+use crate::time::{TICKS_PER_MINUTE, TICKS_PER_SECOND};
 
 /// Up to eight groups of three: a target, the eliminator after them and the target's protector.
 pub const MAX_GROUPS: usize = 8;
 /// The lobby waits at 1800 ticks with two or fewer ready, and drops to 180 once everyone is ready.
 const LOBBY_TIME: i32 = 1800;
 const ALL_READY_TIME: i32 = 180;
-const GAME_TIME: i32 = 54000;
-const RESTART_TIME: i32 = 1200;
+const GAME_TIME: i32 = 15 * TICKS_PER_MINUTE;
+const RESTART_TIME: i32 = 20 * TICKS_PER_SECOND;
 const TRAFFIC_CARS: i32 = 128;
 /// The streets' intersections 18, 40, 50 and 51 are never spawned at (a bit mask over the first 52).
 const BLOCKED_INTERSECTIONS: u64 = 0xc000100040000;
-const LAST_MASKED_INTERSECTION: usize = 0x33;
+const LAST_MASKED_INTERSECTION: usize = 51;
 const SPAWN_LIFT: f32 = 1.0;
 const LANE_WIDTH: f32 = 4.0;
-/// Positions start going out after 7200 ticks, to the eliminators from 10800; supplies drop every 3600 after that.
-const REVEAL_START: i32 = 7199;
-const ELIMINATOR_REVEAL_START: i32 = 0x2a2f;
-const DROP_PERIOD: u32 = 3600;
+/// Positions start going out after 2 minutes, to the eliminators from 3; supplies drop every minute after that.
+const REVEAL_START: i32 = 2 * TICKS_PER_MINUTE - 1;
+const ELIMINATOR_REVEAL_START: i32 = 3 * TICKS_PER_MINUTE - 1;
+const DROP_PERIOD: u32 = TICKS_PER_MINUTE as u32;
 /// The tables' items are 0.375 apart; a restock first clears 16 such steps within 0.5.
 const TABLE_STEP: f32 = 0.375;
 const CLEAR_STEPS: usize = 16;
@@ -328,15 +329,16 @@ impl Sim {
         self.round_elapsed += 1;
         let ready = self.players.iter().filter(|(_, p)| !p.is_bot && p.is_ready).count();
         let elapsed = self.round_elapsed;
-        let interval = if elapsed <= 0x464f {
-            0xa8c
-        } else if elapsed <= 0x707f {
-            0x708
-        } else if elapsed <= 0x9aaf {
-            0x384
-        } else {
-            0x12c
-        };
+        let interval = TICKS_PER_SECOND
+            * if elapsed < 5 * TICKS_PER_MINUTE {
+                45
+            } else if elapsed < 8 * TICKS_PER_MINUTE {
+                30
+            } else if elapsed < 11 * TICKS_PER_MINUTE {
+                15
+            } else {
+                5
+            };
         let n = self.eliminator.count;
         if let Some(pos) = (0..n).filter_map(|i| self.player_human_pos(self.eliminator.groups[i].target)).last() {
             self.eliminator.last_target = pos;

@@ -17,12 +17,7 @@ impl Default for PlayerVoice {
 
 impl PlayerVoice {
     pub fn new() -> Self {
-        Self {
-            frames: [const { None }; 64],
-            current: 0,
-            is_silenced: true,
-            volume_level: 0,
-        }
+        Self { frames: [const { None }; 64], current: 0, is_silenced: true, volume_level: 0 }
     }
 
     pub fn ingest(&mut self, voice_data: VoiceData) {
@@ -52,12 +47,7 @@ impl PlayerVoice {
         let start = self.current.wrapping_sub(4) % 64;
         std::array::from_fn(|i| {
             let idx = start.wrapping_add(i as u8) % 64;
-            self.frames[idx as usize].clone().unwrap_or_else(|| VoiceFrame {
-                index: idx,
-                size: 0,
-                volume: 0,
-                data: Vec::new()
-            })
+            self.frames[idx as usize].clone().unwrap_or_else(|| VoiceFrame { index: idx, size: 0, volume: 0, data: Vec::new() })
         })
     }
 }

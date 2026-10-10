@@ -4,7 +4,7 @@ use crate::{clientbound::game::VehicleKind, codec::WireWrite};
 pub struct EventUpdateVehicleTypeColor {
     pub vehicle_id: i32,
     pub vehicle_type: VehicleKind,
-    pub vehicle_color: u8
+    pub vehicle_color: u8,
 }
 
 impl WireWrite for EventUpdateVehicleTypeColor {

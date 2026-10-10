@@ -12,10 +12,7 @@ pub(crate) const ORIGIN: f32 = -4096.0;
 const NAV: i32 = 16384;
 const MASK: usize = 4096;
 
-const BLOCK_IDS: [usize; 28] = [
-    2, 40, 32, 46, 45, 47, 28, 10, 33, 42, 35, 13, 59, 31,
-    52, 48, 50, 19, 22, 58, 62, 61, 41, 36, 43, 44, 38, 39,
-];
+const BLOCK_IDS: [usize; 28] = [2, 40, 32, 46, 45, 47, 28, 10, 33, 42, 35, 13, 59, 31, 52, 48, 50, 19, 22, 58, 62, 61, 41, 36, 43, 44, 38, 39];
 
 const NEIGH: [(i32, i32); 8] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
@@ -52,18 +49,15 @@ pub struct Ground {
 impl Ground {
     pub fn new(base: Vec<f32>, roundcity: bool) -> Self {
         assert_eq!(base.len(), TDIM * TDIM, "generate_grass must be {TDIM}x{TDIM}");
-        Self {
-            base,
-            roadmap: HashMap::new(),
-            mask: vec![u64::MAX; MASK * MASK / 64],
-            bounds: None,
-            roundcity,
-            blocks: Vec::new(),
-        }
+        Self { base, roadmap: HashMap::new(), mask: vec![u64::MAX; MASK * MASK / 64], bounds: None, roundcity, blocks: Vec::new() }
     }
 
-    pub fn base(&self) -> &[f32] { &self.base }
-    pub fn roundcity(&self) -> bool { self.roundcity }
+    pub fn base(&self) -> &[f32] {
+        &self.base
+    }
+    pub fn roundcity(&self) -> bool {
+        self.roundcity
+    }
 
     pub fn set_street_bounds(&mut self, bounds: (i32, i32, i32, i32)) {
         self.bounds = Some(bounds);
@@ -83,8 +77,12 @@ impl Ground {
         }
 
         if let Some((minx, maxx, minz, maxz)) = self.bounds
-            && minx <= x && x <= maxx && minz <= z && z <= maxz
-            && x + 1024 <= 4095 && z + 1024 <= 4095
+            && minx <= x
+            && x <= maxx
+            && minz <= z
+            && z <= maxz
+            && x + 1024 <= 4095
+            && z + 1024 <= 4095
         {
             let i = (z + 1024) as usize * MASK + (x + 1024) as usize;
             self.mask[i >> 6] &= !(1u64 << (i & 63));
@@ -153,7 +151,6 @@ impl Ground {
         if dc > 0 && wc > 0 {
             for cz in 0..dc {
                 for cx in 0..wc {
-
                     let (gx, gz) = (b.x0 + cx, b.z0 + cz);
                     let r00 = self.roadmap_at(gx, gz);
                     let r10 = self.roadmap_at(gx + 1, gz);
@@ -328,11 +325,7 @@ impl Ground {
         let h10 = self.vertex(ix + 1, iz);
         let h01 = self.vertex(ix, iz + 1);
         let h11 = self.vertex(ix + 1, iz + 1);
-        Some(if tx >= tz {
-            h00 + (h10 - h00) * tx + (h11 - h10) * tz
-        } else {
-            h00 + (h11 - h01) * tx + (h01 - h00) * tz
-        })
+        Some(if tx >= tz { h00 + (h10 - h00) * tx + (h11 - h10) * tz } else { h00 + (h11 - h01) * tx + (h01 - h00) * tz })
     }
 
     pub fn line_intersect_landscape(&self, start: Vec3, end: Vec3) -> Option<TraceHit> {
@@ -412,16 +405,16 @@ impl Ground {
     }
 
     fn test_cell(&self, cx: i32, cz: i32, start: Vec3, end: Vec3, best: &mut TraceHit) {
-        let p = |dx: i32, dz: i32| {
-            Vec3::new((cx + dx) as f32 + ORIGIN, self.vertex(cx + dx, cz + dz), (cz + dz) as f32 + ORIGIN)
-        };
+        let p = |dx: i32, dz: i32| Vec3::new((cx + dx) as f32 + ORIGIN, self.vertex(cx + dx, cz + dz), (cz + dz) as f32 + ORIGIN);
 
         let (v00, v10, v11, v01) = (p(0, 0), p(1, 0), p(1, 1), p(0, 1));
 
         for [ta, tb, tc] in [[v00, v10, v11], [v00, v11, v01]] {
             let n = calculate_face_normal(ta, tb, tc);
 
-            if let Some((t, pos)) = segment_intersect_face(n, start, end, ta, tb, tc) && best.fraction > t {
+            if let Some((t, pos)) = segment_intersect_face(n, start, end, ta, tb, tc)
+                && best.fraction > t
+            {
                 *best = TraceHit { fraction: t, pos, normal: n };
             }
         }
@@ -432,7 +425,6 @@ pub fn generate_grass(do_hack: bool) -> Vec<f32> {
     let mut h = vec![0f32; 2049 * 2049];
 
     for z in 0..2049 {
-
         let dz640 = (z as i32 - 640) as f32;
         let dz640_sq = dz640 * dz640;
         let dz704 = (z as i32 - 704) as f32;

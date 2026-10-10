@@ -3,7 +3,7 @@ use crate::codec::WireWrite;
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventTeamDoor {
     pub team_id: i32,
-    pub door_open: bool
+    pub door_open: bool,
 }
 
 impl WireWrite for EventTeamDoor {

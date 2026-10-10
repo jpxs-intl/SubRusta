@@ -7,14 +7,14 @@ pub enum GameAction {
     Item(ItemAction),
     Inventory(InventoryAction),
     Admin(AdminAction),
-    Unknown
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Menu {
     Lobby = 2,
-    Other(u8)
+    Other(u8),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,40 +61,21 @@ pub fn read_actions(r: &mut Reader, num_actions: u32) -> Result<Vec<GameAction>,
             0 => {
                 let menu_type = match r.bits(8)? as u8 {
                     2 => Menu::Lobby,
-                    other => Menu::Other(other)
+                    other => Menu::Other(other),
                 };
 
-                GameAction::Menu(MenuAction {
-                    menu: menu_type,
-                    button: r.u32()?,
-                    c: r.bytes(16)?.to_vec(),
-                })
-            },
+                GameAction::Menu(MenuAction { menu: menu_type, button: r.u32()?, c: r.bytes(16)?.to_vec() })
+            }
             1 => {
                 let len = r.bits(6)? as usize;
 
-                let message = if len > 0 {
-                    r.string(len)?
-                } else {
-                    "".to_string()
-                };
+                let message = if len > 0 { r.string(len)? } else { "".to_string() };
 
                 GameAction::Chat(ChatAction { message, volume: r.bits(4)? as u8 })
-            },
-            2 => GameAction::Item(ItemAction {
-                a: r.bits(16)? as u16,
-                b: r.bits(16)? as u16
-            }),
-            3 => GameAction::Inventory(InventoryAction {
-                a: r.bits(16)? as u16,
-                b: r.bits(16)? as u16,
-                c: r.bits(16)? as u16
-            }),
-            4 | 5 => GameAction::Admin(AdminAction {
-                kind: action_type,
-                a: r.u32()?,
-                b: r.u32()?
-            }),
+            }
+            2 => GameAction::Item(ItemAction { a: r.bits(16)? as u16, b: r.bits(16)? as u16 }),
+            3 => GameAction::Inventory(InventoryAction { a: r.bits(16)? as u16, b: r.bits(16)? as u16, c: r.bits(16)? as u16 }),
+            4 | 5 => GameAction::Admin(AdminAction { kind: action_type, a: r.u32()?, b: r.u32()? }),
             _ => {
                 println!("Received invalid action type {action_type:?}");
 

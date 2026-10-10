@@ -34,11 +34,7 @@ pub fn rotate_vector_about_axis(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
     let a = axis;
     let (cx, cy, cz) = (v.y * a.z - v.z * a.y, v.z * a.x - v.x * a.z, v.x * a.y - v.y * a.x);
     let d = v.dot(a);
-    Vec3::new(
-        ((cz * a.y - cy * a.z) * c + d * a.x) + s * cx,
-        ((cx * a.z - cz * a.x) * c + d * a.y) + s * cy,
-        ((cy * a.x - cx * a.y) * c + d * a.z) + s * cz,
-    )
+    Vec3::new(((cz * a.y - cy * a.z) * c + d * a.x) + s * cx, ((cx * a.z - cz * a.x) * c + d * a.y) + s * cy, ((cy * a.x - cx * a.y) * c + d * a.z) + s * cz)
 }
 
 pub fn angular_velocity(rot: &RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> Vec3 {
@@ -53,7 +49,7 @@ pub fn angular_velocity(rot: &RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> V
 fn turned(rot: &RotMatrix, w: Vec3, half: bool) -> RotMatrix {
     let mut out = *rot;
     let n = w.length();
-    if n > (1.0/65536.0) {
+    if n > (1.0 / 65536.0) {
         let inv = 1.0 / n;
         rotate_orientation(&mut out, w * inv, if half { n * 0.5 } else { n });
     }
@@ -70,7 +66,7 @@ pub fn rk4_rotation(rot: &mut RotMatrix, momentum: Vec3, inv_inertia: Vec3) -> V
 
     let n = avg.length();
 
-    if n > (1.0/65536.0) {
+    if n > (1.0 / 65536.0) {
         let inv = 1.0 / n;
         rotate_orientation(rot, avg * inv, n);
     }
@@ -163,11 +159,7 @@ pub fn quaternion_to_rot_matrix(q: [f32; 4]) -> RotMatrix {
         p + p
     };
     let (wx, xx, wz, xz, wy, xy, yy, yz, zz) = (d(w, x), d(x, x), d(w, z), d(x, z), d(w, y), d(x, y), d(y, y), d(y, z), d(z, z));
-    [
-        Vec3::new(1.0 - (yy + zz), xy - wz, wy + xz),
-        Vec3::new(wz + xy, 1.0 - (zz + xx), yz - wx),
-        Vec3::new(xz - wy, yz + wx, 1.0 - (xx + yy)),
-    ]
+    [Vec3::new(1.0 - (yy + zz), xy - wz, wy + xz), Vec3::new(wz + xy, 1.0 - (zz + xx), yz - wx), Vec3::new(xz - wy, yz + wx, 1.0 - (xx + yy))]
 }
 
 pub fn rot_matrix_to_quaternion(rot: &RotMatrix) -> [f32; 4] {
@@ -177,7 +169,14 @@ pub fn rot_matrix_to_quaternion(rot: &RotMatrix) -> [f32; 4] {
         let s = (2.0 * ((u + 1.0) as f64).sqrt()) as f32;
         (s, if s > 1.0 / 65536.0 { (1.0 / s) as f64 } else { 0.0 })
     };
-    let diag = |u: f32| -> (f32, f64) { if -1.0 > u { (0.0, 0.0) } else { let (s, inv) = scale(u); (0.25 * s, inv) } };
+    let diag = |u: f32| -> (f32, f64) {
+        if -1.0 > u {
+            (0.0, 0.0)
+        } else {
+            let (s, inv) = scale(u);
+            (0.25 * s, inv)
+        }
+    };
     let mul = |a: f32, inv: f64| (a as f64 * inv) as f32;
     let t = (x1 + y2) + z3;
     if t >= 0.0 {

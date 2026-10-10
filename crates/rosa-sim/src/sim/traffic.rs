@@ -1,12 +1,23 @@
 use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_protocol::{
-    GameMode, Team, clientbound::game::{TrafficEntry, events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor}},
+    GameMode, Team,
+    clientbound::game::{
+        TrafficEntry,
+        events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor},
+    },
 };
 
 use super::Sim;
 use crate::{
-    traffic::{DRIVEN, LOOP_STREET, LOOP_STREET_2, TAKEN, Traffic, ai::ai_traffic_car, grid::add_cars, motion::{move_virtual_car, update_signals}, route::plan_route, spawn::create_traffic},
+    traffic::{
+        DRIVEN, LOOP_STREET, LOOP_STREET_2, TAKEN, Traffic,
+        ai::ai_traffic_car,
+        grid::add_cars,
+        motion::{move_virtual_car, update_signals},
+        route::plan_route,
+        spawn::create_traffic,
+    },
     vehicle::spawn_vehicle,
 };
 
@@ -164,7 +175,9 @@ impl Sim {
     /// The vehicles a player drove off with free hands this tick: their cars stop driving themselves.
     fn take_over_traffic(&mut self) {
         for (_, v) in self.vehicles.iter_mut() {
-            if std::mem::take(&mut v.traffic_taken) && let Some(c) = usize::try_from(v.traffic_car).ok().and_then(|t| self.traffic.cars.get_mut(t)) {
+            if std::mem::take(&mut v.traffic_taken)
+                && let Some(c) = usize::try_from(v.traffic_car).ok().and_then(|t| self.traffic.cars.get_mut(t))
+            {
                 c.is_bot = TAKEN;
             }
         }
@@ -180,8 +193,7 @@ impl Sim {
                     continue;
                 }
                 let range = if self.players.get(pid.idx()).is_some_and(|p| p.is_bot) { BOT_RANGE } else { PLAYER_RANGE };
-                let b = h.bones[0].pos;
-                let d = c.pos - b;
+                let d = c.pos - h.bones[0].pos;
                 let dist = d.length();
                 if range > dist {
                     c.state = NEAR;
@@ -302,7 +314,12 @@ const MOVING: f32 = 1.0 / 60.0;
 const SENT_PER_PACKET: usize = 16;
 
 /// The traffic part of a client's game packet: the most overdue cars and one intersection's lights.
-pub(crate) fn traffic_section(client: &mut crate::Client, traffic: &Traffic, map: &crate::world::streets::StreetMap, camera: Vec3) -> (Vec<TrafficEntry>, (i32, [i32; 4])) {
+pub(crate) fn traffic_section(
+    client: &mut crate::Client,
+    traffic: &Traffic,
+    map: &crate::world::streets::StreetMap,
+    camera: Vec3,
+) -> (Vec<TrafficEntry>, (i32, [i32; 4])) {
     let n = traffic.cars.len();
     client.traffic_priority.resize(n, 0);
     for (c, p) in traffic.cars.iter().zip(client.traffic_priority.iter_mut()) {

@@ -19,7 +19,7 @@ pub struct Chunk {
     pub texture_indices: Vec<u16>,
 
     #[br(if(version >= 10), count = 512)]
-    pub itemset_indices: Vec<u32>
+    pub itemset_indices: Vec<u32>,
 }
 
 #[derive(BinRead, Clone, Debug)]
@@ -33,14 +33,14 @@ pub struct ChunkBlockTypes {
     pub texture_names_12: Vec<Char64>,
 
     #[br(if(version == 11), count = 8)]
-    pub texture_names_11: Vec<Char64>
+    pub texture_names_11: Vec<Char64>,
 }
 
 #[derive(BinRead, Clone)]
 pub struct FileBuilding {
     pub name: Char64,
     pub pos: IntVector,
-    pub rot: u32
+    pub rot: u32,
 }
 
 #[derive(BinRead, Clone)]
@@ -50,13 +50,13 @@ pub struct FileStreet {
     pub left_lane: u32,
     pub right_lane: u32,
     #[br(count = 32)]
-    pub name: Vec<u8>
+    pub name: Vec<u8>,
 }
 
 #[derive(BinRead, BinWrite)]
 pub struct ItemSet {
     #[br(count = 64)]
-    pub name: Vec<u8>
+    pub name: Vec<u8>,
 }
 
 #[binread]
@@ -94,7 +94,7 @@ pub struct CityFileSBC {
     #[br(if(version >= 9))]
     pub num_waypoints: u32,
     #[br(if(version >= 9), count = num_waypoints)]
-    pub waypoints: Vec<Vector>
+    pub waypoints: Vec<Vector>,
 }
 
 impl CityFileSBC {

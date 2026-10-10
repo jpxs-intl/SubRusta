@@ -5,7 +5,7 @@ pub struct EventUpdatePlayerRound {
     pub client_id: u32,
     pub money: i32,
     pub stocks: i32,
-    pub phone_number: u32
+    pub phone_number: u32,
 }
 
 impl WireWrite for EventUpdatePlayerRound {

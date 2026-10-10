@@ -26,7 +26,7 @@ impl Map {
         let dir = Path::new(&name);
 
         if !dir.is_dir() || !dir.exists() {
-            return Err(LoaderError::NotFound)
+            return Err(LoaderError::NotFound);
         }
 
         println!("[Map] Attempting to load {}/city2.sbc", map_name);
@@ -59,13 +59,6 @@ impl Map {
 
         println!("[Map] Loading complete!");
 
-        Ok(Self {
-            map_name,
-            city,
-            city_data,
-            level,
-            ground,
-            streets,
-        })
+        Ok(Self { map_name, city, city_data, level, ground, streets })
     }
 }

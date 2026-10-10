@@ -12,6 +12,7 @@ use rosa_protocol::{
 
 use super::Sim;
 use super::item_state::PhoneStatus;
+use crate::time::TICKS_PER_SECOND;
 use crate::{ConnId, PlayerId};
 
 /// handle_player_message keeps the first 63 bytes of a message.
@@ -34,7 +35,7 @@ const CASH_GIFT: i32 = 100000;
 const VERSUS_MAPS: i32 = 32;
 /// A connection is dropped 1800 ticks after its last packet; a kick leaves it 600 of them.
 const TIMEOUT: i32 = 1800;
-const KICK_TIMEOUT: i32 = 1200;
+const KICK_TIMEOUT: i32 = 20 * TICKS_PER_SECOND;
 const STEAM_BAN_FILE: &str = "serversteamban.txt";
 
 /// The admin side of the server: the password and admin phones (serveradmin.txt), the kicked addresses, a ban
@@ -284,7 +285,10 @@ impl Sim {
             self.admin.pending_ban = None;
         }
         if let Some(name) = msg.strip_prefix("/kick ") {
-            let target = self.connection_order().into_iter().rfind(|c| self.clients.get(c).and_then(|c| self.players.get(c.player_id.idx())).is_some_and(|p| p.username == name));
+            let target = self
+                .connection_order()
+                .into_iter()
+                .rfind(|c| self.clients.get(c).and_then(|c| self.players.get(c.player_id.idx())).is_some_and(|p| p.username == name));
             if let Some(c) = target.and_then(|t| self.clients.get_mut(&t)) {
                 c.timeout = KICK_TIMEOUT;
                 let ip = c.addr.ip();
@@ -337,7 +341,7 @@ impl Sim {
         if let Some(p) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
             p.number = 9999;
         }
-        
+
         self.link_to_slot(h, id, 6);
     }
 
@@ -399,11 +403,13 @@ impl Sim {
 
         for conn in self.connection_order() {
             let Some(c) = self.clients.get(&conn) else { continue };
-            let banned = self.players.get(c.player_id.idx()).and_then(|p| self.saved_accounts.players.iter().find(|a| a.account_id == p.account_id)).is_some_and(|a| a.ban_time > 0);
+            let banned = self
+                .players
+                .get(c.player_id.idx())
+                .and_then(|p| self.saved_accounts.players.iter().find(|a| a.account_id == p.account_id))
+                .is_some_and(|a| a.ban_time > 0);
 
-            if banned
-                && let Some(p) = self.players.get(c.player_id.idx())
-            {
+            if banned && let Some(p) = self.players.get(c.player_id.idx()) {
                 self.account_name_locks.insert(p.account_id, super::economy::BANNED_NAME_LOCK);
             }
             if banned || c.timeout >= TIMEOUT || self.players.get(c.player_id.idx()).is_none() {

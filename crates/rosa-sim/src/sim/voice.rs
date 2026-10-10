@@ -111,7 +111,13 @@ impl Sim {
         let at = own.and_then(head).or_else(|| client.spectating.and_then(head)).or_else(|| head(0)).unwrap_or(Vec3::ZERO);
         let map = &ctx.world.map;
         let line_of_sight = |from: Vec3, to: Vec3| -> f32 {
-            if to.distance(from) <= SIGHT_RANGE && crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to).is_none() { 1.0 } else { BLOCKED_VOLUME }
+            if to.distance(from) <= SIGHT_RANGE
+                && crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, to).is_none()
+            {
+                1.0
+            } else {
+                BLOCKED_VOLUME
+            }
         };
         let items = &ctx.voice_items;
         let silenced = |p: PlayerId| ctx.players.get(p.idx()).is_none_or(|p| p.voice.is_silenced);
@@ -131,7 +137,10 @@ impl Sim {
                 };
                 match it.kind {
                     ItemKind::Phone => {
-                        keep &= it.connected.and_then(|j| items.get(&j)).is_some_and(|j| j.parent_human != -1 && j.parent_slot == 0 && j.connected.is_some() && j.on_call);
+                        keep &= it
+                            .connected
+                            .and_then(|j| items.get(&j))
+                            .is_some_and(|j| j.parent_human != -1 && j.parent_slot == 0 && j.connected.is_some() && j.on_call);
                     }
                     ItemKind::Radio => {
                         keep &= e.source.and_then(|k| items.get(&k)).is_some_and(|k| k.parent_human != -1 && k.parent_slot <= 1 && k.transmitting);
@@ -203,7 +212,10 @@ impl Sim {
                     let Some(other) = items.get(&b).filter(|o| o.connected == Some(a)) else { continue };
                     let (d, volume) = (other.pos.distance(at), line_of_sight(other.pos, at));
                     if volume > d {
-                        add_earshot(&mut client.earshots, Earshot { player: speaker, human: None, item: Some(b), source: other.connected, distance: d, volume });
+                        add_earshot(
+                            &mut client.earshots,
+                            Earshot { player: speaker, human: None, item: Some(b), source: other.connected, distance: d, volume },
+                        );
                     }
                 }
                 ItemKind::Radio => {

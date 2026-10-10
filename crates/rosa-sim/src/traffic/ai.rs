@@ -1,9 +1,6 @@
 use glam::Vec3;
 
-use super::{
-    LOOP_STREET, LOOP_STREET_2, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, random_street,
-    route::plan_route,
-};
+use super::{LOOP_STREET, LOOP_STREET_2, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, random_street, route::plan_route};
 use crate::world::streets::{Lane, MapStreet, StreetMap};
 
 /// Ticks a car may sit still before it backs out (until 319, when the count starts over).
@@ -28,7 +25,7 @@ const SLOW: f32 = 2.0 / 15.0;
 const CRAWL: f32 = 0.3;
 const MIN_SPEED: f32 = 2.0 / 15.0;
 const AGGRESSIVE_MIN: f32 = 0.2;
-const TICKS_PER_SECOND: f32 = 60.0;
+const TICKS_PER_SECOND: f32 = crate::time::TICKS_PER_SECOND as f32;
 /// The point ahead of the car the remaining distance is measured from, and where the intersection begins.
 const NOSE: f32 = 4.0;
 const AT_JUNCTION: f32 = 1.0;
@@ -93,9 +90,8 @@ fn update_stuck(traffic: &mut Traffic, id: usize) {
 
     let v = c.vel;
     let speed = v.length();
-    let r2 = c.rot[2];
 
-    if STOPPED > speed && (r2.dot(v)) + c.target_speed > PUSHING {
+    if STOPPED > speed && (c.rot[2].dot(v)) + c.target_speed > PUSHING {
         c.stuck += 1;
     } else {
         c.stuck = 0;
@@ -214,11 +210,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         if c.route_len - 1 <= c.route_index {
             c.street = street;
             c.intersection = -1;
-            let dest = if traffic.roundcity {
-                if street == LOOP_STREET { LOOP_STREET_2 } else { LOOP_STREET }
-            } else {
-                rand::random_range(0..n_streets)
-            };
+            let dest = if traffic.roundcity { if street == LOOP_STREET { LOOP_STREET_2 } else { LOOP_STREET } } else { rand::random_range(0..n_streets) };
             replan(traffic, map, id, street, dest);
         }
     }
@@ -235,8 +227,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         let c = &mut traffic.cars[id];
         let p = c.lane_change;
         let s = (p * p) * (3.0 - (p + p));
-        let v = c.vel;
-        let speed = v.length();
+        let speed = c.vel.length();
         let np = minss(speed * LANE_CHANGE_RATE, LANE_CHANGE_MAX) + p;
         c.lane_change = np;
         if np > 1.0 {
@@ -316,8 +307,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
             if !(QUEUE_REACH > o.near[(end & 1) as usize]) {
                 continue;
             }
-            let v = o.vel;
-            let speed = v.length();
+            let speed = o.vel.length();
             if !(PUSHING > speed) {
                 continue;
             }
@@ -336,7 +326,13 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         if k as i32 == ps {
             continue;
         }
-        if look.x >= o.bounds_min.x && o.bounds_max.x >= look.x && look.z >= o.bounds_min.z && o.bounds_max.z >= look.z && look.y >= o.bounds_min.y && o.bounds_max.y >= look.y {
+        if look.x >= o.bounds_min.x
+            && o.bounds_max.x >= look.x
+            && look.z >= o.bounds_min.z
+            && o.bounds_max.z >= look.z
+            && look.y >= o.bounds_min.y
+            && o.bounds_max.y >= look.y
+        {
             ahead = k as i32;
         }
     }

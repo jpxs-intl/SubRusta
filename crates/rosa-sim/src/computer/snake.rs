@@ -15,20 +15,20 @@ const HEAD: u8 = 3;
 const APPLE: u8 = 4;
 const RING: usize = 64;
 const START: (i32, i32) = (15, 10);
-const START_TICKS: i32 = 0x40;
-const LEVEL_DONE_TICKS: i32 = 0x20;
+const START_TICKS: i32 = 64;
+const LEVEL_DONE_TICKS: i32 = 32;
 const APPLE_POINTS: u32 = 5;
 const GROWTH: usize = 4;
-const APPLE_TRIES: i32 = 0x200;
+const APPLE_TRIES: i32 = 512;
 /// The four quarters apples go in (left, top) and how many each gets.
 const QUARTERS: [(i32, i32); 4] = [(1, 1), (0x11, 1), (0x11, 0xb), (1, 0xb)];
 const APPLES_PER_QUARTER: usize = 2;
 const HEADER: &str = "  SNAKE    SCORE:{score:05}  LEVEL:{level:03}    Ctrl-X EXIT";
 const GAME_OVER: &[u8] = b"                           GAME OVER!";
-const KEY_RIGHT: i32 = 0x13;
-const KEY_LEFT: i32 = 0x12;
-const KEY_DOWN: i32 = 0x11;
-const KEY_UP: i32 = 0x10;
+const KEY_RIGHT: i32 = 19;
+const KEY_LEFT: i32 = 18;
+const KEY_DOWN: i32 = 17;
+const KEY_UP: i32 = 16;
 /// Board cells (item +0x1880, 32 per row) each level adds walls at, levels counted mod 8.
 const LEVEL_WALLS: [&[usize]; 7] = [
     &[0x48, 0x68, 0x88, 0xa8, 0xc8, 0xe8, 0x108, 0x276, 0x256, 0x236, 0x216, 0x1f6, 0x1d6, 0x1b6],
@@ -232,7 +232,7 @@ impl Sim {
         let header = HEADER.replace("{score:05}", &format!("{:05}", c.snake.score)).replace("{level:03}", &format!("{:03}", c.snake.level));
         c.banner(0, header.as_bytes(), 0x70);
         for row in 1..SCREEN_LINES {
-            for k in 0..0x3e {
+            for k in 0..62 {
                 c.lines[row][k] = b' ';
                 c.colors[row][k] = match c.snake.board[row][k >> 1] {
                     EMPTY => WHITE,
@@ -242,7 +242,7 @@ impl Sim {
                     _ => 0x2f,
                 };
             }
-            c.lines[row][0x3e] = 0;
+            c.lines[row][62] = 0;
         }
         if c.snake.over != 0 {
             c.banner(1, GAME_OVER, WHITE);

@@ -143,7 +143,11 @@ impl ItemAngular {
         let (cap_a, cap_b) = (cap_a + cap_a, cap_b + cap_b);
         let cap = if cap_a < cap_b { cap_a } else { cap_b };
         let t = self.target;
-        self.solve = AngularSolve { target: Vec3::new(t.x * JOINT_DAMPING, t.y * JOINT_DAMPING, t.z * JOINT_DAMPING), weight_a: weight_a * cap, weight_b: weight_b * cap };
+        self.solve = AngularSolve {
+            target: Vec3::new(t.x * JOINT_DAMPING, t.y * JOINT_DAMPING, t.z * JOINT_DAMPING),
+            weight_a: weight_a * cap,
+            weight_b: weight_b * cap,
+        };
     }
 
     pub(crate) fn solve(&self, bodies: &mut Table<RigidBody>) {
@@ -221,7 +225,19 @@ struct JointSolve {
 
 impl Joint {
     pub fn new(body_a: usize, body_b: usize, anchor_a: Vec3, anchor_b: Vec3, owner: i32) -> Self {
-        Self { body_a, body_b, anchor_a, anchor_b, owner, spin_limit: 0.0, spin_damping: 0.0, target_ang_vel: Vec3::ZERO, limit_correction: Vec3::ZERO, limit_active: false, solve: JointSolve::default() }
+        Self {
+            body_a,
+            body_b,
+            anchor_a,
+            anchor_b,
+            owner,
+            spin_limit: 0.0,
+            spin_damping: 0.0,
+            target_ang_vel: Vec3::ZERO,
+            limit_correction: Vec3::ZERO,
+            limit_active: false,
+            solve: JointSolve::default(),
+        }
     }
 
     pub(crate) fn prepare(&mut self, bodies: &Table<RigidBody>) {

@@ -1,4 +1,4 @@
-use glam::{Vec3, UVec3};
+use glam::{UVec3, Vec3};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vector(pub Vec3);
@@ -11,7 +11,6 @@ impl Vector {
         Self(Vec3 { x, y, z })
     }
 }
-
 
 #[cfg(feature = "binrw")]
 mod binrw_impls {
@@ -32,7 +31,7 @@ mod binrw_impls {
 
     impl BinRead for IntVector {
         type Args<'a> = ();
-    
+
         fn read_options<R: std::io::prelude::Read + std::io::prelude::Seek>(
             reader: &mut R,
             endian: binrw::Endian,

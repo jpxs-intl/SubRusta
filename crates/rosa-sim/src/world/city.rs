@@ -48,7 +48,6 @@ pub fn instantiate_sectors(city: &CityFileSBC, types: &[BlockType], grid: &mut A
         for y in 0..8 {
             for z in 0..8 {
                 for x in 0..8 {
-
                     let packed = sector.block_type_indices.get((y * 64 + z * 8 + x) as usize).copied().unwrap_or(0);
 
                     if packed == 0 {

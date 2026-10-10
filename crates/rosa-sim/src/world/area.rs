@@ -21,14 +21,7 @@ pub struct BlockRecord {
 
 impl BlockRecord {
     fn new(pos: IVec3) -> Box<Self> {
-        Box::new(Self {
-            pos,
-            layer0: [0; CELLS],
-            layer1: [0; CELLS],
-            object: [0; CELLS],
-            item_set: [0; CELLS],
-            taken: [0; CELLS],
-        })
+        Box::new(Self { pos, layer0: [0; CELLS], layer1: [0; CELLS], object: [0; CELLS], item_set: [0; CELLS], taken: [0; CELLS] })
     }
 }
 
@@ -58,7 +51,16 @@ pub struct AreaGrid {
 
 impl AreaGrid {
     pub fn new(chunks: IVec3, origin: Vec3, block_size: f32) -> Self {
-        Self { origin, block_size, chunks, records: Vec::new(), index: HashMap::new(), face_attr: std::cell::Cell::new(0), item_sets: Default::default(), track: Default::default() }
+        Self {
+            origin,
+            block_size,
+            chunks,
+            records: Vec::new(),
+            index: HashMap::new(),
+            face_attr: std::cell::Cell::new(0),
+            item_sets: Default::default(),
+            track: Default::default(),
+        }
     }
 
     pub fn records(&self) -> &[Box<BlockRecord>] {

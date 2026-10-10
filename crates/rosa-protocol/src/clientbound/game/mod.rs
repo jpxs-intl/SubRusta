@@ -1,7 +1,12 @@
 use rosa_math::vector::Vector;
 use serde::{Deserialize, Serialize};
 
-use crate::{CharacterCustomization, clientbound::game::events::Event, codec::{WireWrite, Writer}, serverbound::game::voice::VoiceFrame};
+use crate::{
+    CharacterCustomization,
+    clientbound::game::events::Event,
+    codec::{WireWrite, Writer},
+    serverbound::game::voice::VoiceFrame,
+};
 
 pub mod events;
 
@@ -76,11 +81,7 @@ impl TryFrom<u8> for ItemKind {
     type Error = u8;
 
     fn try_from(v: u8) -> Result<Self, u8> {
-        if (v as usize) < Self::COUNT {
-            Ok(unsafe { std::mem::transmute::<u8, ItemKind>(v) })
-        } else {
-            Err(v)
-        }
+        if (v as usize) < Self::COUNT { Ok(unsafe { std::mem::transmute::<u8, ItemKind>(v) }) } else { Err(v) }
     }
 }
 
@@ -119,11 +120,7 @@ impl TryFrom<u8> for VehicleKind {
     type Error = u8;
 
     fn try_from(v: u8) -> Result<Self, u8> {
-        if (v as usize) < Self::COUNT {
-            Ok(unsafe { std::mem::transmute::<u8, VehicleKind>(v) })
-        } else {
-            Err(v)
-        }
+        if (v as usize) < Self::COUNT { Ok(unsafe { std::mem::transmute::<u8, VehicleKind>(v) }) } else { Err(v) }
     }
 }
 
@@ -160,7 +157,7 @@ pub enum GameState {
     Intermission = 1,
     InGame = 2,
     Restarting = 3,
-    Paused = 4
+    Paused = 4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,7 +165,7 @@ pub struct ServerVoiceData {
     pub player_id: i32,
     pub human_id: i32,
     pub item_id: i32,
-    pub voice_frames: [VoiceFrame; 4]
+    pub voice_frames: [VoiceFrame; 4],
 }
 
 /// One entry of a client's object slot ring: a slot taken by an object (pack) or given back (unpack).
@@ -543,14 +540,13 @@ pub struct ServerGamePacket {
     pub global_event_count: u32,
     pub first_event: u32,
     pub events: Vec<(u32, Event)>,
-
     // if game_state is Intermission or Restarting
     //pub corporation_money: Option<ClientboundGamePacketCorporationMoney>,
 }
 
 impl WireWrite for ServerGamePacket {
     fn write(&self, w: &mut Writer) {
-        w.byte(0x05);
+        w.byte(5);
         w.u32(self.round_number);
         w.u32(self.ticks_since_reset);
 

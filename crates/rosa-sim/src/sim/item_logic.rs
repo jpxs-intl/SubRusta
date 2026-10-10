@@ -4,7 +4,9 @@ use rosa_protocol::{
     GameMode,
     clientbound::game::{
         GameState, ItemKind,
-        events::{Event, ServerEvent, bullet::EventBullet, explosion::EventExplosion, phone_sound::EventPhoneSound, sound::Sound, update_phone::EventUpdatePhone},
+        events::{
+            Event, ServerEvent, bullet::EventBullet, explosion::EventExplosion, phone_sound::EventPhoneSound, sound::Sound, update_phone::EventUpdatePhone,
+        },
     },
 };
 
@@ -12,14 +14,15 @@ use super::{
     Sim,
     bullets::{BULLET_DATA, create_bullet},
     item_state::{Cash, ItemState, PhoneStatus},
+    items::touchables,
 };
-use crate::human::arms::calculate_spread_vector;
 use crate::PlayerId;
+use crate::human::arms::calculate_spread_vector;
+use crate::input::{ITEM_SECONDARY, ITEM_USE};
+use crate::time::TICKS_PER_MINUTE;
 
-const NEVER_DESPAWN: i32 = 0xffff;
-const GROUND_DESPAWN: i32 = 18000;
-const USE: u32 = 1;
-const SECONDARY: u32 = 2;
+const NEVER_DESPAWN: i32 = 65535;
+const GROUND_DESPAWN: i32 = 5 * TICKS_PER_MINUTE;
 const PHONE_BUSY_TICKS: i32 = 359;
 const PHONE_RING_TICKS: i32 = 767;
 const PHONE_DIAL_COOLDOWN: i32 = 180;
@@ -45,7 +48,7 @@ impl Sim {
         let holder = item.parent_human;
         let active = self.vehicles.get(vid).is_some();
         if active && let Some(i) = self.items.get_mut(id) {
-            i.despawn_time = 0xffff;
+            i.despawn_time = 65535;
         }
         let Some(v) = self.vehicles.get_mut(vid) else { return };
         v.locked = true;
@@ -73,7 +76,7 @@ impl Sim {
             match kind {
                 ItemKind::Key => self.key_logic(id),
                 ItemKind::Radio => {
-                    let pressed = self.items.get(id).is_some_and(|i| i.input_flags & USE != 0);
+                    let pressed = self.items.get(id).is_some_and(|i| i.input_flags & ITEM_USE != 0);
                     if let Some(ItemState::Radio { transmitting, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
                         *transmitting = pressed;
                     }
@@ -122,7 +125,7 @@ impl Sim {
         }
         let semi = matches!(kind, ItemKind::Magnum | ItemKind::Pistol);
         let fire_tick = if kind == ItemKind::Magnum { MAGNUM_FIRE_TICK } else { FIRE_TICK };
-        if input & USE != 0 {
+        if input & ITEM_USE != 0 {
             if kind == ItemKind::Magnum || *trigger_ticks <= 1 || semi {
                 *trigger_ticks += 1;
             }
@@ -143,8 +146,11 @@ impl Sim {
             false
         };
 
-        if *rounds == 0 && chamber(&mut self.items) && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
-                *rounds = 1;
+        if *rounds == 0
+            && chamber(&mut self.items)
+            && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state)
+        {
+            *rounds = 1;
         }
 
         let item = self.items.get_mut(id).unwrap();
@@ -179,7 +185,10 @@ impl Sim {
         }
         *rounds -= 1;
         *cooldown = fire_rate;
-        if *rounds == 1 && chamber(&mut self.items) && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
+        if *rounds == 1
+            && chamber(&mut self.items)
+            && let Some(ItemState::Gun { rounds, .. }) = self.items.get_mut(id).map(|i| &mut i.state)
+        {
             *rounds = 1;
         }
     }
@@ -191,16 +200,19 @@ impl Sim {
         let Some(item) = self.items.get(id) else { return };
         let (kind, d, held) = (item.item_type, item.despawn_time, item.parent_human != -1);
         let disk = kind.is_disk();
-        let in_ground_gun = (item.parent_item != -1).then(|| self.items.get(item.parent_item as usize)).flatten().is_some_and(|p| self.item_types[p.item_type as usize].is_gun && p.parent_human == -1);
+        let in_ground_gun = (item.parent_item != -1)
+            .then(|| self.items.get(item.parent_item as usize))
+            .flatten()
+            .is_some_and(|p| self.item_types[p.item_type as usize].is_gun && p.parent_human == -1);
         let never_despawns = matches!(kind, ItemKind::CashRound | ItemKind::CashWorld | ItemKind::Phone | ItemKind::Rope);
-        let refresh = |d: i32| if (d - 1) as u32 <= 0xfffe { NEVER_DESPAWN } else { d };
+        let refresh = |d: i32| if (d - 1) as u32 <= 65534 { NEVER_DESPAWN } else { d };
         let item = self.items.get_mut(id).unwrap();
         let countdown = if held && item.parent_item == -1 {
-            item.despawn_time = if d > 0xffff { NEVER_DESPAWN } else { refresh(d) };
+            item.despawn_time = if d > 65535 { NEVER_DESPAWN } else { refresh(d) };
             false
         } else if item.parent_item != -1 {
             if in_ground_gun && !disk {
-                if d <= 0xffff {
+                if d <= 65535 {
                     true
                 } else if !held {
                     item.despawn_time = refresh(d);
@@ -210,10 +222,10 @@ impl Sim {
                     true
                 }
             } else {
-                item.despawn_time = if d > 0xffff && held { NEVER_DESPAWN } else { refresh(d) };
+                item.despawn_time = if d > 65535 && held { NEVER_DESPAWN } else { refresh(d) };
                 false
             }
-        } else if !disk && d <= 0xffff && !never_despawns {
+        } else if !disk && d <= 65535 && !never_despawns {
             true
         } else {
             item.despawn_time = refresh(d);
@@ -236,7 +248,9 @@ impl Sim {
     }
 
     pub fn mark_item_for_deletion(&mut self, item_id: usize) {
-        if let Some(item) = self.items.get_mut(item_id) { item.despawn_time = 0 }
+        if let Some(item) = self.items.get_mut(item_id) {
+            item.despawn_time = 0
+        }
     }
 
     /// The use key on an item in hand: a briefcase opens or closes when pressed, a burger is eaten when let go, and a
@@ -244,17 +258,17 @@ impl Sim {
     fn use_logic(&mut self, id: usize) {
         let Some(item) = self.items.get(id) else { return };
         let (input, last) = (item.input_flags, item.last_input_flags);
-        let pressed = input & USE != 0;
+        let pressed = input & ITEM_USE != 0;
         let kind = item.item_type;
         if !pressed {
-            if kind == ItemKind::Burger && last & USE != 0 {
+            if kind == ItemKind::Burger && last & ITEM_USE != 0 {
                 self.eat_burger(id);
             } else if let Some(ItemState::Bandage { progress, .. }) = self.items.get_mut(id).map(|i| &mut i.state) {
                 *progress = 0;
             }
             return;
         }
-        if last & USE == 0 {
+        if last & ITEM_USE == 0 {
             let toggled = match kind {
                 ItemKind::Briefcase => Some(ItemKind::BriefcaseOpen),
                 ItemKind::BriefcaseOpen => Some(ItemKind::Briefcase),
@@ -318,7 +332,8 @@ impl Sim {
         *progress += 1;
 
         let p = *progress;
-        if holder != -1 && let Some(h) = self.humans.get_mut(holder as usize)
+        if holder != -1
+            && let Some(h) = self.humans.get_mut(holder as usize)
         {
             h.progress_bar = p;
         }
@@ -349,7 +364,7 @@ impl Sim {
         let item = self.items.get_mut(id).unwrap();
         let (input, last, holder) = (item.input_flags, item.last_input_flags, item.parent_human);
 
-        let rising = input & SECONDARY != 0 && last & SECONDARY == 0;
+        let rising = input & ITEM_SECONDARY != 0 && last & ITEM_SECONDARY == 0;
 
         let holder_player = (holder != -1).then(|| self.humans.get(holder as usize)).flatten().and_then(|h| h.player);
 
@@ -454,7 +469,7 @@ impl Sim {
     fn phone_logic(&mut self, id: usize) {
         let tick = self.tick;
         let item = self.items.get_mut(id).unwrap();
-        let rising = item.input_flags & USE != 0 && item.last_input_flags & USE == 0;
+        let rising = item.input_flags & ITEM_USE != 0 && item.last_input_flags & ITEM_USE == 0;
         let Some(p) = item.state.phone_mut() else { return };
         if p.cooldown > 0 {
             p.cooldown -= 1;
@@ -577,7 +592,11 @@ impl Sim {
 
     /// A fully dialled number rings the phone with that number, or gets the busy tone if it is already in a call.
     fn place_call(&mut self, id: usize, number: i32) {
-        let target = self.items.ids().into_iter().find(|&k| k != id && self.is_phone(k) && self.items.get(k).and_then(|i| i.state.phone()).is_some_and(|q| q.number == number));
+        let target = self
+            .items
+            .ids()
+            .into_iter()
+            .find(|&k| k != id && self.is_phone(k) && self.items.get(k).and_then(|i| i.state.phone()).is_some_and(|q| q.number == number));
         let Some(o) = target else { return };
         let busy = self.items.get(o).unwrap().state.phone().unwrap().connected.is_some();
         let own_number = self.items.get(id).unwrap().state.phone().unwrap().number;
@@ -677,10 +696,9 @@ impl Sim {
                         c.bills = 0;
                         c.codes = code;
                     }
-                    let Sim { humans, bodies, item_grid, items, item_types, vehicles, vehicle_types, .. } = self;
-                    if let Some(h) = humans.get_mut(human) {
-                        let mut touch = super::items::Touchables { grid: item_grid, items, types: item_types, vehicles, vehicle_types, occupied: Vec::new() };
-                        crate::human::inventory::link_item_to_human(h, human, bodies, &mut touch, new, other);
+                    if let Some(h) = self.humans.get_mut(human) {
+                        let mut touch = touchables!(self, Vec::new());
+                        crate::human::inventory::link_item_to_human(h, human, &mut self.bodies, &mut touch, new, other);
                     }
                 }
             }

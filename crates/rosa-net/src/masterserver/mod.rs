@@ -11,7 +11,7 @@ use std::{net::SocketAddr, time::Duration};
 pub struct MasterServer {
     pub address: SocketAddr,
     outbound: Outbound,
-    auth: AuthStore
+    auth: AuthStore,
 }
 
 impl MasterServer {

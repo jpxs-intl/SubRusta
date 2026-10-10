@@ -11,9 +11,6 @@ impl WireRead for InfoRequest {
         let version = r.u8()?;
         let timestamp = r.u32()?;
 
-        Ok(InfoRequest {
-            version,
-            timestamp
-        })
+        Ok(InfoRequest { version, timestamp })
     }
 }

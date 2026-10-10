@@ -9,7 +9,7 @@ pub struct ItemModelVertex {
     pub vertex1: f32,
     #[br(if(version >= 3))]
     pub vertex2: f32,
-    pub padding: u32
+    pub padding: u32,
 }
 
 #[derive(BinRead)]
@@ -22,7 +22,7 @@ pub struct ItemModelFace {
     #[br(if(version > 1))]
     _unk3: u32,
     #[br(if(version < 1))]
-    _unk4: u64
+    _unk4: u64,
 }
 
 #[derive(BinRead)]
@@ -37,5 +37,5 @@ pub struct ItemModel {
 
     pub face_count: u32,
     #[br(args { count: face_count as usize, inner: (version,) })]
-    pub faces: Vec<ItemModelFace>
+    pub faces: Vec<ItemModelFace>,
 }

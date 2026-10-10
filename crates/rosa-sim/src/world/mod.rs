@@ -12,46 +12,45 @@ pub enum Weekday {
     Saturday = 6,
 }
 
-pub mod map;
-pub mod grid;
-pub mod roads;
-pub mod streets;
-pub mod ground;
-pub mod collide;
-pub mod blocks;
 pub mod area;
-pub mod city;
+pub mod blocks;
 pub mod building;
+pub mod capsule;
+pub mod city;
+pub mod city_objects;
+pub mod collide;
+pub mod grid;
+pub mod ground;
+pub mod item_sets;
 pub mod level;
+pub mod map;
 pub mod mesh;
 pub mod meshes;
-pub mod trace;
-pub mod capsule;
-pub mod city_objects;
+pub mod roads;
 pub mod sphere;
 pub mod sphere_cast;
-pub mod item_sets;
+pub mod streets;
+pub mod trace;
 pub mod track;
 
 pub struct World {
     sun_angle: u16,
     sun_axial_tilt: u16,
     pub weekday: Weekday,
-    pub map: Map
+    pub map: Map,
 }
 
 impl World {
     pub fn new(map_name: String) -> Self {
-        World {
-            sun_angle: 1000,
-            sun_axial_tilt: 1000,
-            weekday: Weekday::Monday,
-            map: Map::load_map(map_name).unwrap()
-        }
+        World { sun_angle: 1000, sun_axial_tilt: 1000, weekday: Weekday::Monday, map: Map::load_map(map_name).unwrap() }
     }
 
-    pub fn sun_angle(&self) -> u16 { self.sun_angle }
-    pub fn sun_axial_tilt(&self) -> u16 { self.sun_axial_tilt }
+    pub fn sun_angle(&self) -> u16 {
+        self.sun_angle
+    }
+    pub fn sun_axial_tilt(&self) -> u16 {
+        self.sun_axial_tilt
+    }
 
     /// The sun's angle and axial tilt (game_mode_state +0x2b4, +0x2b8), as the initial sync sends them: 16-bit angles,
     /// the top bit for negative.

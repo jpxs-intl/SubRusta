@@ -1,17 +1,21 @@
 //! Vehicles: the type table built from the body files and the vehicles in the world.
 
-pub mod sbv;
 pub mod physics;
+pub mod sbv;
 pub mod types;
 
 use glam::Vec3;
-use rosa_physics::{RigidBodies, RotMatrix, Table, body::RigidBodyType, bond::{Bond, ItemAngular, ItemPoint}};
+use rosa_physics::{
+    RigidBodies, RotMatrix, Table,
+    body::RigidBodyType,
+    bond::{Bond, ItemAngular, ItemPoint},
+};
 
 use types::VehicleType;
 
-pub const MAX_VEHICLES: usize = 0x200;
+pub const MAX_VEHICLES: usize = 512;
 /// Only the first 128 vehicles are ever sent to clients.
-pub const NETWORKED_VEHICLES: usize = 0x80;
+pub const NETWORKED_VEHICLES: usize = 128;
 pub const MAX_SEATS: usize = 8;
 const WHEEL_HALF_WIDTH: f32 = 0.125;
 const WHEEL_HEALTH: i32 = 8;
@@ -179,7 +183,16 @@ fn body_centre(pos: Vec3, rot: &RotMatrix, com: Vec3) -> Vec3 {
 /// spawn_vehicle: a vehicle of type `kind` at `pos` turned by `rot`, its chassis body at the type's centre of mass
 /// and a body for each wheel.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, types: &[VehicleType], kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: RotMatrix, vel: Option<Vec3>) -> Option<usize> {
+pub fn spawn_vehicle(
+    vehicles: &mut Table<Vehicle>,
+    bodies: &mut RigidBodies,
+    types: &[VehicleType],
+    kind: rosa_protocol::clientbound::game::VehicleKind,
+    color: i32,
+    pos: Vec3,
+    rot: RotMatrix,
+    vel: Option<Vec3>,
+) -> Option<usize> {
     let t = types.get(kind as usize)?;
     let centre = body_centre(pos, &rot, t.center_of_mass);
     let body = bodies.create(RigidBodyType::Vehicle, centre, rot, vel, t.inertia, t.mass)?;
@@ -224,10 +237,7 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
     let mut bogies = Vec::new();
     if kind == rosa_protocol::clientbound::game::VehicleKind::Train {
         let [_, r1, r2] = rot;
-        let ends = [
-            (centre - r1 + r2 * -6.0, Vec3::new(0.0, -1.0, -6.0)),
-            (-1.25 * r1 + centre + r2 * 6.0, Vec3::new(0.0, -1.0, 6.0)),
-        ];
+        let ends = [(centre - r1 + r2 * -6.0, Vec3::new(0.0, -1.0, -6.0)), (-1.25 * r1 + centre + r2 * 6.0, Vec3::new(0.0, -1.0, 6.0))];
         for (at, anchor) in ends {
             let bogie = bodies.create(RigidBodyType::Vehicle, at, rot, vel, BOGIE_INERTIA, BOGIE_MASS)?;
             bodies.create_bond(Bond::ItemPoint(ItemPoint::vehicle(body, bogie, anchor, Vec3::ZERO)));
@@ -256,7 +266,7 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         health: FULL_HEALTH,
         last_driver: -1,
         color,
-        despawn_time: 0xffff,
+        despawn_time: 65535,
         spawned_state: 0,
         locked: false,
         owner: -1,

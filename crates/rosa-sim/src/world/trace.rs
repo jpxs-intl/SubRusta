@@ -5,8 +5,8 @@ use crate::world::{
     city_objects::{object_pose, segment_intersect_object},
     collide::{TraceHit, calculate_face_normal, segment_intersect_face},
     ground::Ground,
-    mesh::{CUBE_CORNERS, CUBE_FACES, CUBE_NORMALS},
     item_sets::{SetHit, entry_pose},
+    mesh::{CUBE_CORNERS, CUBE_FACES, CUBE_NORMALS},
     meshes::BlockMeshes,
 };
 
@@ -50,11 +50,7 @@ impl AreaFrame {
             size: s,
             inv: 1.0 / s,
             min: o,
-            max: Vec3::new(
-                c.x as f32 * 8.0 * 8.0 * s + o.x,
-                c.y as f32 * 8.0 * 8.0 * s + o.y,
-                s * c.z as f32 * 8.0 * 8.0 + o.z,
-            ),
+            max: Vec3::new(c.x as f32 * 8.0 * 8.0 * s + o.x, c.y as f32 * 8.0 * 8.0 * s + o.y, s * c.z as f32 * 8.0 * 8.0 + o.z),
         }
     }
 
@@ -100,10 +96,12 @@ fn scaled_cell_mesh(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s
     let mut best = 1.0f32;
     let mut out = (Vec3::ZERO, Vec3::ZERO, 0u32);
     let take = |n: Vec3, a: Vec3, b: Vec3, c: Vec3, attr: u32, best: &mut f32, out: &mut (Vec3, Vec3, u32)| {
-        if let Some((t, p)) = segment_intersect_face(n, start, end, a, b, c) && !(*best <= t) {
-                *best = t;
-                *out = (p, n, attr);
-            }
+        if let Some((t, p)) = segment_intersect_face(n, start, end, a, b, c)
+            && !(*best <= t)
+        {
+            *best = t;
+            *out = (p, n, attr);
+        }
     };
     for (i, q) in mesh.quads.iter().enumerate() {
         let [a, b, c, d] = q.map(|i| sc(mesh.verts[i as usize]));
@@ -242,12 +240,14 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
                     }
                     _ => (None, cell, v),
                 };
-                if let Some((t, p, nrm, attr)) = hit && !(best <= t) {
-                        best = t;
-                        let p = f.rotate_back(p);
-                        let pos = p + f.origin;
-                        result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr, -1, None));
-                    }
+                if let Some((t, p, nrm, attr)) = hit
+                    && !(best <= t)
+                {
+                    best = t;
+                    let p = f.rotate_back(p);
+                    let pos = p + f.origin;
+                    result = Some((TraceHit { fraction: t, pos, normal: f.rotate_back(nrm) }, at, w, attr, -1, None));
+                }
             }
             if 1.0 > best {
                 return result;
@@ -285,10 +285,12 @@ pub fn line_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, e
 pub fn line_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3) -> Option<LevelHit> {
     let mut best: Option<LevelHit> = None;
     let mut frac = 1.0f32;
-    if let Some(h) = ground.line_intersect_landscape(start, end) && frac > h.fraction {
-            frac = h.fraction;
-            best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0, object: -1, set: None });
-        }
+    if let Some(h) = ground.line_intersect_landscape(start, end)
+        && frac > h.fraction
+    {
+        frac = h.fraction;
+        best = Some(LevelHit { hit: h, area: -1, block: IVec3::splat(-1), cell: 0, face_attr: 0, object: -1, set: None });
+    }
     if let Some((h, block, cell, face_attr, object, set)) = line_intersect_area(area, meshes, start, end) {
         if !(frac <= h.fraction) {
             frac = h.fraction;

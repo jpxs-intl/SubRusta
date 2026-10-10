@@ -9,7 +9,9 @@ pub struct Char64 {
 }
 
 impl Default for Char64 {
-    fn default() -> Self { Self { string: [0; 64] } }
+    fn default() -> Self {
+        Self { string: [0; 64] }
+    }
 }
 
 impl Debug for Char64 {

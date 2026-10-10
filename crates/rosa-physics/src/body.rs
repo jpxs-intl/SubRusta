@@ -11,7 +11,7 @@ pub enum RigidBodyType {
     HumanBone = 0,
     Vehicle = 1,
     Wheel = 2,
-    Item = 3
+    Item = 3,
 }
 
 #[derive(Clone, Debug)]
@@ -186,11 +186,33 @@ impl RigidBodies {
 
     /// add_collision_rigidbody_on_rigidbody: a one-tick contact pushing `body_a` along `normal` and `body_b` against it.
     #[allow(clippy::too_many_arguments)]
-    pub fn add_body_contact(&mut self, body_a: usize, body_b: usize, offset_a: Vec3, offset_b: Vec3, normal: Vec3, depth: f32, friction: f32, depth_scale: f32, softness: f32) {
+    pub fn add_body_contact(
+        &mut self,
+        body_a: usize,
+        body_b: usize,
+        offset_a: Vec3,
+        offset_b: Vec3,
+        normal: Vec3,
+        depth: f32,
+        friction: f32,
+        depth_scale: f32,
+        softness: f32,
+    ) {
         let (Some(a), Some(b)) = (self.bodies.get(body_a), self.bodies.get(body_b)) else { return };
         let inv = 1.0 / (a.mass + b.mass);
         let (weight_a, weight_b) = (b.mass * inv, a.mass * inv);
-        self.bonds.insert(Bond::BodyContact(BodyContact { body_a, body_b, offset_a, offset_b, normal, bias: depth * depth_scale, softness, friction, weight_a, weight_b }));
+        self.bonds.insert(Bond::BodyContact(BodyContact {
+            body_a,
+            body_b,
+            offset_a,
+            offset_b,
+            normal,
+            bias: depth * depth_scale,
+            softness,
+            friction,
+            weight_a,
+            weight_b,
+        }));
     }
 
     /// How many bonds and contacts are in the table.
@@ -259,8 +281,7 @@ impl RigidBodies {
 fn solve_world_contact(b: &mut RigidBody, c: &Contact) {
     let (r, n, w, v) = (c.offset, c.normal, b.ang_vel, b.vel);
     let k = -c.softness;
-    let bias = c.bias;
-    let u = (r.cross(w) + v) * k + bias * n;
+    let u = (r.cross(w) + v) * k + c.bias * n;
     let d = u.dot(n);
     if !(d > 0.0) {
         return;

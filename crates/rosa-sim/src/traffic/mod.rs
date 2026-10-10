@@ -12,9 +12,9 @@ pub mod spawn;
 /// The route steps a car's record holds (+0x8c, 0x14 each, up to +0x584).
 pub const MAX_ROUTE: usize = 63;
 /// The streets the Round City traffic hack keeps cars off and treats as one loop.
-pub const LOOP_STREET: i32 = 0x43;
-pub const LOOP_STREET_2: i32 = 0x44;
-pub const HIDDEN_STREET: i32 = 0x17;
+pub const LOOP_STREET: i32 = 67;
+pub const LOOP_STREET_2: i32 = 68;
+pub const HIDDEN_STREET: i32 = 23;
 /// Each street lists at most this many of the cars on it (+0x22c count, +0x230).
 pub const MAX_STREET_CARS: usize = 256;
 
@@ -124,7 +124,12 @@ pub struct Traffic {
 
 impl Traffic {
     pub fn new(map: &StreetMap, roundcity: bool) -> Self {
-        Traffic { street_cars: vec![Vec::new(); map.streets.len()], signals: vec![Signals::default(); map.intersections.len()], roundcity, ..Default::default() }
+        Traffic {
+            street_cars: vec![Vec::new(); map.streets.len()],
+            signals: vec![Signals::default(); map.intersections.len()],
+            roundcity,
+            ..Default::default()
+        }
     }
 
     /// The part of reset_game that empties the traffic.
@@ -148,7 +153,7 @@ pub fn random_street(map: &StreetMap) -> i32 {
     let n = map.streets.len() as i32;
     let wide = |s: i32| map.streets.get(s as usize).is_some_and(|st| st.left_lanes > 3 || st.right_lanes > 3);
     let mut r = rand::random_range(0..n);
-    for _ in 0..0x400 {
+    for _ in 0..1024 {
         if !wide(r) {
             break;
         }

@@ -23,7 +23,7 @@ pub(crate) const TYRE_BURST: i32 = 1;
 const WRECKED: i32 = 2;
 const DELETED: i32 = 3;
 /// A despawn time above this never runs out.
-const NEVER_DESPAWNS: i32 = 0xfffe;
+const NEVER_DESPAWNS: i32 = 65534;
 const ITEM_FRICTION: f32 = 0.4;
 const ITEM_DEPTH_SCALE: f32 = 1.0 / 64.0;
 const ITEM_SOFTNESS: f32 = 1.0 / 32.0;
@@ -59,7 +59,12 @@ pub(crate) struct VehicleSight {
 
 /// The vehicle part of append_object_packet for one connection: every vehicle's priority grown, then the most overdue
 /// sent with their tiers.
-pub(crate) fn vehicle_section(priority: &mut Vec<i32>, vehicles: &[(ServerVehicleObject, VehicleSight)], camera: Vec3, backlog: u16) -> Vec<ServerVehicleObject> {
+pub(crate) fn vehicle_section(
+    priority: &mut Vec<i32>,
+    vehicles: &[(ServerVehicleObject, VehicleSight)],
+    camera: Vec3,
+    backlog: u16,
+) -> Vec<ServerVehicleObject> {
     priority.resize(NETWORKED_VEHICLES, 0);
     for (o, s) in vehicles {
         let d = camera - s.pos;
@@ -82,7 +87,13 @@ pub(crate) fn vehicle_section(priority: &mut Vec<i32>, vehicles: &[(ServerVehicl
         .enumerate()
         .map(|(rank, i)| {
             let o = &vehicles[i].0;
-            let tier = if rank < TIER_0 { 0 } else if rank < TIER_1 { 1 } else { 2 };
+            let tier = if rank < TIER_0 {
+                0
+            } else if rank < TIER_1 {
+                1
+            } else {
+                2
+            };
             if tier < 2 {
                 priority[o.vehicle_id as usize] = 0;
             }
@@ -112,9 +123,13 @@ impl Sim {
         let mut args = message.split_whitespace().skip(1).map(|a| a.parse::<i32>().ok());
         let kind = args.next().flatten().unwrap_or(0);
         let color = args.next().flatten().unwrap_or(0);
-        let kind = u8::try_from(kind).ok().and_then(|k| rosa_protocol::clientbound::game::VehicleKind::try_from(k).ok()).filter(|&k| self.vehicle_types.get(k as usize).is_some_and(|t| !t.nodes.is_empty()));
+        let kind = u8::try_from(kind)
+            .ok()
+            .and_then(|k| rosa_protocol::clientbound::game::VehicleKind::try_from(k).ok())
+            .filter(|&k| self.vehicle_types.get(k as usize).is_some_and(|t| !t.nodes.is_empty()));
         let Some(kind) = kind else {
-            let ready: Vec<String> = self.vehicle_types.iter().enumerate().filter(|(_, t)| !t.nodes.is_empty()).map(|(k, t)| format!("{k} {}", t.name)).collect();
+            let ready: Vec<String> =
+                self.vehicle_types.iter().enumerate().filter(|(_, t)| !t.nodes.is_empty()).map(|(k, t)| format!("{k} {}", t.name)).collect();
             self.send_chat(&format!("Vehicle types: {}", ready.join(", ")), rosa_protocol::clientbound::game::events::chat::ChatType::Announce, -1, 0);
             return;
         };
@@ -139,7 +154,12 @@ impl Sim {
             .filter(|(id, v)| *id < NETWORKED_VEHICLES && v.controllable_state != HIDDEN_STATE)
             .map(|(id, v)| {
                 let steer = ((v.steer as f64 / 180.0_f64.to_radians() * BYTE) as i32).clamp(-255, 255);
-                let wheels = std::array::from_fn(|k| v.wheels.get(k).filter(|_| k < NETWORKED_WHEELS).map_or([0; 3], |w| [to_byte(w.visual_height, 0), to_byte(w.spin, -255), to_byte(w.skid, 0)]));
+                let wheels = std::array::from_fn(|k| {
+                    v.wheels
+                        .get(k)
+                        .filter(|_| k < NETWORKED_WHEELS)
+                        .map_or([0; 3], |w| [to_byte(w.visual_height, 0), to_byte(w.spin, -255), to_byte(w.skid, 0)])
+                });
                 let object = ServerVehicleObject {
                     vehicle_id: id as u16,
                     traffic_car: v.traffic_car,
@@ -150,7 +170,15 @@ impl Sim {
                     engine_rpm: v.engine_rpm,
                     tier: 0,
                 };
-                (object, VehicleSight { pos: v.pos, steer_control: v.steer_control, vel: v.vel, train: v.kind == rosa_protocol::clientbound::game::VehicleKind::Train })
+                (
+                    object,
+                    VehicleSight {
+                        pos: v.pos,
+                        steer_control: v.steer_control,
+                        vel: v.vel,
+                        train: v.kind == rosa_protocol::clientbound::game::VehicleKind::Train,
+                    },
+                )
             })
             .collect()
     }
@@ -285,7 +313,13 @@ impl Sim {
             for id in found {
                 let Some(item) = self.items.get(id) else { continue };
                 let (mn, mx) = (item.aabb_min, item.aabb_max);
-                if mn.x > v.bounds_max.x || v.bounds_min.x > mx.x || mn.z > v.bounds_max.z || v.bounds_min.z > mx.z || mn.y > v.bounds_max.y || v.bounds_min.y > mx.y {
+                if mn.x > v.bounds_max.x
+                    || v.bounds_min.x > mx.x
+                    || mn.z > v.bounds_max.z
+                    || v.bounds_min.z > mx.z
+                    || mn.y > v.bounds_max.y
+                    || v.bounds_min.y > mx.y
+                {
                     continue;
                 }
                 let Some(item_hull) = &self.item_types[item.item_type as usize].hull else { continue };

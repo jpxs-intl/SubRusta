@@ -7,7 +7,7 @@ pub struct EventBulletHit {
     pub pos: Vector,
     pub normal: Vector,
     pub hit_type: i32,
-    pub unk: i32
+    pub unk: i32,
 }
 
 impl WireWrite for EventBulletHit {

@@ -10,7 +10,7 @@ pub struct EventUpdateVehicle {
     /// The window or wheel it concerns.
     pub part: i32,
     pub pos: Vector,
-    pub velocity: Vector
+    pub velocity: Vector,
 }
 
 impl WireWrite for EventUpdateVehicle {

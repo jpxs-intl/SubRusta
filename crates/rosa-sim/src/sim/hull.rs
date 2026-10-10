@@ -1,7 +1,11 @@
 use glam::Vec3;
 use rosa_physics::RotMatrix;
 
-use crate::world::{capsule::capsule_intersect_triangle, collide::{calculate_face_normal, segment_intersect_face}, mesh::CUBE_FACES};
+use crate::world::{
+    capsule::capsule_intersect_triangle,
+    collide::{calculate_face_normal, segment_intersect_face},
+    mesh::CUBE_FACES,
+};
 
 const BOX_EDGES: [[usize; 2]; 12] = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 5], [2, 6], [3, 7], [4, 5], [5, 6], [6, 7], [7, 4]];
 const PRISM_SIDES: usize = 6;
@@ -34,10 +38,7 @@ pub struct ConvexHull {
 impl ConvexHull {
     /// A hull of one group around the origin, cast from every vertex.
     pub(crate) fn new(verts: Vec<Vec3>, faces: Vec<[usize; 4]>, edges: Vec<[usize; 2]>) -> Self {
-        let faces = faces
-            .into_iter()
-            .map(|f| HullFace { verts: f, normal: calculate_face_normal(verts[f[0]], verts[f[1]], verts[f[2]]) })
-            .collect();
+        let faces = faces.into_iter().map(|f| HullFace { verts: f, normal: calculate_face_normal(verts[f[0]], verts[f[1]], verts[f[2]]) }).collect();
         let group = HullGroup { center: Vec3::ZERO, verts: (0..verts.len()).collect(), faces, edges };
         Self { verts, groups: vec![group] }
     }
@@ -136,12 +137,7 @@ impl ConvexHull {
     /// transform_collision_mesh_vertices: the hull's vertices placed at `pos` with orientation `rot`.
     pub fn world_verts(&self, pos: Vec3, rot: &RotMatrix) -> Vec<Vec3> {
         let [r0, r1, r2] = *rot;
-        self.verts
-            .iter()
-            .map(|v| {
-                v.x * r0 + v.y * r1 + v.z * r2 + pos
-            })
-            .collect()
+        self.verts.iter().map(|v| v.x * r0 + v.y * r1 + v.z * r2 + pos).collect()
     }
 
     /// capsule_intersect_hull_face_groups_max_distance: the face hit with the greatest axis distance (zero-distance hits never count).

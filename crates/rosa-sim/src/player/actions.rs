@@ -3,7 +3,7 @@ use rosa_protocol::serverbound::game::actions::GameAction;
 pub struct ActionQueue {
     ring: [Option<GameAction>; 64],
     pub write: u8,
-    applied: u8
+    applied: u8,
 }
 
 impl Default for ActionQueue {

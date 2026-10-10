@@ -118,10 +118,7 @@ impl Sim {
             return;
         };
 
-        if player.menu as u8 == id
-            && (player.human.is_some() || player.ghost_human)
-            && matches!(id, 14..=19)
-        {
+        if player.menu as u8 == id && (player.human.is_some() || player.ghost_human) && matches!(id, 14..=19) {
             return self.round_buy_menu(player_id, action.button);
         }
 
@@ -133,17 +130,11 @@ impl Sim {
             return self.bank_menu_action(player_id, action.button);
         }
 
-        if self.gamemode == GameMode::World
-            && player.menu as u8 == id
-            && player.human.is_some()
-            && matches!(id, 20..=26)
-        {
+        if self.gamemode == GameMode::World && player.menu as u8 == id && player.human.is_some() && matches!(id, 20..=26) {
             return self.corp_menu_action(player_id, id, action.button as i32);
         }
 
-        if matches!(self.gamemode, GameMode::Round | GameMode::Eliminator)
-            && matches!(action.menu, Menu::Lobby)
-        {
+        if matches!(self.gamemode, GameMode::Round | GameMode::Eliminator) && matches!(action.menu, Menu::Lobby) {
             return self.round_lobby(player_id, action.button);
         }
 
@@ -169,21 +160,14 @@ impl Sim {
     fn item_command(&mut self, player_id: PlayerId, message: &str) {
         let arg = message.trim_start_matches("/item").trim().to_lowercase();
         let kinds = (0..ItemKind::COUNT as u8).filter_map(|k| ItemKind::try_from(k).ok());
-        let kind = kinds.clone().find(|k| {
-            arg.parse::<u8>().ok() == Some(*k as u8) || format!("{k:?}").to_lowercase() == arg
-        });
+        let kind = kinds.clone().find(|k| arg.parse::<u8>().ok() == Some(*k as u8) || format!("{k:?}").to_lowercase() == arg);
         match kind {
             Some(k) => {
                 self.spawn_item_for(player_id, k, Vec3::Z);
             }
             None => {
                 let names: Vec<String> = kinds.map(|k| format!("{k:?}").to_lowercase()).collect();
-                self.send_chat(
-                    &format!("/item {}", names.join(" ")),
-                    ChatType::Announce,
-                    -1,
-                    0,
-                );
+                self.send_chat(&format!("/item {}", names.join(" ")), ChatType::Announce, -1, 0);
             }
         }
     }
@@ -197,9 +181,7 @@ impl Sim {
             None => None,
             Some("reset") => Some(1.0),
             Some(v) => match v.parse::<f32>() {
-                Ok(g) if g.is_finite() && (-1000.0..=1000.0).contains(&g) => {
-                    Some(g / EARTH_GRAVITY)
-                }
+                Ok(g) if g.is_finite() && (-1000.0..=1000.0).contains(&g) => Some(g / EARTH_GRAVITY),
                 _ => {
                     self.send_chat("Usage: /gravity [m/s² | reset]", ChatType::Announce, -1, 0);
                     return;
@@ -218,23 +200,14 @@ impl Sim {
     }
 
     fn phone_command(&mut self, player_id: PlayerId, message: &str) {
-        let number = message
-            .trim_start_matches("/phone")
-            .trim()
-            .parse::<i32>()
-            .unwrap_or(9999);
+        let number = message.trim_start_matches("/phone").trim().parse::<i32>().unwrap_or(9999);
         let Some(id) = self.spawn_item_for(player_id, ItemKind::Phone, Vec3::Z) else {
             return;
         };
         if let Some(p) = self.items.get_mut(id).and_then(|i| i.state.phone_mut()) {
             p.number = number;
         }
-        self.send_chat(
-            &format!("Phone {number} spawned"),
-            ChatType::Announce,
-            -1,
-            0,
-        );
+        self.send_chat(&format!("Phone {number} spawned"), ChatType::Announce, -1, 0);
     }
 
     pub(crate) fn on_chat_action(&mut self, player_id: PlayerId, action: ChatAction) {
@@ -258,11 +231,7 @@ impl Sim {
                 m if m.starts_with("/gravity") => return self.gravity_command(m),
                 "/stocks" => {
                     if let Some(p) = self.players.get_mut(player_id.idx()) {
-                        p.menu = if p.menu == MenuType::RoundCorpStock {
-                            MenuType::Empty
-                        } else {
-                            MenuType::RoundCorpStock
-                        };
+                        p.menu = if p.menu == MenuType::RoundCorpStock { MenuType::Empty } else { MenuType::RoundCorpStock };
                     }
                     return;
                 }
@@ -292,18 +261,9 @@ impl Sim {
             return self.admin_message(player_id, &action.message);
         }
 
-        let speaker = self
-            .players
-            .get(player_id.idx())
-            .and_then(|p| p.human)
-            .filter(|&h| self.humans.get(h).is_some_and(|h| h.old_health > 0));
+        let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.old_health > 0));
         match (self.gamestate, speaker) {
-            (GameState::Intermission, _) | (_, None) => self.send_chat(
-                &action.message,
-                ChatType::Announce,
-                player_id.idx() as i32,
-                0,
-            ),
+            (GameState::Intermission, _) | (_, None) => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
             (_, Some(human)) => self.send_chat(&action.message, ChatType::Chat, human as i32, 0),
         }
     }

@@ -7,18 +7,18 @@ const MISSION_ROWS: i32 = 7;
 const INTEL_ROW: i32 = -2;
 const UPLOAD_ROW: i32 = -1;
 const EXIT_ROW: i32 = 7;
-const CONNECT_TICKS: i32 = 0x100;
-const UPLOAD_TICKS: i32 = 0xff;
+const CONNECT_TICKS: i32 = 256;
+const UPLOAD_TICKS: i32 = 255;
 const HIGHLIGHT: u8 = 0xe8;
 const BUTTON: u8 = 0xb8;
 const TITLE: u8 = 0xf0;
-const KEY_UP: i32 = 0x10;
-const KEY_DOWN: i32 = 0x11;
-const KEY_ENTER: i32 = 0xa;
+const KEY_UP: i32 = 16;
+const KEY_DOWN: i32 = 17;
+const KEY_ENTER: i32 = 10;
 const KEY_BACK: i32 = 8;
 const PAGE: i32 = 16;
 /// An intel request can be made from states 1 to 8; 0 asked, 11 faxed.
-const INTEL_FAXED: i32 = 0xb;
+const INTEL_FAXED: i32 = 11;
 const INTEL_ASKABLE: i32 = 8;
 
 /// MISSION.EXE's state (item +0x1660 on): what the connection is for (0 the menu, 1 an upload) and its ticks left,
@@ -95,7 +95,11 @@ impl Sim {
                     EXIT_ROW => b"EXIT".to_vec(),
                     _ => {
                         let m = self.world_missions.missions.get(r as usize).cloned().unwrap_or_default();
-                        let mut s = if m.state != 0 { format!("{}. PROJECT {}                ", r + 1, m.names[3]) } else { format!("{}. UNKNOWN                   ", r + 1) };
+                        let mut s = if m.state != 0 {
+                            format!("{}. PROJECT {}                ", r + 1, m.names[3])
+                        } else {
+                            format!("{}. UNKNOWN                   ", r + 1)
+                        };
                         s.truncate(24);
                         s += &m.teams[team].word;
                         s.into_bytes()
@@ -171,8 +175,8 @@ impl Sim {
                 match row {
                     0 => c.field(0, b"UPLOADING", 16, TITLE),
                     1 => {
-                        let done = (0xff - c.mission.timer) >> 4;
-                        let bar: Vec<u8> = (0..16).map(|k| if done < k { b' ' } else { 0x7f }).collect();
+                        let done = (255 - c.mission.timer) >> 4;
+                        let bar: Vec<u8> = (0..16).map(|k| if done < k { b' ' } else { 127 }).collect();
                         c.field(1, &bar, 16, TITLE);
                     }
                     _ => c.lines[row][0] = 0,
@@ -233,7 +237,10 @@ impl Sim {
                 KEY_ENTER => match s.selected {
                     UPLOAD_ROW => {
                         let dir = s.dir;
-                        s.files = self.fs.volume(vol).map_or(Vec::new(), |v| v.files.iter().enumerate().filter(|(_, f)| f.dir == dir).map(|(k, _)| k as i32).collect());
+                        s.files = self
+                            .fs
+                            .volume(vol)
+                            .map_or(Vec::new(), |v| v.files.iter().enumerate().filter(|(_, f)| f.dir == dir).map(|(k, _)| k as i32).collect());
                         s.page = 2;
                         s.button = 0;
                         return self.mission_upload(id, c);

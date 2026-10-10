@@ -3,7 +3,7 @@ use crate::sim::Sim;
 
 /// The text lines clients are sent (0x56b7f640, 0x9c each): a memo's (kind 0) or a computer's (kind 1) line,
 /// created afresh whenever the line changes and acknowledged per connection.
-pub const LINKS: usize = 0x4000;
+pub const LINKS: usize = 16384;
 pub const KIND_MEMO: i32 = 0;
 pub const KIND_COMPUTER: i32 = 1;
 /// The item slots a line link takes (item +0x170 mask, +0x178 ids).
@@ -76,7 +76,8 @@ impl Sim {
             self.links.free(old);
         }
         let Some(free) = self.links.links.iter().position(|k| !k.active) else { return -1 };
-        self.links.links[free] = Link { active: true, kind, tick: self.tick as i32, item: id as i32, line, text: text[..len].to_vec(), colors: colors[..len].to_vec() };
+        self.links.links[free] =
+            Link { active: true, kind, tick: self.tick as i32, item: id as i32, line, text: text[..len].to_vec(), colors: colors[..len].to_vec() };
         self.set_link_slot(id, free as i32, line);
         free as i32
     }

@@ -102,7 +102,7 @@ impl StaticDims {
                 dims.push(if o % 2 == 0 { *s } else { IVec3::new(s.z, s.y, s.x) });
             }
         }
-        
+
         Self { dims }
     }
 }

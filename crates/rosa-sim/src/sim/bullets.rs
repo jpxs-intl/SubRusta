@@ -10,12 +10,17 @@ use super::{
     vehicles::{TYRE_BURST, WINDOW_BROKEN},
 };
 use crate::{
-    PlayerId, human::{
-        BoneId, damage::{damage_human, trace_ray_human}, physics::{HumanOutput, add_bullet_hole},
-    }, vehicle::physics::{VehicleHit, VehiclePart, trace_vehicle_parts}, world::{capsule::CapsuleHit, trace::line_intersect_level},
+    PlayerId,
+    human::{
+        BoneId,
+        damage::{damage_human, trace_ray_human},
+        physics::{HumanOutput, add_bullet_hole},
+    },
+    vehicle::physics::{VehicleHit, VehiclePart, trace_vehicle_parts},
+    world::{capsule::CapsuleHit, trace::line_intersect_level},
 };
 
-pub const MAX_BULLETS: usize = 0x4000;
+pub const MAX_BULLETS: usize = 16384;
 const LIFETIME: i32 = 600;
 const BULLET_GRAVITY: f32 = 0.0027222224;
 const HIT_WORLD: i32 = 0;
@@ -24,19 +29,14 @@ const HIT_VEHICLE: i32 = 2;
 const VEHICLE_DAMAGE_SCALE: f32 = 1.5;
 const TYRE_BURST_RADIUS: f32 = 0.75;
 const DAMAGE_SCALE: f32 = 5.5;
-const TICKS_PER_SECOND: f32 = 60.0;
+const TICKS_PER_SECOND: f32 = crate::time::TICKS_PER_SECOND as f32;
 const DAMAGE_FLOOR: f32 = 2.0;
 const LIGHT_BONE: f32 = 6.0;
 const LIGHT_BONE_MASS: f32 = 3.0;
 const IMPULSE: f32 = 3.0;
 
 /// bullet_data: each bullet type's mass (damage and recoil) and drag.
-pub const BULLET_DATA: [(f32, f32); 4] = [
-    (0.01, 0.004560367),
-    (0.0062, 0.0039160457),
-    (0.008, 0.007952156),
-    (0.016, 0.005832072),
-];
+pub const BULLET_DATA: [(f32, f32); 4] = [(0.01, 0.004560367), (0.0062, 0.0039160457), (0.008, 0.007952156), (0.016, 0.005832072)];
 
 /// A bullet in flight (bullets, 0x5c each).
 #[derive(Clone, Debug)]
@@ -220,7 +220,16 @@ impl Sim {
                     continue;
                 }
                 let vel = self.bullets[i].vel;
-                let hole = CapsuleHit { pos: level.hit.pos, normal: level.hit.normal, dist: 0.0, area: level.area, block: level.block, cell: level.cell, face_attr: level.face_attr, set: level.set };
+                let hole = CapsuleHit {
+                    pos: level.hit.pos,
+                    normal: level.hit.normal,
+                    dist: 0.0,
+                    area: level.area,
+                    block: level.block,
+                    cell: level.cell,
+                    face_attr: level.face_attr,
+                    set: level.set,
+                };
                 let mut out = Vec::new();
                 let kind = if add_bullet_hole(&mut self.world.map, hole, level.hit.pos, vel, &mut out)
                     && let Some(HumanOutput::Glass(b)) = out.pop()
@@ -277,11 +286,7 @@ impl Sim {
                 self.events.push(Event { tick_created: self.tick, kind: ServerEvent::BulletHit(e) });
 
                 if hit.bone == BoneId::Head {
-                    damage = if damage <= 24 {
-                        if damage < 10 { damage * 2 } else { damage + damage * 2 }
-                    } else {
-                        damage << 2
-                    };
+                    damage = if damage <= 24 { if damage < 10 { damage * 2 } else { damage + damage * 2 } } else { damage << 2 };
                 }
             } else {
                 damage = 0;
@@ -311,7 +316,7 @@ impl Sim {
         for i in 0..self.bullets.len() {
             let b = &mut self.bullets[i];
 
-            if b.time <= 0xffff {
+            if b.time <= 65535 {
                 b.time -= 1;
 
                 if b.time <= 0 {

@@ -103,7 +103,17 @@ impl BoneTemplate {
     }
 }
 
-const fn bone(parent: BoneId, offset: Vec3, joint: Vec3, half_extents: Vec3, mass: f32, limit_min: Vec3, limit_max: Vec3, shape: i32, shape_size: [f32; 2]) -> BoneTemplate {
+const fn bone(
+    parent: BoneId,
+    offset: Vec3,
+    joint: Vec3,
+    half_extents: Vec3,
+    mass: f32,
+    limit_min: Vec3,
+    limit_max: Vec3,
+    shape: i32,
+    shape_size: [f32; 2],
+) -> BoneTemplate {
     BoneTemplate { parent, offset, joint, margin: 0.0625, half_extents, mass, limit_min, limit_max, shape, shape_size }
 }
 
@@ -133,7 +143,17 @@ pub static BONES: [BoneTemplate; BONE_COUNT] = [
     bone(BoneId::Pelvis, v(0.0, 0.0, 0.0), v(0.0, -0.125, 0.0), TORSO, 14.0, Vec3::ZERO, Vec3::ZERO, 0, [0.1875, 0.125]),
     bone(BoneId::Pelvis, v(0.0, 0.25, 0.0), v(0.0, 0.125, 0.0), TORSO, 14.0, SPINE_MIN, SPINE_MAX, 0, [0.125, 0.125]),
     bone(BoneId::Stomach, v(0.0, 0.25, 0.0), v(0.0, 0.125, 0.0), TORSO, 14.0, SPINE_MIN, SPINE_MAX, 0, [0.125, 0.125]),
-    bone(BoneId::Torso, v(0.0, 0.28125, 0.0), v(0.0, 0.1875, 0.0), v(0.125, 0.125, 0.125), 8.0, v(-45.0_f32.to_radians(), -67.5_f32.to_radians(), -33.75_f32.to_radians()), v(45.0_f32.to_radians(), 67.5_f32.to_radians(), 33.75_f32.to_radians()), 1, [0.0625, 7.0 / 64.0]),
+    bone(
+        BoneId::Torso,
+        v(0.0, 0.28125, 0.0),
+        v(0.0, 0.1875, 0.0),
+        v(0.125, 0.125, 0.125),
+        8.0,
+        v(-45.0_f32.to_radians(), -67.5_f32.to_radians(), -33.75_f32.to_radians()),
+        v(45.0_f32.to_radians(), 67.5_f32.to_radians(), 33.75_f32.to_radians()),
+        1,
+        [0.0625, 7.0 / 64.0],
+    ),
     BoneTemplate { ..bone(BoneId::Torso, v(-0.1875, -13.0 / 128.0, 0.0), v(-0.1875, 0.0625, 0.0), ARM, 3.0, SHOULDER_MIN, SHOULDER_MAX, 1, [0.25, 0.0625]) },
     bone(BoneId::ShoulderLeft, v(0.0, -21.0 / 64.0, 0.0), v(0.0, -21.0 / 128.0, 0.0), ARM, 2.5, Vec3::ZERO, ELBOW_MAX, 1, [0.25, 0.0625]),
     bone(BoneId::ForearmLeft, v(0.0, -29.0 / 128.0, 0.0), v(0.0, -21.0 / 128.0, 0.0), HAND, 1.5, WRIST_MIN, WRIST_MAX, 1, [0.0625, 0.0625]),

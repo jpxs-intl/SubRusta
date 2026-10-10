@@ -1,9 +1,11 @@
-use std::{fs::{File, OpenOptions}, path::Path};
+use std::{
+    fs::{File, OpenOptions},
+    path::Path,
+};
 
 use binrw::{BinRead, BinWrite};
 
 use crate::file_types::LoaderError;
-
 
 #[derive(BinRead, BinWrite, Clone)]
 #[brw(little)]
@@ -12,7 +14,7 @@ pub struct SrkData {
     pub server_id: u32,
     pub player_count: u32,
     #[br(count = player_count)]
-    pub players: Vec<SrkPlayerData>
+    pub players: Vec<SrkPlayerData>,
 }
 
 #[derive(BinRead, BinWrite, Clone)]
@@ -52,7 +54,7 @@ impl SrkPlayerData {
             unused_0: 0,
             unused_1: 0,
             hair_color: 0,
-            skin_color: 0
+            skin_color: 0,
         }
     }
 
@@ -68,12 +70,7 @@ impl SrkPlayerData {
 impl SrkData {
     pub fn load(path: &Path) -> Result<Self, LoaderError> {
         if !Path::new(path).exists() {
-            let data = SrkData {
-                player_count: 0,
-                players: vec![],
-                server_id: 800815,
-                version: 1
-            };
+            let data = SrkData { player_count: 0, players: vec![], server_id: 800815, version: 1 };
 
             data.save(path)?;
             return Ok(data);
@@ -91,11 +88,7 @@ impl SrkData {
     }
 
     pub fn get_player_data(&mut self, account_id: u32) -> Option<&mut SrkPlayerData> {
-        if let Some(i) = self.players.iter().position(|p| p.account_id == account_id) {
-            Some(&mut self.players[i])
-        } else {
-            None
-        }
+        if let Some(i) = self.players.iter().position(|p| p.account_id == account_id) { Some(&mut self.players[i]) } else { None }
     }
 
     pub fn get_or_create(&mut self, account_id: u32, name: &str, phone: u32, steam_id: u64) -> &mut SrkPlayerData {

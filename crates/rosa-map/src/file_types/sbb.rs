@@ -1,6 +1,6 @@
 use binrw::BinRead;
-use rosa_math::vector::{IntVector, Vector};
 use glam::UVec3;
+use rosa_math::vector::{IntVector, Vector};
 
 use crate::Char64;
 
@@ -101,9 +101,7 @@ impl BuildingFile {
         let li = l as i32;
 
         let mut tiles = vec![BuildingFileTile::default(); (h * (nl + 1) * (nw + 1)) as usize];
-        let at = |nx: i32, nz: u32, y: u32| -> Option<usize> {
-            (0..=li).contains(&nx).then(|| Self::idx(nw, nl, nx as u32, nz, y))
-        };
+        let at = |nx: i32, nz: u32, y: u32| -> Option<usize> { (0..=li).contains(&nx).then(|| Self::idx(nw, nl, nx as u32, nz, y)) };
         // returns the destination column and the (possibly rotated) value of a special block
         let place = |v: u32, nx: i32| -> (i32, u32) {
             if v & 0xE000_0000 != 0x8000_0000 {
@@ -130,14 +128,18 @@ impl BuildingFile {
 
                     // exterior block + textures, only into an empty slot
                     let (bx, block) = place(src.block, nx);
-                    if let Some(i) = at(bx, x, y) && tiles[i].block == 0 {
+                    if let Some(i) = at(bx, x, y)
+                        && tiles[i].block == 0
+                    {
                         tiles[i].block = block;
                         tiles[i].texture_indices = rotate_faces(src.texture_indices);
                     }
 
                     // interior block + textures; a moved special leaves 0xc0000000 in its own slot
                     let (ix, interior) = place(src.interior_block, nx);
-                    if let Some(i) = at(ix, x, y) && tiles[i].interior_block == 0 {
+                    if let Some(i) = at(ix, x, y)
+                        && tiles[i].interior_block == 0
+                    {
                         tiles[i].interior_block = interior;
                         tiles[i].interior_texture_indices = rotate_faces(src.interior_texture_indices);
                     }
@@ -150,11 +152,7 @@ impl BuildingFile {
                     t.build_block = src.build_block;
                     t.edge_x = src.edge_z;
                     t.floor = src.floor;
-                    t.item_set = if src.item_set == 0 {
-                        0
-                    } else {
-                        (src.item_set & !0x0300_0000) | ((src.item_set + 0x0100_0000) & 0x0300_0000)
-                    };
+                    t.item_set = if src.item_set == 0 { 0 } else { (src.item_set & !0x0300_0000) | ((src.item_set + 0x0100_0000) & 0x0300_0000) };
                 }
             }
         }

@@ -2,7 +2,9 @@ use glam::{IVec3, Vec3};
 use rand::RngExt;
 use rosa_math::vector::Vector;
 use rosa_physics::{
-    RotMatrix, Table, body::RigidBodyType, rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
+    RotMatrix, Table,
+    body::RigidBodyType,
+    rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation},
 };
 use rosa_protocol::clientbound::game::{
     ItemKind, ItemTail, ServerItemObject,
@@ -103,6 +105,21 @@ pub struct Touchables<'a> {
     pub occupied: Vec<(usize, usize)>,
 }
 
+/// The item and vehicle tables a human reaches into, borrowed field by field so the sim's humans and bodies stay free.
+macro_rules! touchables {
+    ($sim:expr, $occupied:expr) => {
+        crate::sim::items::Touchables {
+            grid: &$sim.item_grid,
+            items: &mut $sim.items,
+            types: &$sim.item_types,
+            vehicles: &mut $sim.vehicles,
+            vehicle_types: &$sim.vehicle_types,
+            occupied: $occupied,
+        }
+    };
+}
+pub(crate) use touchables;
+
 impl Sim {
     pub fn create_item(&mut self, item_type: ItemKind, pos: Vec3, vel: Option<Vec3>, rot: RotMatrix) -> Option<usize> {
         let ty = &self.item_types[item_type as usize];
@@ -157,9 +174,7 @@ impl Sim {
         match item_type {
             ItemKind::Door => {
                 let [r0, r1, r2] = rot;
-                let hinge = |up: f32| {
-                    r0 * DOOR_HINGE_ACROSS + pos + r1 * up
-                };
+                let hinge = |up: f32| r0 * DOOR_HINGE_ACROSS + pos + r1 * up;
                 item.state = ItemState::Door { axis: r2, hinges: [hinge(-DOOR_HINGE_UP), hinge(DOOR_HINGE_UP)] };
                 // TODO: each hinge pins the door to the level with a type 4 bond (create_bond_rigidbody_level: body
                 // point (-0.4375, ∓0.5, 0) held at the hinge, 0.125 and 0.25), which rosa-physics lacks
@@ -189,7 +204,7 @@ impl Sim {
         if parent != -1
             && let Some(h) = self.humans.get_mut(parent as usize)
         {
-            let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: Vec::new() };
+            let mut touch = touchables!(self, Vec::new());
             crate::human::inventory::detach_item(h, &mut self.bodies, &mut touch, id, slot);
         }
         while let Some(child) = self.items.get_mut(id).and_then(|i| i.children.pop()) {
@@ -552,8 +567,7 @@ impl Sim {
             let [c0, c1, c2] = chest.rot;
             let rot = [c0, -c2, c1];
             let [r0, r1, _] = rot;
-            let p = chest.pos;
-            let pos = r1 * -0.25 + p + r0 * 0.125;
+            let pos = r1 * -0.25 + chest.pos + r0 * 0.125;
             item.pocket_pose = Some((pos, rot));
             item.pos2 = h.vehicle.and_then(|v| self.vehicles.get(v)).map_or(pelvis.pos, |v| v.pos);
             let vel = pelvis.vel;
@@ -673,7 +687,7 @@ impl Sim {
 
     fn cleanup_items(&mut self) {
         let mut dead = Vec::new();
-        
+
         for (id, item) in self.items.iter_mut() {
             if item.despawn_time <= 65534 {
                 item.despawn_time -= 1;
@@ -710,7 +724,18 @@ impl Sim {
                     _ if item.item_type == ItemKind::Computer => Some((0, 0)),
                     _ => None,
                 };
-                Some(ServerItemObject { slot: (HUMAN_SLOTS + id) as u16, item_id: id as u16, item_type: item.item_type, pos: Vector(body.pos), rot, parent_item: item.parent_item, parent_human: item.parent_human, parent_slot: item.parent_slot, screen, tail })
+                Some(ServerItemObject {
+                    slot: (HUMAN_SLOTS + id) as u16,
+                    item_id: id as u16,
+                    item_type: item.item_type,
+                    pos: Vector(body.pos),
+                    rot,
+                    parent_item: item.parent_item,
+                    parent_human: item.parent_human,
+                    parent_slot: item.parent_slot,
+                    screen,
+                    tail,
+                })
             })
             .collect()
     }

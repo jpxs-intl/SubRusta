@@ -7,6 +7,7 @@ use rosa_protocol::{
 };
 
 use super::Sim;
+use crate::input::{CROUCH, GRAB, LEFT_MOUSE, RELOAD};
 use crate::{PlayerId, player::BotTarget, world::trace::line_intersect_level};
 
 /// How far the view may turn from the body, either way.
@@ -53,16 +54,10 @@ const WRECK_PATIENCE: i32 = 179;
 /// The driver's gear stick: second gear, forward; reversing out of a jam after 180 and 280 stuck ticks.
 const DRIVE_GEAR_X: f32 = 2.0;
 const DRIVE_GEAR_Y: f32 = -1.0;
-const STUCK_FORWARD: i32 = 0xb3;
-const STUCK_REVERSE: i32 = 0x117;
+const STUCK_FORWARD: i32 = 179;
+const STUCK_REVERSE: i32 = 279;
 const THROTTLE_SCALE: f32 = 8.0;
 const MIN_TARGET_SPEED: f32 = 0.05;
-/// Input bits a bot presses: fire, crouch, get out, chamber a round.
-const INPUT_FIRE: u32 = 0x1;
-const INPUT_CROUCH: u32 = 0x8;
-const INPUT_EXIT: u32 = 0x800;
-const INPUT_CHAMBER: u32 = 0x1000;
-
 /// The difference from `a` to `b` taken the short way, the way player_ai wraps it: `b` is moved up a turn when `a`
 /// is half a turn past it, then the difference has `a` moved up a turn when still half a turn out.
 fn wrap(a: f32, b: f32) -> f32 {
@@ -126,7 +121,7 @@ impl Sim {
         if wrecked {
             p.bot.wrecked_ticks += 1;
             if p.bot.wrecked_ticks > WRECK_PATIENCE {
-                p.input_bits |= INPUT_EXIT;
+                p.input_bits |= GRAB;
             }
         } else {
             p.bot.wrecked_ticks = 0;
@@ -152,7 +147,7 @@ impl Sim {
                     self.push_bot_action(pid, 1);
                 }
             } else if rand::random_ratio(1, 32) {
-                self.players.get_mut(pid.idx()).unwrap().input_bits |= INPUT_CHAMBER;
+                self.players.get_mut(pid.idx()).unwrap().input_bits |= RELOAD;
             }
             return;
         }
@@ -209,7 +204,6 @@ impl Sim {
             if !zombie && line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, chest, seen).is_some() {
                 continue;
             }
-            let vel = h.bones[0].vel;
             let p = self.players.get_mut(pid.idx()).unwrap();
             let k = match found {
                 Some(k) => k,
@@ -231,7 +225,7 @@ impl Sim {
             let unsure = (MAX_AWARENESS - aw) * SIGHTING_STEP;
             let spread = unsure * SPREAD_SCALE + (SPREAD_SCALE * range) * SIGHTING_STEP;
             let out = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, spread, 0.0);
-            let ahead = out + seen + vel * LEAD_TICKS;
+            let ahead = out + seen + h.bones[0].vel * LEAD_TICKS;
             let t = &mut self.players.get_mut(pid.idx()).unwrap().bot.targets[k];
             t.pos = ahead * SIGHTING_STEP + t.pos;
         }
@@ -287,8 +281,8 @@ impl Sim {
         }
         p.controls.look_yaw = look;
         if UPRIGHT > pelvis_up {
-            if (tick & 0x7f) > 0x40 {
-                p.input_bits |= INPUT_CROUCH;
+            if (tick & 0x7f) > 64 {
+                p.input_bits |= CROUCH;
             }
             return;
         }
@@ -376,12 +370,11 @@ impl Sim {
         let head = &h.bones[9];
         let (start, up) = (head.pos, head.rot[1]);
         let end = up * SHOT_LENGTH + start;
-        let chest = h.bones[3].pos;
-        if self.teammate_in_line(hid, team, chest, start, end, TEAMMATE_RANGE_FOOT) {
+        if self.teammate_in_line(hid, team, h.bones[3].pos, start, end, TEAMMATE_RANGE_FOOT) {
             return (yaw, pitch);
         }
         if self.bot_gun_loaded(hid) && rand::random_ratio(1, 4) {
-            self.players.get_mut(pid.idx()).unwrap().input_bits |= INPUT_FIRE;
+            self.players.get_mut(pid.idx()).unwrap().input_bits |= LEFT_MOUSE;
         }
         (yaw, pitch)
     }
@@ -462,12 +455,13 @@ impl Sim {
         if self.teammate_in_line(hid, team, h.bones[3].pos, start, end, TEAMMATE_RANGE_SEATED) {
             return;
         }
-        let own_body = self.vehicles.get(veh).and_then(|v| crate::vehicle::physics::trace_vehicle_parts(v, &self.vehicle_types[v.kind as usize], start, end, false));
+        let own_body =
+            self.vehicles.get(veh).and_then(|v| crate::vehicle::physics::trace_vehicle_parts(v, &self.vehicle_types[v.kind as usize], start, end, false));
         if own_body.is_some_and(|hit| matches!(hit.part, crate::vehicle::physics::VehiclePart::Body(_))) {
             return;
         }
         if self.bot_gun_loaded(hid) {
-            self.players.get_mut(pid.idx()).unwrap().input_bits |= INPUT_FIRE;
+            self.players.get_mut(pid.idx()).unwrap().input_bits |= LEFT_MOUSE;
         }
     }
 

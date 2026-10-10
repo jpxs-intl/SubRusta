@@ -142,21 +142,121 @@ struct SbvSpec {
 }
 
 const SBV_TYPES: [SbvSpec; 9] = [
-    SbvSpec { kind: VehicleKind::TownCar, file: "park5", name: "Town Car", price: 1000, mass: 1000.0, engine_power: 0.875, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5625, -0.375], [0.375, -0.5625, -0.375], [-0.375, -0.5625, 0.75], [0.375, -0.5625, 0.75]] },
-    SbvSpec { kind: VehicleKind::Test, file: "turbo5", name: "Test", price: 20000, mass: 800.0, engine_power: 1.0, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, 0.125]] },
-    SbvSpec { kind: VehicleKind::Hatchback, file: "golf5", name: "Hatchback", price: 2000, mass: 800.0, engine_power: 0.875, wheel_radius: 0.3125, wheel_mass: 10.0, drive: 2, seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, -0.125], [-0.375, -0.5625, 1.0], [0.375, -0.5625, 1.0]] },
-    SbvSpec { kind: VehicleKind::Turbo, file: "turbo5", name: "Turbo", price: 20000, mass: 800.0, engine_power: 1.125, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
-    SbvSpec { kind: VehicleKind::TurboS, file: "turbo5", name: "Turbo S", price: 40000, mass: 750.0, engine_power: 1.5, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]] },
-    SbvSpec { kind: VehicleKind::Van, file: "van4", name: "Van", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
-    SbvSpec { kind: VehicleKind::Van2, file: "van4", name: "Van2", price: 3000, mass: 2100.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 20.0, drive: 0, seats: &VAN_SEATS },
-    SbvSpec { kind: VehicleKind::Minivan, file: "minivan2", name: "Minivan", price: 100, mass: 1200.0, engine_power: 1.0, wheel_radius: 0.375, wheel_mass: 12.0, drive: 0, seats: &[[-0.375, -0.5, -0.4375], [0.375, -0.5, -0.4375], [-0.375, -0.5, 0.4375], [0.375, -0.5, 0.4375], [-0.375, -0.5, 1.3125], [0.375, -0.5, 1.3125]] },
-    SbvSpec { kind: VehicleKind::Beamer, file: "beamer2", name: "Beamer", price: 10000, mass: 900.0, engine_power: 1.25, wheel_radius: 0.3125, wheel_mass: 12.0, drive: 2, seats: &[[-0.375, -0.5, -0.25], [0.375, -0.5, -0.25], [-0.375, -0.5, 0.625], [0.375, -0.5, 0.625]] },
+    SbvSpec {
+        kind: VehicleKind::TownCar,
+        file: "park5",
+        name: "Town Car",
+        price: 1000,
+        mass: 1000.0,
+        engine_power: 0.875,
+        wheel_radius: 0.375,
+        wheel_mass: 12.0,
+        drive: 0,
+        seats: &[[-0.375, -0.5625, -0.375], [0.375, -0.5625, -0.375], [-0.375, -0.5625, 0.75], [0.375, -0.5625, 0.75]],
+    },
+    SbvSpec {
+        kind: VehicleKind::Test,
+        file: "turbo5",
+        name: "Test",
+        price: 20000,
+        mass: 800.0,
+        engine_power: 1.0,
+        wheel_radius: 0.3125,
+        wheel_mass: 12.0,
+        drive: 2,
+        seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, 0.125]],
+    },
+    SbvSpec {
+        kind: VehicleKind::Hatchback,
+        file: "golf5",
+        name: "Hatchback",
+        price: 2000,
+        mass: 800.0,
+        engine_power: 0.875,
+        wheel_radius: 0.3125,
+        wheel_mass: 10.0,
+        drive: 2,
+        seats: &[[-0.375, -0.5625, -0.125], [0.375, -0.5625, -0.125], [-0.375, -0.5625, 1.0], [0.375, -0.5625, 1.0]],
+    },
+    SbvSpec {
+        kind: VehicleKind::Turbo,
+        file: "turbo5",
+        name: "Turbo",
+        price: 20000,
+        mass: 800.0,
+        engine_power: 1.125,
+        wheel_radius: 0.3125,
+        wheel_mass: 12.0,
+        drive: 2,
+        seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]],
+    },
+    SbvSpec {
+        kind: VehicleKind::TurboS,
+        file: "turbo5",
+        name: "Turbo S",
+        price: 40000,
+        mass: 750.0,
+        engine_power: 1.5,
+        wheel_radius: 0.3125,
+        wheel_mass: 12.0,
+        drive: 2,
+        seats: &[[-0.375, -0.625, -0.125], [0.375, -0.625, 0.125]],
+    },
+    SbvSpec {
+        kind: VehicleKind::Van,
+        file: "van4",
+        name: "Van",
+        price: 3000,
+        mass: 2100.0,
+        engine_power: 1.0,
+        wheel_radius: 0.375,
+        wheel_mass: 20.0,
+        drive: 0,
+        seats: &VAN_SEATS,
+    },
+    SbvSpec {
+        kind: VehicleKind::Van2,
+        file: "van4",
+        name: "Van2",
+        price: 3000,
+        mass: 2100.0,
+        engine_power: 1.0,
+        wheel_radius: 0.375,
+        wheel_mass: 20.0,
+        drive: 0,
+        seats: &VAN_SEATS,
+    },
+    SbvSpec {
+        kind: VehicleKind::Minivan,
+        file: "minivan2",
+        name: "Minivan",
+        price: 100,
+        mass: 1200.0,
+        engine_power: 1.0,
+        wheel_radius: 0.375,
+        wheel_mass: 12.0,
+        drive: 0,
+        seats: &[[-0.375, -0.5, -0.4375], [0.375, -0.5, -0.4375], [-0.375, -0.5, 0.4375], [0.375, -0.5, 0.4375], [-0.375, -0.5, 1.3125], [0.375, -0.5, 1.3125]],
+    },
+    SbvSpec {
+        kind: VehicleKind::Beamer,
+        file: "beamer2",
+        name: "Beamer",
+        price: 10000,
+        mass: 900.0,
+        engine_power: 1.25,
+        wheel_radius: 0.3125,
+        wheel_mass: 12.0,
+        drive: 2,
+        seats: &[[-0.375, -0.5, -0.25], [0.375, -0.5, -0.25], [-0.375, -0.5, 0.625], [0.375, -0.5, 0.625]],
+    },
 ];
 
 /// How far load_tst raises and moves back the shapes it reads.
 const TST_SHIFT: f32 = 0.625;
 
-const VAN_SEATS:[[f32; 3]; 6] = [[-0.375, -0.5, -0.875], [0.375, -0.5, -0.875], [-0.375, -0.5, 0.5], [0.375, -0.5, 0.5], [-0.375, -0.5, 1.875], [0.375, -0.5, 1.875]];
+const VAN_SEATS: [[f32; 3]; 6] =
+    [[-0.375, -0.5, -0.875], [0.375, -0.5, -0.875], [-0.375, -0.5, 0.5], [0.375, -0.5, 0.5], [-0.375, -0.5, 1.875], [0.375, -0.5, 1.875]];
 
 fn mean<'a>(points: impl Iterator<Item = &'a Vec3>) -> (Vec3, f32) {
     let (sum, n) = points.fold((Vec3::ZERO, 0usize), |(s, n), p| (s + p, n + 1));
@@ -428,7 +528,8 @@ impl VehicleType {
         t.body_meshes(&body);
         t.load_tst(&data.join("helitest.tst"), VehicleKind::Helicopter);
         t.attach_wheels(&body, VehicleKind::Helicopter, 0, 0.375, 12.0, 0);
-        t.seats = vec![Vec3::new(-0.375, -0.5625, -0.875), Vec3::new(0.375, -0.5625, -0.875), Vec3::new(-0.375, -0.5625, 0.75), Vec3::new(0.375, -0.5625, 0.75)];
+        t.seats =
+            vec![Vec3::new(-0.375, -0.5625, -0.875), Vec3::new(0.375, -0.5625, -0.875), Vec3::new(-0.375, -0.5625, 0.75), Vec3::new(0.375, -0.5625, 0.75)];
         t.precompute_physics(VehicleKind::Helicopter);
         Some(t)
     }
@@ -657,7 +758,8 @@ impl VehicleType {
             window([18, 19, 15, 14], [-1; 4], [0.0; 4]),
             panel([16, 17, 19, 18]),
         ]);
-        for (a, b, weights) in [(0, 2, [0.75, 0.25]), (1, 3, [0.75, 0.25]), (2, 4, [0.25, 0.75]), (3, 5, [0.25, 0.75]), (2, 4, [0.5, 0.5]), (3, 5, [0.5, 0.5])] {
+        for (a, b, weights) in [(0, 2, [0.75, 0.25]), (1, 3, [0.75, 0.25]), (2, 4, [0.25, 0.75]), (3, 5, [0.25, 0.75]), (2, 4, [0.5, 0.5]), (3, 5, [0.5, 0.5])]
+        {
             t.add_wheel(0, a, b, weights, 0.375, 80.0, 512.0 / 45.0, -0.125, [0.25, 0.5, 0.5]);
         }
         t.track = 1.125;

@@ -16,7 +16,8 @@ const NAME_ORIGIN: i32 = 256;
 const AVENUE_SPACING: i32 = 56;
 const STREET_SPACING: i32 = 32;
 const AVENUES: [&str; 8] = ["Abrash Ave", "Bunten Ave", "Carmack Ave", "David Ave", "Eugene Ave", "Flinn Ave", "Garriott Ave", "Holland Ave"];
-const STREETS: [&str; 9] = ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
+const STREETS: [&str; 9] =
+    ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
 /// Avenue ids follow the nine street ids.
 const FIRST_AVENUE_ID: i32 = 9;
 
@@ -172,8 +173,21 @@ impl StreetMap {
             let start = Vec3::new(side.x * off + lane_x, side.y * off + lane_y, side.z * off + lane_z);
             Lane { reverse, start, end: Vec3::new(start.x + dir.x * len, start.y + dir.y * len, start.z + dir.z * len) }
         };
-        let lanes = (1..=left).rev().map(|k| lane(0, -(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(1, k as f32 * UNIT - LANE_INSET))).collect();
-        MapStreet { name, id, intersections: [i0, i1], north_south: north_south as i32, left_lanes: left, right_lanes: right, lanes, dir, side, bounds_min: lo, bounds_max: hi }
+        let lanes =
+            (1..=left).rev().map(|k| lane(0, -(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(1, k as f32 * UNIT - LANE_INSET))).collect();
+        MapStreet {
+            name,
+            id,
+            intersections: [i0, i1],
+            north_south: north_south as i32,
+            left_lanes: left,
+            right_lanes: right,
+            lanes,
+            dir,
+            side,
+            bounds_min: lo,
+            bounds_max: hi,
+        }
     }
 
     fn build_route_graph(&mut self) {
@@ -184,19 +198,17 @@ impl StreetMap {
             .enumerate()
             .flat_map(|(s, st)| {
                 let (first, last) = (st.lanes.first().copied().unwrap_or_default(), st.lanes.last().copied().unwrap_or_default());
-                [RouteNode { pos: mid(&last), street: s, end: 0, ..Default::default() }, RouteNode { pos: mid(&first), street: s, end: 1, ..Default::default() }]
+                [
+                    RouteNode { pos: mid(&last), street: s, end: 0, ..Default::default() },
+                    RouteNode { pos: mid(&first), street: s, end: 1, ..Default::default() },
+                ]
             })
             .collect();
         for n in 0..self.route_nodes.len() {
             let (s, end) = (self.route_nodes[n].street, self.route_nodes[n].end);
             let at = self.streets[s].intersections[if end != 0 { 0 } else { 1 }];
-            let neighbors: Vec<i32> = self.intersections[at]
-                .streets
-                .iter()
-                .enumerate()
-                .filter(|&(_, &o)| o != -1 && o != s as i32)
-                .map(|(i, &o)| o * 2 + (i > 1) as i32)
-                .collect();
+            let neighbors: Vec<i32> =
+                self.intersections[at].streets.iter().enumerate().filter(|&(_, &o)| o != -1 && o != s as i32).map(|(i, &o)| o * 2 + (i > 1) as i32).collect();
             let node = &mut self.route_nodes[n];
             if neighbors.is_empty() {
                 node.dead_end = 1;

@@ -32,9 +32,7 @@ pub fn bezier(deg: Option<Degree>, t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -
     match deg {
         Some(Degree::Linear) => p0 * om + t * p3,
         Some(Degree::Quadratic) => (((p1 + p1) * om * t) + om * (p0 * om)) + t * (p3 * t),
-        Some(Degree::Cubic) => {
-            ((p0 * om * om * om + (p1 * 3.0) * om * om * t) + (om * (p2 * 3.0)) * t * t) + t * ((p3 * t) * t)
-        }
+        Some(Degree::Cubic) => ((p0 * om * om * om + (p1 * 3.0) * om * om * t) + (om * (p2 * 3.0)) * t * t) + t * ((p3 * t) * t),
         None => 0.0,
     }
 }
@@ -251,7 +249,13 @@ impl MeshBuilder {
                 continue;
             }
             let code = v & 65535;
-            let next = if code.wrapping_sub(1) <= 2 { code + 1 } else if code == 4 { 1 } else { code };
+            let next = if code.wrapping_sub(1) <= 2 {
+                code + 1
+            } else if code == 4 {
+                1
+            } else {
+                code
+            };
             *f = match dir {
                 0 => next,
                 FACE_POS_Z => next | FACE_NEG_X,
@@ -283,13 +287,7 @@ impl MeshBuilder {
             }
         }
 
-        BlockMesh {
-            verts: self.pos.clone(),
-            quads: self.quads.clone(),
-            mats: self.flags.iter().map(|f| f & 4095).collect(),
-            walls: self.walls.clone(),
-            dims,
-        }
+        BlockMesh { verts: self.pos.clone(), quads: self.quads.clone(), mats: self.flags.iter().map(|f| f & 4095).collect(), walls: self.walls.clone(), dims }
     }
 }
 

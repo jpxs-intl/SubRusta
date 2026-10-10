@@ -7,12 +7,12 @@ use tokio::time::Instant;
 
 struct Pending {
     received: Instant,
-    packet: AuthPacket
+    packet: AuthPacket,
 }
 
 pub struct AuthStore {
     ms_addr: SocketAddr,
-    pending: HashMap<u32, Pending>
+    pending: HashMap<u32, Pending>,
 }
 
 impl AuthStore {

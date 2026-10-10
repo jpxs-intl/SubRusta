@@ -10,15 +10,16 @@ use super::{
     ik::{IkParams, three_bone_ik},
     locomotion::{FOOT_FREE, calculate_center_of_mass},
 };
+use crate::input::GRAB;
 use crate::{
     sim::items::Touchables,
     vehicle::{HANDBRAKE, Vehicle},
     world::{map::Map, trace::line_intersect_level},
 };
 
-pub(super) const ENTER_KEY: u32 = 0x800;
 const LAST_VEHICLE_TICKS: i32 = 100;
-const SEAT_PARAMS: IkParams = IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), spin_limit: [1.0 / 64.0; 3], flags: 0 };
+const SEAT_PARAMS: IkParams =
+    IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), spin_limit: [1.0 / 64.0; 3], flags: 0 };
 
 /// A vehicle's seat offset in the world, in the order human_action_simulation adds it.
 fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {
@@ -50,9 +51,9 @@ pub(super) fn find_seat(h: &Human, touch: &Touchables) -> Option<(usize, usize)>
 
 /// Whether nothing the driver holds keeps them from driving: empty hands, a briefcase or a phone.
 fn hands_free(h: &Human, touch: &Touchables) -> bool {
-    h.inventory[..2].iter().all(|slot| {
-        slot.count == 0 || touch.items.get(slot.items[0] as usize).is_some_and(|i| matches!(i.item_type, ItemKind::Briefcase | ItemKind::Phone))
-    })
+    h.inventory[..2]
+        .iter()
+        .all(|slot| slot.count == 0 || touch.items.get(slot.items[0] as usize).is_some_and(|i| matches!(i.item_type, ItemKind::Briefcase | ItemKind::Phone)))
 }
 
 /// The driver's controls handed to the vehicle (seat 0 of a car not driven by the traffic).
@@ -214,7 +215,7 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
     pose_bones(h, bodies, map, has_item, scale);
     h.last_vehicle_cooldown = LAST_VEHICLE_TICKS;
     h.last_vehicle = vid as i32;
-    if h.input_flags & ENTER_KEY == 0 {
+    if h.input_flags & GRAB == 0 {
         h.seat_exit = 0;
         return;
     }
@@ -243,8 +244,7 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
 /// Out of the seat: the vehicle left with its handbrake on.
 fn leave_seat(h: &mut Human, touch: &mut Touchables, vid: usize) {
     h.vehicle = None;
-    let seat = h.seat;
-    touch.occupied.retain(|&o| o != (vid, seat));
+    touch.occupied.retain(|&o| o != (vid, h.seat));
     if let Some(v) = touch.vehicles.get_mut(vid) {
         v.controls = HANDBRAKE;
     }

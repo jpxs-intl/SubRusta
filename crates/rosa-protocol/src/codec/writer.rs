@@ -1,32 +1,44 @@
 /// Like the server's packet buffer, nothing more is appended once 65535 whole bytes are written.
-const MAX_PACKET: usize = 0xffff;
+const MAX_PACKET: usize = 65535;
 
 #[derive(Default)]
 pub struct Writer {
     buf: Vec<u8>,
-    bit_pos: usize
+    bit_pos: usize,
 }
 
 impl Writer {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    fn full(&self) -> bool { self.bit_pos / 8 > MAX_PACKET }
+    fn full(&self) -> bool {
+        self.bit_pos / 8 > MAX_PACKET
+    }
 
     pub fn bits(&mut self, value: i32, count: u32) {
-        if self.full() { return; }
+        if self.full() {
+            return;
+        }
         self.raw_bits(value, count);
     }
 
     fn raw_bits(&mut self, value: i32, count: u32) {
-        if count == 0 { return; }
+        if count == 0 {
+            return;
+        }
 
         let mut value = value as u32;
-        if count < 32 { value &= (1u32 << count) - 1; }
+        if count < 32 {
+            value &= (1u32 << count) - 1;
+        }
 
         let mut remaining = count;
         while remaining > 0 {
             let byte_index = self.bit_pos / 8;
-            if byte_index >= self.buf.len() { self.buf.push(0); }
+            if byte_index >= self.buf.len() {
+                self.buf.push(0);
+            }
 
             let off = (self.bit_pos % 8) as u32;
             let n = remaining.min(8 - off);
@@ -41,20 +53,38 @@ impl Writer {
 
     pub fn pad_to_byte(&mut self) {
         let off = self.bit_pos % 8;
-        if off != 0 { self.raw_bits(0, (8 - off) as u32) }
+        if off != 0 {
+            self.raw_bits(0, (8 - off) as u32)
+        }
     }
 
-    pub fn byte(&mut self, b: u8) { self.bytes(&[b]); }
-    pub fn bytes(&mut self, bytes: &[u8]) {
-        if self.full() { return; }
-        self.pad_to_byte();
-        for &b in bytes { self.raw_bits(b as i32, 8); }
+    pub fn byte(&mut self, b: u8) {
+        self.bytes(&[b]);
     }
-    pub fn f32(&mut self, v: f32) { self.bytes(&v.to_le_bytes()) }
-    pub fn u16(&mut self, v: u16) { self.bytes(&v.to_le_bytes()) }
-    pub fn u32(&mut self, v: u32) { self.bytes(&v.to_le_bytes()) }
-    pub fn u64(&mut self, v: u64) { self.bytes(&v.to_le_bytes()) }
-    pub fn i32(&mut self, v: i32) { self.bytes(&v.to_le_bytes()) }
+    pub fn bytes(&mut self, bytes: &[u8]) {
+        if self.full() {
+            return;
+        }
+        self.pad_to_byte();
+        for &b in bytes {
+            self.raw_bits(b as i32, 8);
+        }
+    }
+    pub fn f32(&mut self, v: f32) {
+        self.bytes(&v.to_le_bytes())
+    }
+    pub fn u16(&mut self, v: u16) {
+        self.bytes(&v.to_le_bytes())
+    }
+    pub fn u32(&mut self, v: u32) {
+        self.bytes(&v.to_le_bytes())
+    }
+    pub fn u64(&mut self, v: u64) {
+        self.bytes(&v.to_le_bytes())
+    }
+    pub fn i32(&mut self, v: i32) {
+        self.bytes(&v.to_le_bytes())
+    }
 
     pub fn string(&mut self, s: &str, len: usize) {
         let src = s.as_bytes();
@@ -69,6 +99,10 @@ impl Writer {
         value >> 4
     }
 
-    pub fn into_vec(self) -> Vec<u8> { self.buf }
-    pub fn as_slice(&self) -> &[u8] { &self.buf }
+    pub fn into_vec(self) -> Vec<u8> {
+        self.buf
+    }
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf
+    }
 }

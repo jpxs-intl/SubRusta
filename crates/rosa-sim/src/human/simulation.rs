@@ -7,16 +7,24 @@ use rosa_physics::{
 use super::{
     Human,
     arms::{calculate_arm_angles, calculate_spread_vector},
-    inventory::{action_simulation, hand_grab_and_inventory, unlink_item},
     bones::BoneId,
-    locomotion::{FOOT_FREE, FOOT_PLANTED, Surface, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint, update_locomotion_constraints},
-    physics::{HumanOutput, OtherHuman, bone_item_contacts, bone_track_contacts, bone_world_contacts, find_nearby_vehicles, human_contacts, joint_limits, update_networked_bones, vehicle_contacts},
-    seated::{ENTER_KEY, fall_out, simulate_seated, walk_simulation},
+    inventory::{action_simulation, hand_grab_and_inventory, unlink_item},
+    locomotion::{
+        FOOT_FREE, FOOT_PLANTED, Surface, calculate_center_of_mass, slide_simulation, start_step, step_locomotion_ik, update_foot_ground_constraint,
+        update_locomotion_constraints,
+    },
+    physics::{
+        HumanOutput, OtherHuman, bone_item_contacts, bone_track_contacts, bone_world_contacts, find_nearby_vehicles, human_contacts, joint_limits,
+        update_networked_bones, vehicle_contacts,
+    },
+    seated::{fall_out, simulate_seated, walk_simulation},
 };
+use crate::input::{GRAB, JUMP, RAGDOLL};
+use crate::time::TICKS_PER_MINUTE;
 use crate::{sim::items::Touchables, world::map::Map};
 
 const TURN_STEP: f32 = 3.0 / 64.0;
-const DESPAWN_TICKS: i32 = 3600;
+const DESPAWN_TICKS: i32 = TICKS_PER_MINUTE;
 const DEAD_PLAYER_TICKS: i32 = 3480;
 
 /// What human_simulation asks of the sim after a human's tick.
@@ -29,7 +37,18 @@ pub enum HumanTick {
 /// ragdoll for the dead, and the contacts holding the bones against the world. Round and eliminator mode keep dead
 /// bodies (`keep_bodies`).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, others: &[OtherHuman], out: &mut Vec<HumanOutput>, ticks: u32, noise_seed: &mut i32, keep_bodies: bool) -> HumanTick {
+pub(crate) fn simulate_human(
+    id: usize,
+    h: &mut Human,
+    bodies: &mut RigidBodies,
+    map: &mut Map,
+    touch: &mut Touchables,
+    others: &[OtherHuman],
+    out: &mut Vec<HumanOutput>,
+    ticks: u32,
+    noise_seed: &mut i32,
+    keep_bodies: bool,
+) -> HumanTick {
     find_nearby_vehicles(h, touch);
     let nearby = h.nearby_vehicles.clone();
     let seated = h.vehicle;
@@ -115,7 +134,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         if h.old_health <= 0 || h.health <= 49 {
             fall_out(h, touch, vid);
         }
-        if h.input_flags & ENTER_KEY != 0 && h.last_input_flags & ENTER_KEY == 0 {
+        if h.input_flags & GRAB != 0 && h.last_input_flags & GRAB == 0 {
             h.seat_exit = 1;
         }
     } else {
@@ -163,7 +182,7 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
 fn walk_and_collide(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touch: &mut Touchables, nearby: &[usize], out: &mut Vec<HumanOutput>) {
     let alive = h.old_health > 0;
     let standing = alive && h.health > 49;
-    if alive && h.movement_state == 0 && h.input_flags & 4 != 0 && h.locomotion.jump_charge <= 31 {
+    if alive && h.movement_state == 0 && h.input_flags & JUMP != 0 && h.locomotion.jump_charge <= 31 {
         h.locomotion.jump_charge += 1;
     }
     for bone in h.bones.iter_mut() {
@@ -178,7 +197,7 @@ fn walk_and_collide(h: &mut Human, bodies: &mut RigidBodies, map: &mut Map, touc
         && h.locomotion.feet[1].mode == FOOT_PLANTED
         && h.bones[BoneId::FootLeft as usize].ground_contact != 0
         && h.bones[BoneId::FootRight as usize].ground_contact != 0;
-    if h.movement_state != 3 && h.locomotion.jump_charge > 0 && h.input_flags & 4 == 0 && feet_down {
+    if h.movement_state != 3 && h.locomotion.jump_charge > 0 && h.input_flags & JUMP == 0 && feet_down {
         start_step(h, 1);
     }
     bone_world_contacts(h, bodies, map, out);
@@ -430,12 +449,12 @@ fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface,
                 h.movement_state = 1;
                 h.locomotion.active_foot = 0;
             }
-            2 if h.input_flags & 0x80000 == 0 => h.movement_state = 0,
+            2 if h.input_flags & RAGDOLL == 0 => h.movement_state = 0,
             3 => return Some(step_locomotion_ik(h, bodies, surface)),
             _ => {}
         }
     }
-    if h.input_flags & 0x80000 != 0 {
+    if h.input_flags & RAGDOLL != 0 {
         h.movement_state = 2;
     }
     match h.movement_state {

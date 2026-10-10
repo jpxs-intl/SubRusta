@@ -9,13 +9,14 @@ use rosa_protocol::{
 
 use super::Sim;
 use crate::PlayerId;
+use crate::time::TICKS_PER_MINUTE;
 
-pub const MAX_NPCS: usize = 0x400;
+pub const MAX_NPCS: usize = 1024;
 /// An NPC's bot comes in when a living player is within 96 of it, stays while one is within 104, and leaves when
 /// none is; a killed one is back 18000 ticks later. Each NPC is looked at every 32 ticks, in turn.
 const NEAR: f32 = 96.0;
 const KEEP: f32 = 104.0;
-const RESPAWN: i32 = 18000;
+const RESPAWN: i32 = 5 * TICKS_PER_MINUTE;
 const CHECK_MASK: u32 = 0x1f;
 const GUARD: i32 = 0;
 const ZOMBIE: i32 = 1;
@@ -155,7 +156,15 @@ impl Sim {
             h.account = (account != u32::MAX).then_some(account);
         }
         let p = self.players.remove(pid.idx());
-        let e = EventUpdatePlayer { active: false, client_id: p.player_id.0, is_bot: p.is_bot, human_id: p.human.map_or(-1, |h| h as i32), team: p.team, customization: p.customization, name: p.username };
+        let e = EventUpdatePlayer {
+            active: false,
+            client_id: p.player_id.0,
+            is_bot: p.is_bot,
+            human_id: p.human.map_or(-1, |h| h as i32),
+            team: p.team,
+            customization: p.customization,
+            name: p.username,
+        };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdatePlayer(e) });
     }
 

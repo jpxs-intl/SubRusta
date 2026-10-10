@@ -2,9 +2,9 @@ use super::{COLUMNS, Computer, DISK_OP_COPY, DISK_OP_DIR, DRIVE_A, DRIVE_C, LINE
 use crate::sim::Sim;
 
 /// The last column the shell reads and types into.
-const LAST: i32 = 0x3d;
-const INPUT_LEN: usize = 0x3e;
-const KEY_ENTER: u8 = 0xa;
+const LAST: i32 = 61;
+const INPUT_LEN: usize = 62;
+const KEY_ENTER: u8 = 10;
 const KEY_BACKSPACE: i32 = 8;
 const MAX_KEPT_KEYS: usize = 64;
 /// DIR prints an entry every 4 ticks; COPY takes 256.
@@ -94,7 +94,9 @@ impl Sim {
     pub(crate) fn with_computer<R>(&mut self, id: usize, f: impl FnOnce(&mut Self, &mut Computer) -> R) -> Option<R> {
         let item = self.items.get_mut(id)?;
         let crate::sim::item_state::ItemState::Computer(_) = item.state else { return None };
-        let crate::sim::item_state::ItemState::Computer(mut c) = std::mem::replace(&mut item.state, crate::sim::item_state::ItemState::Plain) else { return None };
+        let crate::sim::item_state::ItemState::Computer(mut c) = std::mem::replace(&mut item.state, crate::sim::item_state::ItemState::Plain) else {
+            return None;
+        };
         let r = f(self, &mut c);
         if let Some(i) = self.items.get_mut(id) {
             i.state = crate::sim::item_state::ItemState::Computer(c);
@@ -429,7 +431,17 @@ impl Sim {
                 }
             }
             b"DIR" => {
-                c.op = super::DiskOp { kind: DISK_OP_DIR, timer: DIR_STEP, drive, dir: cwd, next_dir: 1, next_file: 0, name: c.op.name.clone(), data: c.op.data, keys: Vec::new() };
+                c.op = super::DiskOp {
+                    kind: DISK_OP_DIR,
+                    timer: DIR_STEP,
+                    drive,
+                    dir: cwd,
+                    next_dir: 1,
+                    next_file: 0,
+                    name: c.op.name.clone(),
+                    data: c.op.data,
+                    keys: Vec::new(),
+                };
                 c.line_mut()[0] = 0;
                 self.commit_line(id, c);
                 let path = self.path_string(id, c, drive);
@@ -447,14 +459,15 @@ impl Sim {
             }
             b"DECRYPT" | b"DECRYPT.EXE" => {
                 let (mut d, mut dir) = (drive, cwd);
-                let file = (self.resolve_path(id, c, &mut d, &mut dir, &s, &mut pos) == 0).then(|| self.drive_volume(id, d)).filter(|&v| v != -1).and_then(|v| {
-                    let name = parse_token(&s, &mut pos, true);
-                    if name.is_empty() {
-                        return None;
-                    }
-                    let name = String::from_utf8_lossy(&name).into_owned();
-                    self.fs.volume(v)?.files.iter().rposition(|f| f.dir == dir && f.name == name).map(|k| self.fs.volume(v).unwrap().files[k].data)
-                });
+                let file =
+                    (self.resolve_path(id, c, &mut d, &mut dir, &s, &mut pos) == 0).then(|| self.drive_volume(id, d)).filter(|&v| v != -1).and_then(|v| {
+                        let name = parse_token(&s, &mut pos, true);
+                        if name.is_empty() {
+                            return None;
+                        }
+                        let name = String::from_utf8_lossy(&name).into_owned();
+                        self.fs.volume(v)?.files.iter().rposition(|f| f.dir == dir && f.name == name).map(|k| self.fs.volume(v).unwrap().files[k].data)
+                    });
                 let Some(data) = file else { return self.say(id, c, b"USAGE: DECRYPT \"filename\"") };
                 if !self.fs.content(data).is_some_and(|x| x.encrypted) {
                     return self.say(id, c, b"INCORRECT FILE TYPE");
@@ -509,7 +522,17 @@ impl Sim {
         if !(v.capacity > fs::SMALL_VOLUME || v.files.len() <= fs::SMALL_VOLUME_FILES) {
             return self.say(id, c, b"INSUFFICIENT DISK SPACE");
         }
-        c.op = super::DiskOp { kind: DISK_OP_COPY, timer: COPY_TICKS, drive: d2, dir: dir2, next_dir: c.op.next_dir, next_file: c.op.next_file, name: name.chars().take(31).collect(), data, keys: Vec::new() };
+        c.op = super::DiskOp {
+            kind: DISK_OP_COPY,
+            timer: COPY_TICKS,
+            drive: d2,
+            dir: dir2,
+            next_dir: c.op.next_dir,
+            next_file: c.op.next_file,
+            name: name.chars().take(31).collect(),
+            data,
+            keys: Vec::new(),
+        };
         c.line_mut()[0] = 0;
         self.phone_sound(rosa_protocol::clientbound::game::events::sound::Sound::Floppy, id, 1.0);
     }

@@ -28,15 +28,15 @@ pub const DROP_SPOTS: [(Vec3, &str); 8] = [
 
 /// The mission codenames (0x72cac0) run on into the project names (0x72cb00, 32 of them).
 pub const NAMES: [&str; 40] = [
-    "ATOMIC", "BRAZIL", "CROWN", "DENVER", "EAGLE", "FALCON", "GUILD", "HOUND", "ACTOR", "GOLD", "RIVER", "PIANO", "PILLOW", "ANIMAL", "HORSE", "HONEY", "BRANCH", "LAMP",
-    "LION", "TENT", "LONDON", "NIGHT", "FISH", "FLOWER", "TRUCK", "GLASS", "GHOST", "KNIFE", "SPOON", "TRAFFIC", "VASE", "SUGAR", "KITCHEN", "SCOOTER", "KING", "QUEEN",
-    "LIZARD", "CARAVAN", "DREAM", "DRESS",
+    "ATOMIC", "BRAZIL", "CROWN", "DENVER", "EAGLE", "FALCON", "GUILD", "HOUND", "ACTOR", "GOLD", "RIVER", "PIANO", "PILLOW", "ANIMAL", "HORSE", "HONEY",
+    "BRANCH", "LAMP", "LION", "TENT", "LONDON", "NIGHT", "FISH", "FLOWER", "TRUCK", "GLASS", "GHOST", "KNIFE", "SPOON", "TRAFFIC", "VASE", "SUGAR", "KITCHEN",
+    "SCOOTER", "KING", "QUEEN", "LIZARD", "CARAVAN", "DREAM", "DRESS",
 ];
 const PROJECTS: usize = 8;
 const NAME_FLAGS: usize = 512;
 pub const MISSIONS: usize = 256;
 const DAILY_MISSIONS: u32 = 7;
-const PICK_TRIES: i32 = 0x400;
+const PICK_TRIES: i32 = 1024;
 const DECOYS: i32 = 64;
 const SHUFFLES: i32 = 64;
 /// A mission's reward is 5000 to 15000 in steps of 2500, five times that for the day's boosted mission; a manager's
@@ -277,7 +277,7 @@ impl Sim {
         if n == 0 {
             return;
         }
-        let least = w.spots.iter().map(|s| s.used).fold(0x10000, i32::min);
+        let least = w.spots.iter().map(|s| s.used).fold(65536, i32::min);
         let mut r = rand::random_range(0..n as u32) as usize;
         let mut tries = PICK_TRIES;
         while w.spots[r].used > least {
@@ -402,8 +402,12 @@ impl Sim {
                 }
                 ti.lines.push(format!("{} HAS THE FILE  VALUE: ${}", Team::CORPORATION_NAMES[team], v));
                 ti.word = "Trade".into();
-                let memo = format!("{} has obtained the file for the
-{} project", Team::CORPORATION_NAMES[team], mission.names[3]);
+                let memo = format!(
+                    "{} has obtained the file for the
+{} project",
+                    Team::CORPORATION_NAMES[team],
+                    mission.names[3]
+                );
                 mission.teams[team].lines.push(format!("{} WANTS THE FILE", Team::CORPORATION_NAMES[i]));
                 self.place_corporation_memo(i, memo.as_bytes());
             }
@@ -599,7 +603,11 @@ impl Sim {
             self.items.get_mut(disk).unwrap().volume = vol;
             self.fs.add_file(vol, 0, file, content);
         }
-        let memo = format!("We have intercepted communications\nThe disk with the info in the lobby of the lab at\n{} and {}\nFilename: {file}", self.street_name(a), self.street_name(b));
+        let memo = format!(
+            "We have intercepted communications\nThe disk with the info in the lobby of the lab at\n{} and {}\nFilename: {file}",
+            self.street_name(a),
+            self.street_name(b)
+        );
         self.place_corporation_memo(t, memo.as_bytes());
     }
 

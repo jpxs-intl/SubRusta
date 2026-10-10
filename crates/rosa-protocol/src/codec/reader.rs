@@ -1,9 +1,15 @@
 use crate::codec::CodecError;
 
-pub struct Reader<'a> { buf: &'a [u8], pos: usize, bit_pos: usize }
+pub struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+    bit_pos: usize,
+}
 
 impl<'a> Reader<'a> {
-    pub fn new(buf: &'a [u8]) -> Self { Self { buf, pos: 0, bit_pos: 0 } }
+    pub fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0, bit_pos: 0 }
+    }
 
     #[inline]
     fn align(&mut self) {
@@ -25,7 +31,9 @@ impl<'a> Reader<'a> {
     }
 
     pub fn bits(&mut self, count: u32) -> Result<u32, CodecError> {
-        if count == 0 { return Ok(0); }
+        if count == 0 {
+            return Ok(0);
+        }
 
         let abs = self.pos * 8 + self.bit_pos;
         if abs + count as usize > self.buf.len() * 8 {
@@ -40,7 +48,10 @@ impl<'a> Reader<'a> {
         remaining -= first;
         read += first;
         self.bit_pos += first as usize;
-        if self.bit_pos >= 8 { self.bit_pos = 0; self.pos += 1; }
+        if self.bit_pos >= 8 {
+            self.bit_pos = 0;
+            self.pos += 1;
+        }
 
         while remaining >= 8 {
             data |= (self.buf[self.pos] as u32) << read;
@@ -62,11 +73,21 @@ impl<'a> Reader<'a> {
         Ok(self.bytes(N)?.try_into().unwrap())
     }
 
-    pub fn u8(&mut self) -> Result<u8, CodecError> { Ok(self.take::<1>()?[0]) }
-    pub fn u16(&mut self) -> Result<u16, CodecError> { Ok(u16::from_le_bytes(self.take::<2>()?)) }
-    pub fn u32(&mut self) -> Result<u32, CodecError> { Ok(u32::from_le_bytes(self.take::<4>()?)) }
-    pub fn u64(&mut self) -> Result<u64, CodecError> { Ok(u64::from_le_bytes(self.take::<8>()?)) }
-    pub fn f32(&mut self) -> Result<f32, CodecError> { Ok(f32::from_le_bytes(self.take::<4>()?)) }
+    pub fn u8(&mut self) -> Result<u8, CodecError> {
+        Ok(self.take::<1>()?[0])
+    }
+    pub fn u16(&mut self) -> Result<u16, CodecError> {
+        Ok(u16::from_le_bytes(self.take::<2>()?))
+    }
+    pub fn u32(&mut self) -> Result<u32, CodecError> {
+        Ok(u32::from_le_bytes(self.take::<4>()?))
+    }
+    pub fn u64(&mut self) -> Result<u64, CodecError> {
+        Ok(u64::from_le_bytes(self.take::<8>()?))
+    }
+    pub fn f32(&mut self) -> Result<f32, CodecError> {
+        Ok(f32::from_le_bytes(self.take::<4>()?))
+    }
 
     pub fn fixed_float(&mut self) -> Result<f32, CodecError> {
         let raw = self.bits(24)?;
@@ -76,8 +97,6 @@ impl<'a> Reader<'a> {
     }
 
     pub fn string(&mut self, len: usize) -> Result<String, CodecError> {
-        Ok(
-            String::from_utf8(self.bytes(len)?.into()).unwrap_or("".to_string()).split("\0").collect::<Vec<&str>>().first().unwrap().to_string()
-        )
+        Ok(String::from_utf8(self.bytes(len)?.into()).unwrap_or("".to_string()).split("\0").collect::<Vec<&str>>().first().unwrap().to_string())
     }
 }

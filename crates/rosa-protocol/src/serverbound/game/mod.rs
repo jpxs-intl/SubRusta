@@ -1,10 +1,16 @@
-use rosa_math::vector::Vector;
 use bitflags::bitflags;
+use rosa_math::vector::Vector;
 
 pub mod actions;
 pub mod voice;
 
-use crate::{codec::{Reader, WireRead}, serverbound::game::{actions::{GameAction, read_actions}, voice::{VoiceData, decode_voice_data}}};
+use crate::{
+    codec::{Reader, WireRead},
+    serverbound::game::{
+        actions::{GameAction, read_actions},
+        voice::{VoiceData, decode_voice_data},
+    },
+};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,10 +21,14 @@ bitflags! {
         const CROUCH = 1 << 3;
         const SHIFT = 1 << 4;
         const DROP_ITEM = 1 << 5;
+        /// Bits 6 to 10: keys that switch what the held item does, which block using it.
+        const MODE_KEYS = 31 << 6;
         const GRAB = 1 << 11;
         const RELOAD = 1 << 12;
         const SWITCH_HANDS = 1 << 13;
         const DELETE = 1 << 18;
+        /// Go limp (movement state 2) while held.
+        const RAGDOLL = 1 << 19;
     }
 }
 
@@ -126,7 +136,7 @@ impl WireRead for ClientGamePacket {
             unk: unk as u16,
             unk1: unk1 as u8,
             packet_count_maybe,
-            sdl_tick
+            sdl_tick,
         })
     }
 }

@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{codec::{CodecError, Reader, WireRead, WireWrite, Writer}, masterserver::{AuthPacket, server_addr::ServerAddress}, serverbound::{game::ClientGamePacket, info_request::InfoRequest, join_request::JoinRequest}};
+use crate::{
+    codec::{CodecError, Reader, WireRead, WireWrite, Writer},
+    masterserver::{AuthPacket, server_addr::ServerAddress},
+    serverbound::{game::ClientGamePacket, info_request::InfoRequest, join_request::JoinRequest},
+};
 
 pub mod clientbound;
-pub mod serverbound;
-pub mod masterserver;
 pub mod codec;
+pub mod masterserver;
+pub mod serverbound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -45,7 +49,7 @@ pub enum Team {
     /// The crews of round car chases.
     Mission = 7,
 
-    Spectator = 17
+    Spectator = 17,
 }
 
 impl Team {
@@ -69,18 +73,7 @@ pub struct CharacterCustomization {
 
 impl Default for CharacterCustomization {
     fn default() -> Self {
-        Self {
-            gender: 0,
-            head: 4,
-            skin: 2,
-            hair_color: 4,
-            hair_style: 6,
-            eye_color: 6,
-            model: 1,
-            necklace: 0,
-            suit_color: 0,
-            tie_color: 1,
-        }
+        Self { gender: 0, head: 4, skin: 2, hair_color: 4, hair_style: 6, eye_color: 6, model: 1, necklace: 0, suit_color: 0, tie_color: 1 }
     }
 }
 
@@ -91,11 +84,13 @@ pub enum ServerboundPacket {
     AuthPacket(AuthPacket),
     LeaveGame,
     MasterServerPing(ServerAddress),
-    GamePacket(Box<ClientGamePacket>)
+    GamePacket(Box<ClientGamePacket>),
 }
 
 pub fn parse_frame(data: &[u8]) -> Option<(u8, &[u8])> {
-    if data.len() < 5 || &data[..4] != b"7DFP" { return None; }
+    if data.len() < 5 || &data[..4] != b"7DFP" {
+        return None;
+    }
 
     Some((data[4], &data[5..]))
 }
@@ -110,7 +105,7 @@ pub fn decode_packet(type_byte: u8, body: &[u8]) -> Result<ServerboundPacket, Co
         7 => ServerboundPacket::LeaveGame,
         64 => ServerboundPacket::MasterServerPing(ServerAddress::read(&mut r)?),
         66 => ServerboundPacket::AuthPacket(AuthPacket::read(&mut r)?),
-        other => return Err(CodecError::BadEnum(other as u32))
+        other => return Err(CodecError::BadEnum(other as u32)),
     })
 }
 

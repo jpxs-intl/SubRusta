@@ -94,7 +94,9 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     let target = c.target_speed;
     if target > along {
         let d = (target - along) * ACCEL_GAIN;
-        let (a, lift) = if d > 1.0 { (ACCEL_MAX, 0.0) } else {
+        let (a, lift) = if d > 1.0 {
+            (ACCEL_MAX, 0.0)
+        } else {
             let a = (d * ACCEL_SCALE) / TICKS2;
             (a, 0.0 * a)
         };
@@ -103,7 +105,9 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
         vz += a * s;
     } else {
         let d = (along - target) * BRAKE_GAIN;
-        let a = if d > BRAKE_LIMIT { BRAKE_MAX } else {
+        let a = if d > BRAKE_LIMIT {
+            BRAKE_MAX
+        } else {
             let a = (-d * BRAKE_SCALE) / TICKS2;
             vy += 0.0 * a;
             a
@@ -130,15 +134,14 @@ pub fn move_virtual_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType],
     let axis = rot[1];
     rotate_orientation(&mut rot, axis, c.yaw);
     let back = -c.wheelbase;
-    let r2 = rot[2];
     let p = c.pos;
-    let rear = r2 * back + p;
+    let rear = rot[2] * back + p;
     let end = rear + up * GROUND_DEPTH;
     if let Some(h) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, rear, end) {
         let hy = ride + h.hit.pos.y;
         let pitch = -((((hy - p.y) as f64).atan2(c.wheelbase as f64)) as f32);
         let axis = rot[0];
-    rotate_orientation(&mut rot, axis, pitch);
+        rotate_orientation(&mut rot, axis, pitch);
     }
     c.rot = rot;
 }

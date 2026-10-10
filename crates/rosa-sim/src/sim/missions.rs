@@ -4,10 +4,7 @@ use rosa_protocol::{
     CharacterCustomization, GameMode, Team,
     clientbound::game::{
         GameState, ItemKind, MenuType,
-        events::{
-            Event, ServerEvent, update_corporation::EventUpdateCorporation,
-            update_vehicle_type_color::EventUpdateVehicleTypeColor,
-        },
+        events::{Event, ServerEvent, update_corporation::EventUpdateCorporation, update_vehicle_type_color::EventUpdateVehicleTypeColor},
     },
 };
 
@@ -56,7 +53,7 @@ const KEY_SLOT: usize = 4;
 const CASE_SLOT: usize = 3;
 const GUARD_MAGAZINES: i32 = 4;
 /// The chase's target sits at no mission spot.
-const CHASE_LOCATION: i32 = 0xff;
+const CHASE_LOCATION: i32 = 255;
 /// The randomize passes over the corporation list.
 const SHUFFLES: i32 = 1024;
 /// A disk left on the table rather than at a mission spot.
@@ -145,12 +142,7 @@ fn step(p: Vec3, r: Vec3, s: f32) -> Vec3 {
 impl Sim {
     /// corp_active_mission_count: an undecided mission still running counts 1 for an acquisition, 2 otherwise.
     fn corp_active_mission_count(&self, k: usize) -> i32 {
-        self.corp_state[k]
-            .missions
-            .iter()
-            .filter(|m| m.active && !m.done && self.world_time < m.deadline)
-            .map(|m| if m.kind <= 1 { 1 } else { 2 })
-            .sum()
+        self.corp_state[k].missions.iter().filter(|m| m.active && !m.done && self.world_time < m.deadline).map(|m| if m.kind <= 1 { 1 } else { 2 }).sum()
     }
 
     /// generate_round_missions: the round corporations with players and no missions running (or one, at the turn of a
@@ -542,14 +534,24 @@ impl Sim {
         let streets = &self.world.map.streets;
         let street = if streets.streets.is_empty() { 0 } else { random_street(streets) };
         let progress = rand::random_range(0..256) as f32 * (1.0 / 256.0);
-        let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, street, slot, 1, progress);
+        let car = create_traffic_car(
+            &mut self.traffic,
+            &self.world.map,
+            &self.vehicle_types,
+            rosa_protocol::clientbound::game::VehicleKind::TownCar,
+            0,
+            street,
+            slot,
+            1,
+            progress,
+        );
         self.missions.chase_car = car as i32;
         let streets = &self.world.map.streets;
         let mut to = if streets.streets.is_empty() { 0 } else { random_street(streets) };
         if let Some(min) = min_distance {
             let corner = |s: i32| usize::try_from(s).ok().and_then(|s| streets.streets.get(s)).map_or(Vec3::ZERO, |s| s.bounds_min);
             let from = corner(self.traffic.cars[car].street);
-            for _ in 0..0x400 {
+            for _ in 0..1024 {
                 let d = from - corner(to);
                 if d.length() >= min {
                     break;
@@ -600,7 +602,15 @@ impl Sim {
 
     /// A mission bot of the chase's team seated in its vehicle (with the round's mission counter when given): the
     /// player and its human.
-    pub(crate) fn create_mission_bot(&mut self, deadline: i32, mission: Option<i32>, pos: Vec3, rot: RotMatrix, vehicle: usize, seat: usize) -> Option<(PlayerId, Option<usize>)> {
+    pub(crate) fn create_mission_bot(
+        &mut self,
+        deadline: i32,
+        mission: Option<i32>,
+        pos: Vec3,
+        rot: RotMatrix,
+        vehicle: usize,
+        seat: usize,
+    ) -> Option<(PlayerId, Option<usize>)> {
         let pid = self.create_player()?;
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.team = Team::Mission;

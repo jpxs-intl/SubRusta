@@ -55,7 +55,17 @@ fn set_joint(h: &Human, bodies: &mut RigidBodies, bone: usize, target: Vec3, spi
 /// human_update_three_bone_ik_constraints: drives the joints of a three-bone chain (thigh-shin-foot or
 /// upper arm-forearm-hand, starting at `first` under `root`) towards reaching `target`, given in `frame` space.
 #[allow(clippy::too_many_arguments)]
-pub fn three_bone_ik(h: &mut Human, bodies: &mut RigidBodies, root: usize, first: usize, target: Vec3, frame: &RotMatrix, correction: Vec3, p: &IkParams, end_rot: &mut [f32; 4]) {
+pub fn three_bone_ik(
+    h: &mut Human,
+    bodies: &mut RigidBodies,
+    root: usize,
+    first: usize,
+    target: Vec3,
+    frame: &RotMatrix,
+    correction: Vec3,
+    p: &IkParams,
+    end_rot: &mut [f32; 4],
+) {
     let t_len = target.length();
     let l_abs = p.length.abs();
     let c = (if l_abs < t_len { l_abs } else { t_len }) / p.length;

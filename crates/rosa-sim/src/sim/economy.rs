@@ -5,6 +5,7 @@ use rosa_protocol::{
 };
 
 use super::Sim;
+use crate::time::{TICKS_PER_MINUTE, TICKS_PER_SECOND};
 use crate::{PlayerId, player::Player};
 
 pub const CORPORATIONS: usize = 6;
@@ -166,10 +167,10 @@ fn keeps_suit(suit: u8) -> bool {
 }
 
 pub const WORLD_TIME_START: i32 = 1728010;
-const WORLD_RESPAWN_BASE: i32 = 1200;
+const WORLD_RESPAWN_BASE: i32 = 20 * TICKS_PER_SECOND;
 const WORLD_RESPAWN_PER_CRIME: i32 = 30;
 /// An eliminator death adds 18000 ticks split between a third of the starting players, up to 50400.
-const DEATH_CUT_TIME: i32 = 18000;
+const DEATH_CUT_TIME: i32 = 5 * TICKS_PER_MINUTE;
 const DEATH_CUT_CAP: i32 = 50400;
 
 impl Sim {
@@ -177,10 +178,10 @@ impl Sim {
     /// tie, or plain clothes with no team), then their human.
     pub(crate) fn set_player_team(&mut self, pid: PlayerId, team: Team) {
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        if player.team == team {
+        let old = player.team;
+        if old == team {
             return;
         }
-        let old = player.team;
         self.leave_corp_management(pid, old);
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         player.team = team;
@@ -247,7 +248,7 @@ impl Sim {
         let mode = self.gamemode;
         let tick = self.tick;
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        let real = pid.idx() <= 0xff;
+        let real = pid.idx() <= 255;
         if mode == GameMode::World && real {
             let held = player.stocks;
             sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
@@ -350,8 +351,7 @@ impl Sim {
             player.ghost_human = false;
             player.team = h.team.unwrap_or(Team::Spectator);
             if mode == GameMode::World {
-                let stocks = h.stocks;
-                purchase_stocks(player, &mut self.corporations, stocks);
+                purchase_stocks(player, &mut self.corporations, h.stocks);
             } else {
                 player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
                 player.customization.model = SUIT_MODEL;
@@ -376,7 +376,7 @@ impl Sim {
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         let held = player.stocks;
         sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
-        if pid.idx() <= 0xff {
+        if pid.idx() <= 255 {
             let held = player.stocks;
             sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
         }

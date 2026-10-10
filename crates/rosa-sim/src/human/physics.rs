@@ -8,7 +8,11 @@ use super::{
 };
 use crate::{
     sim::items::Touchables,
-    world::{capsule::{CapsuleHit, capsule_intersect_level, segment_closest_points}, map::Map, trace::line_intersect_level},
+    world::{
+        capsule::{CapsuleHit, capsule_intersect_level, segment_closest_points},
+        map::Map,
+        trace::line_intersect_level,
+    },
 };
 
 const ANTI_TUNNEL_BONES: usize = 4;
@@ -30,7 +34,7 @@ const VEHICLE_SOFTNESS: f32 = 0.0625;
 /// How fast a vehicle's point of contact must move into a bone to hurt (legs take a third of a unit a tick).
 const RUN_OVER: f32 = 0.2;
 const LEG_RUN_OVER: f32 = 1.0 / 3.0;
-const NO_ITEM_CONTACT:[BoneId; 4] = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight];
+const NO_ITEM_CONTACT: [BoneId; 4] = [BoneId::ForearmLeft, BoneId::HandLeft, BoneId::ForearmRight, BoneId::HandRight];
 
 /// human_update_bones_bbox_wake_items: pull every bone's state from its body and rebuild the bone capsules and bounds.
 pub fn sync_bones(h: &mut Human, bodies: &mut RigidBodies, map: &Map) {
@@ -90,11 +94,7 @@ pub(super) fn update_networked_bones(h: &mut Human) {
     for child in 1..BONE_COUNT {
         let [p0, p1, p2] = h.bones[BONES[child].parent.index()].rot;
         let [c0, c1, c2] = h.bones[child].rot;
-        let m = [
-            Vec3::new(c0.dot(p0), c0.dot(p1), c0.dot(p2)),
-            Vec3::new(c1.dot(p0), c1.dot(p1), c1.dot(p2)),
-            Vec3::new(c2.dot(p0), c2.dot(p1), c2.dot(p2)),
-        ];
+        let m = [Vec3::new(c0.dot(p0), c0.dot(p1), c0.dot(p2)), Vec3::new(c1.dot(p0), c1.dot(p1), c1.dot(p2)), Vec3::new(c2.dot(p0), c2.dot(p1), c2.dot(p2))];
         let a0 = (m[2].y as f64).atan2(m[2].z as f64) as f32;
         let r = (m[1].x * m[1].x + m[0].x * m[0].x).sqrt();
         let a1 = ((-m[2].x) as f64).atan2(r as f64) as f32;
@@ -283,7 +283,9 @@ pub(super) fn vehicle_contacts(h: &mut Human, bodies: &mut RigidBodies, touch: &
             let end = p + row * half;
             let radius = shape.shape_size[1];
             let Some((hit, n, dist)) = crate::vehicle::physics::capsule_intersect_vehicle(v, t, start, end, radius) else { continue };
-            let (Some(bp), Some((vp, vvel, w))) = (bodies.get(bone.body).map(|b| b.pos), bodies.get(v.body).map(|b| (b.pos, b.vel, b.ang_vel))) else { continue };
+            let (Some(bp), Some((vp, vvel, w))) = (bodies.get(bone.body).map(|b| b.pos), bodies.get(v.body).map(|b| (b.pos, b.vel, b.ang_vel))) else {
+                continue;
+            };
             let off_a = hit - bp;
             let r = hit - vp;
             bodies.add_body_contact(bone.body, v.body, off_a, r, n, radius - dist, VEHICLE_FRICTION, VEHICLE_DEPTH_SCALE, VEHICLE_SOFTNESS);
@@ -365,11 +367,7 @@ pub(super) fn joint_limit_correction(h: &Human, parent: BoneId, child: BoneId) -
             if 0.0 > x {
                 corr[k] += x;
             }
-            if lmin[k] > a {
-                if lmin[k] > lmax[k] { lmax[k] } else { maxss(lmin[k], a) }
-            } else {
-                lmax[k]
-            }
+            if lmin[k] > a { if lmin[k] > lmax[k] { lmax[k] } else { maxss(lmin[k], a) } } else { lmax[k] }
         } else {
             let m = maxss(lmin[k], a);
             if m > lmax[k] { lmax[k] } else { maxss(lmin[k], a) }

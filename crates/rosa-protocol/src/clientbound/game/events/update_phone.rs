@@ -5,7 +5,7 @@ pub struct EventUpdatePhone {
     pub item_id: i32,
     pub phone_status: i32,
     pub display_phone_number: i32,
-    pub phone_texture: i32
+    pub phone_texture: i32,
 }
 
 impl WireWrite for EventUpdatePhone {

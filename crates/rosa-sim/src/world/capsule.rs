@@ -5,8 +5,8 @@ use crate::world::{
     city_objects::{capsule_intersect_object, object_pose},
     collide::{calculate_face_normal, segment_intersect_face},
     ground::{Ground, ORIGIN},
-    mesh::{CUBE_CORNERS, CUBE_FACES},
     item_sets::{SetHit, entry_pose},
+    mesh::{CUBE_CORNERS, CUBE_FACES},
     meshes::BlockMeshes,
     trace::{AreaFrame, cvtt},
 };
@@ -57,13 +57,25 @@ pub fn segment_closest_points(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3, radius: f3
     let (pd, qd) = if 0.0 > t {
         let s = -c / a;
         let qd = d2 * 0.0;
-        let pd = if 0.0 > s { d1 * 0.0 } else if s > 1.0 { d1 } else { d1 * s };
+        let pd = if 0.0 > s {
+            d1 * 0.0
+        } else if s > 1.0 {
+            d1
+        } else {
+            d1 * s
+        };
         (pd, qd)
     } else if !(t > 1.0) {
         (d1 * s, d2 * t)
     } else {
         let s = (b - c) / a;
-        let pd = if 0.0 > s { d1 * 0.0 } else if !(s > 1.0) { d1 * s } else { d1 };
+        let pd = if 0.0 > s {
+            d1 * 0.0
+        } else if !(s > 1.0) {
+            d1 * s
+        } else {
+            d1
+        };
         (pd, d2)
     };
 
@@ -216,7 +228,7 @@ fn cube_faces(start: Vec3, end: Vec3, cell: IVec3, s: f32, v: u32, radius: f32) 
             continue;
         }
 
-        let [a, b, c ,d] = item.map(corner);
+        let [a, b, c, d] = item.map(corner);
         best.take(capsule_intersect_triangle(start, end, a, b, c, radius));
         best.take(capsule_intersect_triangle(start, end, a, c, d, radius));
     }

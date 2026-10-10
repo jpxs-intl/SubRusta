@@ -7,9 +7,9 @@ use crate::world::{
     area::{ALL_FACES, AreaGrid, MESH},
     blocks::{BlockTable, StaticDims},
     building::Buildings,
-    meshes::{BlockMeshes, PortalGroups},
     city::{instantiate_sectors, resolve_block_types},
     ground::Ground,
+    meshes::{BlockMeshes, PortalGroups},
     roads::RoadNetwork,
 };
 
@@ -107,13 +107,11 @@ pub fn build_level(
         for y in 0..8i32 {
             for z in 0..8i32 {
                 for x in 0..8i32 {
-
                     let i = (y * 64 + z * 8 + x) as usize;
                     let p = base + IVec3::new(x, y, z);
                     let v = sector.block_indices.get(i).copied().unwrap_or(0);
 
                     if v != 0 && sector.area == 0 && p.x >= 0 && p.y >= 0 && p.z >= 0 {
-
                         let v = if v == MESH {
                             let open = [(0, -1, 1), (1, 0, 2), (0, 1, 4), (-1, 0, 8)]
                                 .iter()

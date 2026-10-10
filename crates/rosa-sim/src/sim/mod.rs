@@ -5,52 +5,58 @@ use std::{
     time::{Duration, Instant},
 };
 
+use glam::Vec3;
 use rosa_map::file_types::srk::SrkData;
 use rosa_math::vector::Vector;
 use rosa_protocol::{
-    GameMode, clientbound::{
+    GameMode,
+    clientbound::{
         game::{
-            GameState, MenuType, ObjectPack, ServerGamePacket, ServerVoiceData, events::{
+            GameState, MenuType, ObjectPack, ServerGamePacket, ServerVoiceData,
+            events::{
                 Event, ServerEvent,
                 chat::{ChatType, EventChat},
             },
-        }, initial_sync::InitialSync, kick::KickClient,
-    }, frame_packet, serverbound::game::actions::GameAction,
+        },
+        initial_sync::InitialSync,
+        kick::KickClient,
+    },
+    frame_packet,
+    serverbound::game::actions::GameAction,
 };
-use glam::Vec3;
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
 use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, player::Player, world::World};
 
-pub mod bullets;
-pub mod corporations;
 pub mod admin;
 pub mod bots;
-pub mod world;
-pub mod eliminator;
-pub mod missions;
-pub mod round;
-pub mod round_menus;
+pub mod bullets;
+pub mod corporations;
 pub mod crime;
 pub mod economy;
+pub mod eliminator;
 pub mod events;
-pub mod item_logic;
-pub mod item_state;
 pub mod hull;
 pub mod humans;
 pub mod item_grid;
+pub mod item_logic;
+pub mod item_sets;
+pub mod item_state;
 pub mod item_types;
 pub mod items;
-pub mod item_sets;
+pub mod memos;
+pub mod missions;
 pub mod npcs;
+pub mod round;
+pub mod round_menus;
 pub mod shops;
 pub mod tps;
 pub mod traffic;
 pub mod vehicles;
-pub mod world_missions;
-pub mod memos;
 pub mod voice;
+pub mod world;
+pub mod world_missions;
 
 /// One of a client's 8 voice slots: a speaker it can hear.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -201,13 +207,7 @@ pub struct ServerStats {
 }
 
 impl Sim {
-    pub fn new(
-        in_rx: mpsc::UnboundedReceiver<Inbound>,
-        out_tx: Outbound,
-        map_name: String,
-        gamemode: GameMode,
-        max_players: u8,
-    ) -> Self {
+    pub fn new(in_rx: mpsc::UnboundedReceiver<Inbound>, out_tx: Outbound, map_name: String, gamemode: GameMode, max_players: u8) -> Self {
         let srk_data = SrkData::load(Path::new("server.srk")).unwrap();
         let corporations = [economy::Corporation::default(); economy::CORPORATIONS];
         let mut events = EventRing::default();
@@ -316,24 +316,11 @@ impl Sim {
     }
 
     fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
-        self.events.push(Event {
-            tick_created: self.tick,
-            kind: ServerEvent::Chat(EventChat {
-                chat_type,
-                speaker_id,
-                volume,
-                message: message.to_string()
-            })
-        });
+        self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Chat(EventChat { chat_type, speaker_id, volume, message: message.to_string() }) });
     }
 
     fn kick(&mut self, src: SocketAddr, reason: &str) {
-        let _ = self.out_tx.send((
-            frame_packet(KickClient {
-                reason: reason.to_string(),
-            }),
-            src,
-        ));
+        let _ = self.out_tx.send((frame_packet(KickClient { reason: reason.to_string() }), src));
     }
 
     pub fn events(&self) -> impl Iterator<Item = &Event> {
@@ -383,7 +370,7 @@ impl Sim {
         while let Ok(inp) = self.in_rx.try_recv() {
             self.apply(inp);
         }
-        let mut pending= HashMap::new();
+        let mut pending = HashMap::new();
         for (_, player) in self.players.iter_mut() {
             pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
         }
@@ -450,7 +437,7 @@ impl Sim {
                         }
                     }
                     GameAction::Admin(a) => self.admin_action(player, a.kind, a.a, a.b),
-                    GameAction::Unknown => {},
+                    GameAction::Unknown => {}
                 }
             }
         }
@@ -490,31 +477,20 @@ impl Sim {
         let pocketed = self.items.iter().filter(|(_, i)| i.in_pocket).map(|(id, _)| id as u16).collect();
         let voice_items = self.voice_items();
         let human_players = voice::human_players(&self.humans);
-        let item_links = self.items.iter().filter(|(_, i)| i.link_mask != 0).filter_map(|(id, i)| Some((id as u16, (self.bodies.get(i.body)?.pos, i.link_mask, i.links)))).collect();
+        let item_links = self
+            .items
+            .iter()
+            .filter(|(_, i)| i.link_mask != 0)
+            .filter_map(|(id, i)| Some((id as u16, (self.bodies.get(i.body)?.pos, i.link_mask, i.links))))
+            .collect();
         let corp_round = std::array::from_fn(|k| (self.corp_state[k].funds, 0));
         let team_counts = std::array::from_fn(|k| self.corp_state[k].player_count);
         let (game_timer, round_number) = (self.game_timer, self.round_number);
         let (ticks_since_reset, sun_time) = (self.ticks_since_reset, self.world_time);
         let sync = self.initial_sync();
-        let Sim {
-            clients,
-            players,
-            world,
-            events,
-            out_tx,
-            tick,
-            gamestate,
-            traffic,
-            links,
-            radio_channels,
-            ..
-        } = self;
+        let Sim { clients, players, world, events, out_tx, tick, gamestate, traffic, links, radio_channels, .. } = self;
 
-        let ready_states = if *gamestate == GameState::Intermission {
-            Some(Self::calculate_ready_states(players))
-        } else {
-            None
-        };
+        let ready_states = if *gamestate == GameState::Intermission { Some(Self::calculate_ready_states(players)) } else { None };
 
         let ctx = TickCtx {
             players,
@@ -558,11 +534,7 @@ impl Sim {
         }
     }
 
-    fn build_game_packet(
-        client: &mut Client,
-        ctx: &TickCtx,
-        player_id: PlayerId
-    ) -> ServerGamePacket {
+    fn build_game_packet(client: &mut Client, ctx: &TickCtx, player_id: PlayerId) -> ServerGamePacket {
         let first_event = client.event_cursor as u32;
         let player = ctx.players.get(player_id.idx()).unwrap();
         let (global_event_count, events) = Self::collect_events(client, ctx, player.team as i32, player_id.0 as i32);
@@ -585,7 +557,7 @@ impl Sim {
                 human_id: earshot.human.map_or(-1, |h| h as i32),
                 item_id: earshot.item.map_or(-1, |i| i as i32),
                 player_id: earshot.player.idx() as i32,
-                voice_frames: speaker.voice.recent4()
+                voice_frames: speaker.voice.recent4(),
             };
 
             voice_data[idx] = Some(data);
@@ -604,7 +576,10 @@ impl Sim {
             menu_type: player.menu,
             menu_tab: player.menu_tab,
             shop: if player.menu == MenuType::WorldStore {
-                usize::try_from(player.menu_tab).ok().and_then(|k| ctx.world.map.level.buildings.get(k)).map_or(Vec::new(), |b| b.shop.iter().map(|e| (e.kind, e.price, e.extra)).collect())
+                usize::try_from(player.menu_tab)
+                    .ok()
+                    .and_then(|k| ctx.world.map.level.buildings.get(k))
+                    .map_or(Vec::new(), |b| b.shop.iter().map(|e| (e.kind, e.price, e.extra)).collect())
             } else {
                 Vec::new()
             },
@@ -637,7 +612,7 @@ impl Sim {
             global_event_count,
             first_event,
             events,
-            voice: voice_data
+            voice: voice_data,
         }
     }
 
@@ -648,7 +623,7 @@ impl Sim {
     fn object_packs(client: &mut Client, ctx: &TickCtx, camera: Vec3) -> (Vec<ObjectPack>, u16, std::collections::HashSet<u16>) {
         const PACK_RANGE: f32 = 256.0;
         const UNPACK_RANGE: f32 = 264.0;
-        const RING: u16 = 0x800;
+        const RING: u16 = 2048;
         if client.pack_ring.is_empty() {
             client.pack_ring = vec![ObjectPack { slot: 0, unpack: true, kind: 0, item_type: 0, index: 0 }; RING as usize];
         }
@@ -685,7 +660,8 @@ impl Sim {
             queue(client, ObjectPack { slot, unpack: true, kind: 0, item_type: 0, index: 0 });
             client.packed.remove(&slot);
         }
-        let mut changed: Vec<ObjectPack> = current.values().filter(|p| client.packed.get(&p.slot).is_none_or(|q| q.kind != p.kind || q.index != p.index)).copied().collect();
+        let mut changed: Vec<ObjectPack> =
+            current.values().filter(|p| client.packed.get(&p.slot).is_none_or(|q| q.kind != p.kind || q.index != p.index)).copied().collect();
         changed.sort_unstable_by_key(|p| p.slot);
         for pack in changed {
             queue(client, pack);
@@ -727,7 +703,15 @@ impl Sim {
             .filter_map(|k| {
                 let index = client.link_ring[client.link_ack.wrapping_add(k) as usize];
                 let l = ctx.links.record(index)?;
-                Some(rosa_protocol::clientbound::game::LineLinkEntry { index: index as u16, kind: l.kind, tick: l.tick, item: l.item, line: l.line, text: l.text.clone(), colors: l.colors.clone() })
+                Some(rosa_protocol::clientbound::game::LineLinkEntry {
+                    index: index as u16,
+                    kind: l.kind,
+                    tick: l.tick,
+                    item: l.item,
+                    line: l.line,
+                    text: l.text.clone(),
+                    colors: l.colors.clone(),
+                })
             })
             .collect();
         (entries, client.link_ack)
@@ -735,15 +719,10 @@ impl Sim {
 
     /// add_events_to_packet: the events the client has not had, up to 63, with old sounds and other teams' corporation
     /// updates sent empty.
-    fn collect_events(
-        client: &mut Client,
-        ctx: &TickCtx,
-        team: i32,
-        player_id: i32
-    ) -> (u32, Vec<(u32, Event)>) {
+    fn collect_events(client: &mut Client, ctx: &TickCtx, team: i32, player_id: i32) -> (u32, Vec<(u32, Event)>) {
         let total = ctx.events.count;
         let pending = total.wrapping_sub(client.event_cursor);
-        let to_send = pending.min(0x3f); // 63 cap
+        let to_send = pending.min(63); // 63 cap
 
         let mut out = Vec::with_capacity(to_send as usize);
         for i in 0..to_send {
@@ -761,23 +740,12 @@ impl Sim {
                 ServerEvent::Chat(c) => c.chat_type == ChatType::AdminChat && !client.admin_visible,
                 _ => false,
             };
-            let kind = if (expired && ephemeral) || foreign {
-                ServerEvent::Empty
-            } else {
-                ev.kind.clone()
-            };
+            let kind = if (expired && ephemeral) || foreign { ServerEvent::Empty } else { ev.kind.clone() };
 
-            out.push((
-                idx as u32,
-                Event {
-                    tick_created: ev.tick_created,
-                    kind,
-                },
-            ));
+            out.push((idx as u32, Event { tick_created: ev.tick_created, kind }));
         }
 
         client.event_cursor = client.event_cursor.wrapping_add(to_send);
         (total as u32, out)
     }
-
 }
