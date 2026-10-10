@@ -87,7 +87,7 @@ pub struct WorldConfig {
 impl Default for WorldConfig {
     fn default() -> Self {
         WorldConfig {
-            traffic: 128,
+            traffic: 256,
             crimecivciv: 100,
             crimecivteam: 200,
             crimeteamciv: 50,
@@ -106,8 +106,36 @@ impl Default for WorldConfig {
 }
 
 impl WorldConfig {
+    /// The config in config_world.txt's `key=value` lines.
+    pub fn to_text(&self) -> String {
+        [
+            ("traffic", self.traffic),
+            ("crimecivciv", self.crimecivciv),
+            ("crimecivteam", self.crimecivteam),
+            ("crimeteamciv", self.crimeteamciv),
+            ("crimeteamteam", self.crimeteamteam),
+            ("crimeteamteaminbase", self.crimeteamteaminbase),
+            ("crimevscriminal", self.crimevscriminal),
+            ("crimenobuy", self.crimenobuy),
+            ("crimenospawn", self.crimenospawn),
+            ("crimekick", self.crimekick),
+            ("startcash", self.startcash),
+            ("mincash", self.mincash),
+            ("showjoinexit", self.showjoinexit as i32),
+            ("respawnteam", self.respawnteam as i32),
+        ]
+        .iter()
+        .map(|(k, v)| format!("{k}={v}\n"))
+        .collect()
+    }
+
+    /// Reads config_world.txt, writing the defaults there first when there is no such file.
     pub fn load(path: &std::path::Path) -> Self {
         let mut c = WorldConfig::default();
+        if !path.exists() && let Err(e) = std::fs::write(path, c.to_text())
+        {
+            eprintln!("[World] could not write {}: {e}", path.display());
+        }
         if let Ok(text) = std::fs::read_to_string(path) {
             let num = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).and_then(|v| v.trim().parse::<i32>().ok());
             c.traffic = num("traffic=").unwrap_or(c.traffic).clamp(0, 512);
@@ -169,20 +197,19 @@ impl Sim {
     fn spawn_building_patrol_npcs(&mut self, building: usize, kind: i32) {
         let spots = self.world.map.level.buildings.get(building).map_or(Vec::new(), |b| b.patrol.clone());
         let n = spots.len();
-        let rand = || crate::rng::rand() as i32;
-        let a = rand() & 3;
-        let b = rand() & 1;
+        let a = rand::random_range(0..4);
+        let b = rand::random_range(0..2);
         let base = a + b + GUARDS_MIN;
-        let count = ((rand() & 1) + base).min(n as i32);
+        let count = (rand::random_range(0..2) + base).min(n as i32);
         if count <= 0 {
             return;
         }
         let mut taken = [false; MAX_PATROL_SPOTS];
         for _ in 0..count {
-            let mut pick = rand() % n as i32;
+            let mut pick = rand::random_range(0..n as i32);
             let mut tries = SPOT_TRIES;
             while taken[pick as usize] {
-                pick = rand() % n as i32;
+                pick = rand::random_range(0..n as i32);
                 tries -= 1;
                 if tries == 0 {
                     break;
@@ -205,7 +232,30 @@ impl Sim {
     }
 }
 
+/// A world account is worth its money plus its shares at 95% of the price.
+const SALE_SHARE: f32 = 0.95;
+
 impl Sim {
+    /// The world account bookkeeping of player_simulation: every player's account holds their money (with their shares
+    /// when they belong to a corporation), their ratings and their respawn time.
+    pub(crate) fn world_account_sync(&mut self) {
+        for (_, p) in self.players.iter() {
+            if p.account_id == u32::MAX {
+                continue;
+            }
+            let worth = match super::economy::corporation_of(p.team).and_then(|c| self.corporations.get(c)) {
+                Some(c) => (p.money as f32 + p.stocks as f32 * (SALE_SHARE * c.price)) as i32,
+                None => p.money,
+            };
+            if let Some(a) = self.saved_accounts.get_player_data(p.account_id) {
+                a.money = worth as u32;
+                a.corp_rating = p.corp_rating as u32;
+                a.crim_rating = p.crim_rating as u32;
+            }
+            self.account_spawn_timers.insert(p.account_id, p.spawn_timer);
+        }
+    }
+
     /// The map's spawn point: load_map's by one end of the first street, or on test2 reset_game's by the track.
     pub(crate) fn map_spawn(&self) -> Vec3 {
         if self.world.map.map_name == "test2" {
@@ -566,9 +616,9 @@ impl Sim {
         let team = p.team as usize;
         let (pos, yaw) = if team >= CORPORATIONS {
             let s = self.map_spawn();
-            let spread = |r: i32| (((r & 0xff) as f32 * (SPAWN_AREA - SPAWN_MARGIN)) * 0.5) * (1.0 / 256.0);
-            let x = spread(crate::rng::rand() as i32) + s.x;
-            let z = spread(crate::rng::rand() as i32) + s.z;
+            let spread = |r: i32| ((r as f32 * (SPAWN_AREA - SPAWN_MARGIN)) * 0.5) * (1.0 / 256.0);
+            let x = spread(rand::random_range(0..256)) + s.x;
+            let z = spread(rand::random_range(0..256)) + s.z;
             (Vec3::new(x, s.y, z), CIVILIAN_YAW)
         } else {
             let Some(base) = self.world.map.level.bases.get(team) else { return };

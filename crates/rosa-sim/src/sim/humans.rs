@@ -53,36 +53,34 @@ impl Sim {
             if player.spawn_timer > 0 {
                 player.spawn_timer -= 1;
             }
-            // TODO: the rest of the per-player bookkeeping (account and game mode timers)
             let Some(h) = player.human.and_then(|id| self.humans.get_mut(id)) else { continue };
             h.stocks = player.stocks;
+            player.old_health = h.old_health.max(0);
             if h.vehicle.is_some() {
                 if matches!(player.control_mode, 2 | 3) {
                     let c = &player.controls;
-                    h.gear_x_input = c[0];
-                    h.strafe_input = c[1];
-                    h.gear_y_input = c[2];
-                    h.walk_input = c[3];
-                    h.look_yaw = c[4];
-                    h.look_pitch = c[5];
-                    h.free_look_yaw = c[6];
-                    h.free_look_pitch = c[7];
+                    h.gear_x_input = c.gear_x;
+                    h.strafe_input = c.strafe;
+                    h.gear_y_input = c.gear_y;
+                    h.walk_input = c.walk;
+                    h.look_yaw = c.look_yaw;
+                    h.look_pitch = c.look_pitch;
+                    h.free_look_yaw = c.free_look_yaw;
+                    h.free_look_pitch = c.free_look_pitch;
                 }
             } else if player.control_mode == 1 {
                 let c = &player.controls;
-                // TODO: record 0x174..0x18c and 0x198, 0x19c take controls 9..15 and extra controls 2, 3, which no
-                // client or bot ever sets (always 0); port them with their first reader
-                h.gear_x_input = c[0];
-                h.gear_y_input = c[2];
-                h.strafe_input = c[1];
-                h.walk_input = c[3];
-                h.look_yaw = c[4];
-                h.look_pitch = c[5];
-                h.free_look_yaw = c[6];
-                h.free_look_pitch = c[7];
-                h.client_body_yaw = c[8];
-                h.unk_190 = player.controls_extra[0];
-                h.unk_194 = player.controls_extra[1];
+                h.gear_x_input = c.gear_x;
+                h.gear_y_input = c.gear_y;
+                h.strafe_input = c.strafe;
+                h.walk_input = c.walk;
+                h.look_yaw = c.look_yaw;
+                h.look_pitch = c.look_pitch;
+                h.free_look_yaw = c.free_look_yaw;
+                h.free_look_pitch = c.free_look_pitch;
+                h.client_body_yaw = c.body_yaw;
+                h.jump_spin_yaw = c.spin_yaw;
+                h.jump_spin_pitch = c.spin_pitch;
                 if held {
                     h.strafe_input = 0.0;
                     h.walk_input = 0.0;
@@ -187,6 +185,8 @@ impl Sim {
         crate::human::arms::calculate_arm_angles(h, &mut self.bodies, map, &touch, noise_seed);
     }
 
+    /// delete_human: the human's items dropped, its player left without one (an update_player event standing in for the
+    /// binary's per-player update counter), and its bonds and bodies removed.
     pub(crate) fn delete_human(&mut self, id: usize) {
         let Some(mut h) = self.humans.remove(id) else { return };
         let mut touch = Touchables { grid: &self.item_grid, items: &mut self.items, types: &self.item_types, vehicles: &mut self.vehicles, vehicle_types: &self.vehicle_types, occupied: occupied_seats(&self.humans) };
@@ -200,7 +200,6 @@ impl Sim {
                 }
             }
         }
-        // TODO: the binary bumps the player's update counter here rather than sending an event
         if let Some(player) = h.player.and_then(|p| self.players.get_mut(p.idx()))
             && player.human == Some(id)
         {
@@ -255,6 +254,7 @@ impl Sim {
                     human_id: id as u16,
                     player_id: h.player.map_or(-1, |p| p.0 as i32),
                     customization: h.customization,
+                    wanted: h.player.and_then(|p| self.players.get(p.idx())).map_or(0, |p| wanted_group(p.crim_rating)),
                     vehicle: h.vehicle.map_or(-1, |v| v as i32),
                     vehicle_seat: h.seat as i32,
                     alive: h.old_health > 0,
@@ -341,4 +341,13 @@ fn later_humans(humans: &rosa_physics::Table<Human>, id: usize) -> Vec<crate::hu
 /// The (vehicle, seat) pairs humans sit in.
 pub(crate) fn occupied_seats(humans: &rosa_physics::Table<Human>) -> Vec<(usize, usize)> {
     humans.iter().filter_map(|(_, h)| h.vehicle.map(|v| (v, h.seat))).collect()
+}
+
+/// The wanted group of human_simulation (human +0x6fd4): 1 for a criminal rating of 1 to 99, 2 from 100, else 0.
+fn wanted_group(crim_rating: i32) -> i32 {
+    match crim_rating {
+        1..=99 => 1,
+        r if r >= 100 => 2,
+        _ => 0,
+    }
 }

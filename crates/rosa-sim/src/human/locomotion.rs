@@ -46,9 +46,9 @@ pub struct Foot {
 #[derive(Clone, Debug)]
 pub struct Locomotion {
     pub jump_charge: i32,
-    // TODO: name the step state copied from the human when a planted foot starts a step
-    pub step_a: f32,
-    pub step_b: f32,
+    /// The jump's spin about the head's side and up axes, taken from the human when a planted foot starts the jump.
+    pub spin_pitch: f32,
+    pub spin_yaw: f32,
     pub step_angle: f32,
     pub spine_frames: [RotMatrix; 3],
     pub torso_center: Vec3,
@@ -76,8 +76,8 @@ impl Default for Locomotion {
     fn default() -> Self {
         Self {
             jump_charge: 0,
-            step_a: 0.0,
-            step_b: 0.0,
+            spin_pitch: 0.0,
+            spin_yaw: 0.0,
             step_angle: 0.0,
             spine_frames: [IDENTITY; 3],
             torso_center: Vec3::ZERO,
@@ -427,7 +427,7 @@ pub fn update_movement_target(h: &mut Human, surface: &Surface, ticks: u32) {
         rz *= max;
     }
     l.move_target_vel = Vec3::new(rx + mtv.x, ry + mtv.y, rz + mtv.z);
-    // TODO: holding item type 28 in either hand drags the movement target towards its handle (shopping cart)
+    // TODO: holding a door (item type 28) in either hand drags the movement target towards its handle
     l.move_target_vel.y = 0.0;
     let (mtp, mtv) = (l.move_target_pos, l.move_target_vel);
     l.move_target_pos = Vec3::new(mtp.x + mtv.x, mtp.y + mtv.y, mtp.z + mtv.z);
@@ -909,8 +909,8 @@ pub fn start_step(h: &mut Human, k: usize) {
     h.movement_state = 3;
     let l = &mut h.locomotion;
     l.feet[k].mode = FOOT_PLANTED;
-    l.step_a = h.unk_194;
-    l.step_b = h.unk_190;
+    l.spin_pitch = h.jump_spin_pitch;
+    l.spin_yaw = h.jump_spin_yaw;
     l.active_foot = (k ^ 1) as i32;
     l.step_angle = 135.0_f32.to_radians();
     l.feet[0].swing_phase = 0.0;
@@ -942,7 +942,9 @@ fn foot_heading(yaw: f32, pitch: f32) -> RotMatrix {
 }
 
 /// human_update_locomotion_constraints: the standing and walking balance of a conscious human. Steers the movement
-/// target, steps the feet and drives the leg joints (through the leg IK) to keep the body over its feet.
+/// target, steps the feet and drives the leg joints (through the leg IK) to keep the body over its feet. A foot's ground
+/// contact from the previous tick is only edited while its bond still exists (the binary edits whatever bond has
+/// taken the slot since).
 pub fn update_locomotion_constraints(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface, ticks: u32) {
     let tv = h.locomotion.torso_vel;
     let speed = ((tv.y * tv.y + tv.x * tv.x) + tv.z * tv.z).sqrt() * 60.0 - 0.5;
@@ -1071,8 +1073,6 @@ pub fn update_locomotion_constraints(h: &mut Human, bodies: &mut RigidBodies, su
     for k in 0..2 {
         let bone = FOOT_BONES[k];
         let f = &h.locomotion.feet[k];
-        // TODO: this edits the foot's ground contact bond from the previous tick, which the bond solver has already
-        // removed; when the slot has been reused by another bond the binary edits that one instead
         if h.bones[bone].ground_contact != 0
             && let Some(id) = f.bond
             && let Some(Bond::GroundContact(c)) = bodies.bond_mut(id)
@@ -1272,8 +1272,8 @@ fn step_torque(r: Vec3, e: Vec3, a: Vec3, t: &RotMatrix) -> Vec3 {
 
 /// human_step_locomotion_ik (movement state 3): the jump. Both legs push off with the leg IK, then every body of the
 /// human is given the torso's velocity plus an upward speed set by how long jump was held, and a spin from the step
-/// input.
-pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface) {
+/// input. Returns the upward speed added, which the items in the hands get too.
+pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface) -> f32 {
     let ankles = [joint_point(&h.bones[11], 1, BONES[12].joint.y), joint_point(&h.bones[14], 1, BONES[15].joint.y)];
     let pelvis = &h.bones[0];
     let (p, [r0, r1, _]) = (pelvis.pos, pelvis.rot);
@@ -1403,9 +1403,9 @@ pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Sur
     l.active_foot = (l.feet[0].mode == FOOT_PLANTED) as i32;
     l.feet[0].mode = FOOT_FREE;
     l.feet[1].mode = FOOT_FREE;
-    let sa = l.step_a;
-    l.step_a = sa.clamp(-0.5, 0.5);
-    let sb = l.step_b;
+    let sa = l.spin_pitch;
+    l.spin_pitch = sa.clamp(-0.5, 0.5);
+    let sb = l.spin_yaw;
     let (kb, sb) = if -0.75 > sb {
         (-0.09375, -0.75)
     } else if sb > 0.75 {
@@ -1413,8 +1413,8 @@ pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Sur
     } else {
         (0.125 * sb, sb)
     };
-    l.step_b = sb;
-    let c = 0.125 * l.step_a;
+    l.spin_yaw = sb;
+    let c = 0.125 * l.spin_pitch;
     let spin = Vec3::new(head[1].x * kb + head[0].x * c, head[1].y * kb + head[0].y * c, kb * head[1].z + c * head[0].z);
 
     let (mut total, mut com) = (0.0f32, Vec3::ZERO);
@@ -1456,9 +1456,9 @@ pub fn step_locomotion_ik(h: &mut Human, bodies: &mut RigidBodies, surface: &Sur
         b.ang_momentum = Vec3::new(l1.x + m2.x * s2, l1.y + m2.y * s2, l1.z + s2 * m2.z);
     }
     h.locomotion.torso_vel.y = 3.0 * lift + tv.y;
-    // TODO: items held in either hand get the same upward speed
     h.locomotion.jump_charge = 0;
     h.locomotion.step_angle = 90.0_f32.to_radians();
+    lift
 }
 
 /// slide_simulation (movement state 2): the human slides on its back or side; both legs are held out ahead of the

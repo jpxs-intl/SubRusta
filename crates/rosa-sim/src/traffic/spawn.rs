@@ -2,7 +2,7 @@ use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{GameMode, clientbound::game::VehicleKind};
 
-use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, rand_bit, rand_mod, route::plan_route};
+use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, route::plan_route};
 use crate::{vehicle::types::VehicleType, world::map::Map};
 
 /// The rounded pi the binary turns a new car with: std's pi gives a different last bit (checked by the traffic
@@ -38,22 +38,22 @@ pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], m
     let streets = &map.streets;
     let n = streets.streets.len() as i32;
     for _ in 0..count {
-        let slot = rand_bit();
-        let mut street = rand_mod(n);
+        let slot = rand::random_range(0..2);
+        let mut street = rand::random_range(0..n);
         if traffic.roundcity {
             while street == HIDDEN_STREET || street == LOOP_STREET {
-                street = rand_mod(n);
+                street = rand::random_range(0..n);
             }
         }
-        let mut lane = rand_bit();
+        let mut lane = rand::random_range(0..2);
         let st = &streets.streets[street as usize];
         let flat_three = mode == GameMode::Eliminator && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y && st.left_lanes == 3;
         if flat_three {
-            lane = rand_mod(3);
+            lane = rand::random_range(0..3);
         }
-        let kind = car_kind(crate::rng::rand() & 15);
-        let byte = crate::rng::rand() & 0xff;
-        let color = rand_mod(COLORS);
+        let kind = car_kind(rand::random_range(0..16));
+        let byte = rand::random_range(0..256);
+        let color = rand::random_range(0..COLORS);
         let id = create_traffic_car(traffic, map, types, kind, color, street, slot, lane, byte as f32 * PROGRESS_STEP);
         if lane == PARKING_LANE {
             traffic.cars[id].is_bot = PARKED;
@@ -139,8 +139,8 @@ pub fn create_traffic_car(traffic: &mut Traffic, map: &Map, types: &[VehicleType
         lane_mask: 0,
         color,
     };
-    let to = rand_mod(streets.streets.len() as i32);
-    let to_slot = rand_bit();
+    let to = rand::random_range(0..streets.streets.len() as i32);
+    let to_slot = rand::random_range(0..2);
     plan_route(&mut car, streets, street, slot, to, to_slot);
     let mut rot = IDENTITY;
     let axis = rot[1];

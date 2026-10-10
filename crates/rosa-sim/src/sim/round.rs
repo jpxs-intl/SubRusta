@@ -304,8 +304,8 @@ impl Sim {
     fn round_spawn(&mut self, pid: PlayerId, k: usize) {
         let base = &self.world.map.level.bases[k];
         let (spawn, table_orientation) = (base.spawn, base.table_orientation);
-        let x = ((crate::rng::rand() & 255) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.x;
-        let z = ((crate::rng::rand() & 255) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.z;
+        let x = (rand::random_range(0..256) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.x;
+        let z = (rand::random_range(0..256) as i32 - 127) as f32 * SPAWN_SPREAD * SPAWN_STEP + spawn.z;
         let pos = Vec3::new(x, spawn.y - SPAWN_DROP, z);
         let yaw = (90.0_f64.to_radians() + table_orientation as f64) as f32;
         let mut rot = IDENTITY;
@@ -506,10 +506,9 @@ impl Sim {
     /// the clock at 11:00 and an axial tilt.
     pub(crate) fn roll_weather(&mut self) {
         let pi = f64::from_bits(0x400921fb54442eea);
-        crate::rng::rand();
-        let angle = ((((crate::rng::rand() & 0xff) as i32 + SUN_BASE) as f64 * pi) * SUN_SPAN * SUN_STEP) as f32;
+        let angle = (((rand::random_range(0..256) as i32 + SUN_BASE) as f64 * pi) * SUN_SPAN * SUN_STEP) as f32;
         self.world_time = CLOCK_START;
-        let tilt = (((crate::rng::rand() & 0xff) as f64 * pi) * SUN_STEP) as f32;
+        let tilt = ((rand::random_range(0..256) as f64 * pi) * SUN_STEP) as f32;
         self.world.set_sun(angle, tilt);
     }
 
@@ -581,6 +580,28 @@ impl Sim {
         self.events = super::EventRing::default();
         for c in self.clients.values_mut() {
             c.reset_for_round();
+        }
+    }
+
+    /// reset_game's map: world mode plays test2 and round and eliminator modes the round city, anything else keeps
+    /// the map it has; a different map is loaded (load_map) and the world emptied with it.
+    pub(crate) fn load_mode_map(&mut self) {
+        let name = match self.gamemode {
+            GameMode::World | GameMode::None => "test2",
+            GameMode::Round | GameMode::Eliminator | GameMode::CoOp => "round",
+            _ => return,
+        };
+        if self.world.map.map_name == name {
+            return;
+        }
+        match crate::world::map::Map::load_map(name.to_string()) {
+            Ok(map) => {
+                self.world.map = map;
+                self.item_grid = Default::default();
+                self.clear_world();
+                println!("[Sim] Loaded map {name}");
+            }
+            Err(e) => eprintln!("[Sim] could not load map {name}: {e}"),
         }
     }
 

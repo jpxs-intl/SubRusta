@@ -100,8 +100,10 @@ struct TickCtx<'a> {
     own_humans: HashMap<usize, rosa_protocol::clientbound::game::OwnHumanData>,
     heads: HashMap<usize, (Vec3, bool)>,
     items: Vec<rosa_protocol::clientbound::game::ServerItemObject>,
-    vehicles: Vec<rosa_protocol::clientbound::game::ServerVehicleObject>,
+    vehicles: Vec<(rosa_protocol::clientbound::game::ServerVehicleObject, vehicles::VehicleSight)>,
     tick: u32,
+    ticks_since_reset: u32,
+    sun_time: i32,
     gamestate: GameState,
     ready_states: Option<[bool; 32]>,
     traffic: &'a crate::traffic::Traffic,
@@ -127,6 +129,8 @@ const TICK_MS: u64 = 16;
 
 pub struct Sim {
     pub(crate) tick: u32,
+    /// Ticks since the last reset_game (ticksSinceReset).
+    ticks_since_reset: u32,
     round_number: u32,
     gamemode: GameMode,
     gamestate: GameState,
@@ -211,6 +215,7 @@ impl Sim {
 
         let mut sim = Self {
             tick: 0,
+            ticks_since_reset: 0,
             in_rx,
             out_tx,
             world: World::new(map_name),
@@ -279,6 +284,7 @@ impl Sim {
                 let player = self.players.get_mut(client.player_id.idx()).unwrap();
 
                 client.last_sdl_tick = g.sdl_tick;
+                client.client_packet_count = g.packet_count_maybe;
                 client.event_cursor = g.received_events as u16;
                 client.pack_ack = g.unk & 0x7ff;
                 client.link_ack = g.unk1;
@@ -406,6 +412,9 @@ impl Sim {
         if self.gamemode == GameMode::Round {
             self.round_account_sync();
         }
+        if self.gamemode == GameMode::World {
+            self.world_account_sync();
+        }
         self.physics_tick();
         self.broadcast_tick();
         self.send_admin_lists();
@@ -417,6 +426,7 @@ impl Sim {
         }
 
         self.tick += 1;
+        self.ticks_since_reset = self.ticks_since_reset.wrapping_add(1);
         if self.gamestate as u8 <= GameState::InGame as u8 {
             self.bullet_simulation();
             self.bullet_ttl();
@@ -484,6 +494,7 @@ impl Sim {
         let corp_round = std::array::from_fn(|k| (self.corp_state[k].funds, 0));
         let team_counts = std::array::from_fn(|k| self.corp_state[k].player_count);
         let (game_timer, round_number) = (self.game_timer, self.round_number);
+        let (ticks_since_reset, sun_time) = (self.ticks_since_reset, self.world_time);
         let sync = self.initial_sync();
         let Sim {
             clients,
@@ -515,6 +526,8 @@ impl Sim {
             items,
             vehicles,
             tick: *tick,
+            ticks_since_reset,
+            sun_time,
             gamestate: *gamestate,
             ready_states,
             traffic,
@@ -557,6 +570,10 @@ impl Sim {
         let (object_packs, pack_offset, packed_items) = Self::object_packs(client, ctx, player.camera_pos.0);
         let (line_links, link_offset) = Self::link_section(client, ctx, player.camera_pos.0);
         let (traffic, signal) = traffic_section(client, ctx.traffic, &ctx.world.map.streets, player.camera_pos.0);
+        let backlog = ctx.events.count.wrapping_sub(client.event_cursor);
+        let vehicles = vehicles::vehicle_section(&mut client.vehicle_priority, &ctx.vehicles, player.camera_pos.0, backlog);
+        let packet_sequence = client.packet_sequence;
+        client.packet_sequence = packet_sequence.wrapping_add(1);
 
         let mut voice_data: [Option<ServerVoiceData>; 8] = [const { None }; 8];
 
@@ -578,6 +595,10 @@ impl Sim {
             client_id: client.player_id.0,
             received_actions: player.actions.write as u32,
             round_number: ctx.round_number,
+            ticks_since_reset: ctx.ticks_since_reset,
+            sun_time: ctx.sun_time,
+            packet_sequence,
+            client_packet_count: client.client_packet_count,
             network_tick: ctx.tick,
             last_sdl_tick: client.last_sdl_tick,
             menu_type: player.menu,
@@ -587,7 +608,8 @@ impl Sim {
             } else {
                 Vec::new()
             },
-            // TODO: the store menu (10) sends something else here
+            spawn_timer: player.spawn_timer,
+            old_health: player.old_health,
             money: player.money,
             corp_money: player.corp_money,
             corp_credit: player.corp_credit,
@@ -604,7 +626,7 @@ impl Sim {
             own_human: ctx.own_humans.get(&player_id.idx()).cloned(),
             humans: ctx.humans.clone(),
             items: ctx.items.iter().filter(|i| packed_items.contains(&i.slot)).cloned().collect(),
-            vehicles: ctx.vehicles.clone(),
+            vehicles,
             object_packs,
             pack_offset,
             line_links,

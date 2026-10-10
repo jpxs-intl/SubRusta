@@ -134,9 +134,10 @@ pub struct Human {
     pub lean_forward: f32,
     pub lean_side: f32,
     pub pain: i32,
-    // TODO: name once their writers are ported (copied into the locomotion step state when a step starts)
-    pub unk_190: f32,
-    pub unk_194: f32,
+    /// The spin a jump starts with, about the head's up and side axes (record 0x190, 0x194, from the player's
+    /// controls).
+    pub jump_spin_yaw: f32,
+    pub jump_spin_pitch: f32,
     /// Where the player looks around without turning (controls 6 and 7, record 0x168 and 0x16c): the waist and
     /// chest turn part of the way, and a pointing arm follows them.
     pub free_look_yaw: f32,
@@ -174,9 +175,6 @@ pub struct Human {
     pub client_body_yaw: f32,
     /// The vehicles whose bounds overlap the human's (record +0x218 count, +0x21c ids), at most 8.
     pub nearby_vehicles: Vec<usize>,
-    // TODO: name once its writers are found (record 0xb4, zero for every human seen; its length sets how long getting
-    // out of a seat takes)
-    pub unk_b4: Vec3,
     /// Whether the human is bleeding (record 0x6d80): a hit starts it, bandaging or death stops it.
     pub bleeding: bool,
     pub unk_6adc: Vec3,

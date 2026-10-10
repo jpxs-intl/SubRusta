@@ -421,8 +421,9 @@ impl VehicleType {
 
     /// load_tst: a test shape file's mesh replaces the render vertices and faces and its parts the windows (raised and
     /// moved back by 0.625 but for Van2), and Van2's second mesh replaces the chassis nodes and faces. A block the
-    /// file does not hold leaves the list empty.
-    /// Van2 is built from van.tst, which leaves its body slot (and so its collision mesh) empty.
+    /// file does not hold leaves the list empty (the binary's readers keep their last file's blocks, and Van2's is read
+    /// before any other). The second mesh's vertices are Van2's chassis nodes, which the collision sweep reads; van.tst
+    /// matches neither reader's version, so Van2 is left without render mesh, windows or collision mesh.
     fn load_tst(&mut self, path: &std::path::Path, kind: VehicleKind) {
         let tst = TstFile::load(path, kind == VehicleKind::Van2).unwrap_or_default();
         let shift = |p: Vec3| if kind != VehicleKind::Van2 { Vec3::new(p.x, p.y + TST_SHIFT, p.z + TST_SHIFT) } else { p };
@@ -442,8 +443,6 @@ impl VehicleType {
         if kind == VehicleKind::Van2 {
             let chassis = tst.chassis.as_ref();
             self.chassis_faces = chassis.map_or(Vec::new(), |m| m.faces.iter().map(|f| f.corners.iter().map(|c| c.vertex as usize).collect()).collect());
-            // TODO: the chassis mesh's vertices become the body slot's nodes (+0x4014), which the collision hull
-            // sweep reads; with none the hull is left out
             if chassis.is_none_or(|m| m.vertices.is_empty()) {
                 self.mesh = None;
             }
@@ -790,13 +789,13 @@ impl VehicleType {
 /// The type a dealership or round corporation stocks: mostly town cars, hatchbacks, minivans and vans, now and then a
 /// beamer, rarely a turbo and very rarely a Turbo S.
 pub fn random_stock_vehicle() -> VehicleKind {
-    match crate::rng::rand() & 15 {
+    match rand::random_range(0..16) {
         0..=1 => VehicleKind::Van,
         2..=5 => VehicleKind::TownCar,
         6..=9 => VehicleKind::Hatchback,
         10..=12 => VehicleKind::Minivan,
         13..=14 => VehicleKind::Beamer,
-        _ if crate::rng::rand() & 15 == 0 => VehicleKind::TurboS,
+        _ if rand::random_ratio(1, 16) => VehicleKind::TurboS,
         _ => VehicleKind::Turbo,
     }
 }

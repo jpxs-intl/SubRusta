@@ -6,7 +6,7 @@ use rosa_protocol::{
 
 use super::Sim;
 use crate::{
-    traffic::{DRIVEN, LOOP_STREET, LOOP_STREET_2, TAKEN, Traffic, ai::ai_traffic_car, grid::add_cars, motion::{move_virtual_car, update_signals}, rand_bit, rand_mod, route::plan_route, spawn::create_traffic},
+    traffic::{DRIVEN, LOOP_STREET, LOOP_STREET_2, TAKEN, Traffic, ai::ai_traffic_car, grid::add_cars, motion::{move_virtual_car, update_signals}, route::plan_route, spawn::create_traffic},
     vehicle::spawn_vehicle,
 };
 
@@ -14,6 +14,7 @@ use crate::{
 const TRAFFIC_CARS: i32 = 128;
 /// A car becomes a real vehicle within 96 of a player (16 of a bot), and stays one 4 further out.
 const PLAYER_RANGE: f32 = 96.0;
+const BOT_RANGE: f32 = 16.0;
 const KEEP_RANGE: f32 = 4.0;
 const NEAR: i32 = 2;
 const EDGE: i32 = 1;
@@ -46,6 +47,8 @@ impl Sim {
     /// The shop and traffic part of reset_game: srand(time), the dealerships and gun stores restocked, and 128 cars when
     /// the map has streets (none for races).
     pub(crate) fn reset_game(&mut self) {
+        self.load_mode_map();
+        self.ticks_since_reset = 0;
         for (_, p) in self.players.iter_mut() {
             p.items_bought = 0;
             p.actions.reset();
@@ -93,7 +96,6 @@ impl Sim {
             self.world.map.level.area.track = crate::world::track::Track::race_track();
         }
         self.roll_weather();
-        crate::rng::srand(crate::rng::time_seed());
         if self.gamemode == GameMode::World {
             self.respawn_world();
         }
@@ -105,7 +107,6 @@ impl Sim {
             create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
         }
 
-        // TODO: round and eliminator modes work the doors from logic_round and logic_eliminator once those are ported
         if self.gamemode == GameMode::World {
             for k in 0..Team::CORPORATIONS.len() {
                 self.set_team_door(k, true);
@@ -175,19 +176,20 @@ impl Sim {
 
     /// How near the nearest living player's human is to each car.
     fn traffic_states(&mut self) {
-        // TODO: bots' humans count within 16 rather than 96 (player +0x2d18)
         for c in &mut self.traffic.cars {
             c.state = 0;
             for (hid, h) in self.humans.iter() {
-                if h.player.is_none() || h.old_health <= 0 || c.state > EDGE || c.human == hid as i32 {
+                let Some(pid) = h.player else { continue };
+                if h.old_health <= 0 || c.state > EDGE || c.human == hid as i32 {
                     continue;
                 }
+                let range = if self.players.get(pid.idx()).is_some_and(|p| p.is_bot) { BOT_RANGE } else { PLAYER_RANGE };
                 let b = h.bones[0].pos;
                 let (dx, dy, dz) = (c.pos.x - b.x, c.pos.y - b.y, c.pos.z - b.z);
                 let dist = (dz * dz + (dx * dx + dy * dy)).sqrt();
-                if PLAYER_RANGE > dist {
+                if range > dist {
                     c.state = NEAR;
-                } else if PLAYER_RANGE + KEEP_RANGE > dist {
+                } else if range + KEEP_RANGE > dist {
                     c.state = EDGE;
                 }
             }
@@ -226,8 +228,8 @@ impl Sim {
             if c.is_bot == TAKEN {
                 if c.physical_street != -1 {
                     let ps = c.physical_street;
-                    let to = rand_mod(n_streets);
-                    let r = rand_bit();
+                    let to = rand::random_range(0..n_streets);
+                    let r = rand::random_range(0..2);
                     let c = &mut self.traffic.cars[id];
                     c.street = ps;
                     c.intersection = -1;
@@ -309,7 +311,6 @@ const SENT_PER_PACKET: usize = 16;
 
 /// The traffic part of a client's game packet: the most overdue cars and one intersection's lights.
 pub(crate) fn traffic_section(client: &mut crate::Client, traffic: &Traffic, map: &crate::world::streets::StreetMap, camera: Vec3) -> (Vec<TrafficEntry>, (i32, [i32; 4])) {
-    // TODO: 32 cars a packet and a priority of 1 when the connection's flag at [rsp+8] is 0xff
     let n = traffic.cars.len();
     client.traffic_priority.resize(n, 0);
     for (c, p) in traffic.cars.iter().zip(client.traffic_priority.iter_mut()) {

@@ -1,7 +1,7 @@
 use glam::Vec3;
 
 use super::{Human, bones::BONES};
-use crate::{human::BoneId, rng::rand, world::capsule::segment_closest_points};
+use crate::{human::BoneId, world::capsule::segment_closest_points};
 
 /// Where a ray met a bone capsule.
 pub struct BoneHit {
@@ -93,7 +93,7 @@ pub fn damage_human(h: &mut Human, bone: BoneId, damage: i32) {
         }
     }
 
-    if damage > 0 && ((rand() & 0x1f) as i32) < damage {
+    if damage > 0 && (rand::random_range(0..32) as i32) < damage {
         h.bleeding = true;
     }
 

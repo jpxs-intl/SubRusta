@@ -144,12 +144,13 @@ pub fn sanitize_name(raw: &[u8]) -> String {
     if name.is_empty() { "Noname".into() } else { name }
 }
 
-/// The money a player has on joining: world mode tops it up to mincash and versus sets it to 250.
-pub fn joining_money(mode: GameMode, money: i32, mincash: i32) -> i32 {
-    // TODO: round mode with the setting at 0x452cacd0 set gives the 0x453855d0 setting (250)
-    match mode {
-        GameMode::World if money < mincash => mincash,
-        GameMode::Versus => 250,
+/// The money a player has on joining: world mode tops it up to mincash, versus sets it to 250 and weekly round play
+/// to the round's startcash.
+pub fn joining_money(mode: GameMode, money: i32, mincash: i32, weekly_startcash: Option<i32>) -> i32 {
+    match (mode, weekly_startcash) {
+        (GameMode::World, _) if money < mincash => mincash,
+        (GameMode::Versus, _) => 250,
+        (GameMode::Round, Some(cash)) => cash,
         _ => money,
     }
 }
@@ -291,9 +292,9 @@ impl Sim {
             let mut a = SrkPlayerData::new(auth.account_id, &auth.player_name, auth.phone_number, auth.steam_id);
             a.money = if self.gamemode == GameMode::World { self.world_cfg.startcash as u32 } else { NEW_ACCOUNT_MONEY };
             a.corp_rating = NEW_ACCOUNT_RATING;
-            a.eye_color = (crate::rng::rand() % 3) as u32;
-            a.hair_color = (crate::rng::rand() & 7) as u32;
-            a.skin_color = (crate::rng::rand() & 3) as u32;
+            a.eye_color = rand::random_range(0..3) as u32;
+            a.hair_color = rand::random_range(0..8) as u32;
+            a.skin_color = rand::random_range(0..4) as u32;
             accounts.players.push(a);
             accounts.player_count = accounts.players.len() as u32;
         }
@@ -328,8 +329,9 @@ impl Sim {
             player.spawn_timer = self.account_spawn_timers.get(&player.account_id).copied().unwrap_or(0);
         }
         self.reclaim_humans(pid);
+        let weekly_startcash = self.round_cfg.weekly.then_some(self.round_cfg.startcash);
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        player.money = joining_money(mode, player.money, self.world_cfg.mincash);
+        player.money = joining_money(mode, player.money, self.world_cfg.mincash, weekly_startcash);
     }
 
     /// A returning player takes back every human still holding their account: its team becomes theirs, and in world
@@ -378,9 +380,16 @@ impl Sim {
             let held = player.stocks;
             sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
         }
-        let team = player.team;
-        self.leave_corp_management(pid, team);
-        // TODO: delete_player also clears 4 bytes of each corporation the player managed (near corporation +0x328)
+        for k in 0..self.corp_state.len() {
+            if self.corp_state[k].manager != Some(pid) {
+                continue;
+            }
+            if mode == GameMode::World {
+                self.update_corp_player_ratings(k);
+            }
+            self.corp_state[k].manager = None;
+            self.corp_state[k].fired.clear();
+        }
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         if let Some(a) = self.saved_accounts.get_player_data(player.account_id) {
             a.money = player.money as u32;

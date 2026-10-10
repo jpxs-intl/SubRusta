@@ -71,17 +71,13 @@ pub struct EliminatorState {
     pub ready: i32,
 }
 
-fn rand() -> i32 {
-    crate::rng::rand() as i32
-}
-
 fn step(p: Vec3, r: Vec3) -> Vec3 {
     Vec3::new(r.x * TABLE_STEP + p.x, r.y * TABLE_STEP + p.y, r.z * TABLE_STEP + p.z)
 }
 
 /// A random gun and its magazine.
 fn random_gun() -> (ItemKind, ItemKind) {
-    GUNS[(rand() % 5) as usize]
+    GUNS[rand::random_range(0..5) as usize]
 }
 
 impl Sim {
@@ -168,7 +164,7 @@ impl Sim {
     /// The groups: up to eight, three players each drawn at random (eliminator, target, protector), going on while at
     /// least 3 to 5 players are left; the first group is made even with nobody ready.
     fn deal_groups(&mut self, mut list: Vec<i32>) {
-        let least = (rand() % 3 + 3) as usize;
+        let least = (rand::random_range(0..3) + 3) as usize;
         let mut first = true;
         loop {
             if !first && (self.eliminator.count > MAX_GROUPS - 1 || list.len() < least) {
@@ -178,13 +174,13 @@ impl Sim {
             let n = self.eliminator.count;
             let g = &mut self.eliminator.groups[n];
             if !list.is_empty() {
-                let i = (rand() % list.len() as i32) as usize;
+                let i = rand::random_range(0..list.len() as i32) as usize;
                 g.eliminator = list.remove(i);
                 if !list.is_empty() {
-                    let i = (rand() % list.len() as i32) as usize;
+                    let i = rand::random_range(0..list.len() as i32) as usize;
                     g.target = list.remove(i);
                     if !list.is_empty() {
-                        let i = (rand() % list.len() as i32) as usize;
+                        let i = rand::random_range(0..list.len() as i32) as usize;
                         g.protector = list.remove(i);
                     }
                 }
@@ -200,14 +196,14 @@ impl Sim {
         let inters = &map.streets.intersections;
         let n = inters.len() as i32;
         let r = if n > 0 {
-            let mut r = rand() % n;
+            let mut r = rand::random_range(0..n);
             loop {
                 let ru = r as usize;
                 let blocked = ru <= LAST_MASKED_INTERSECTION && BLOCKED_INTERSECTIONS >> ru & 1 != 0;
                 if !blocked && !used[ru] {
                     break;
                 }
-                r = rand() % n;
+                r = rand::random_range(0..n);
             }
             used[r as usize] = true;
             r as usize
@@ -262,12 +258,12 @@ impl Sim {
     /// each, a bandage or two, a phone and a soccer ball.
     fn stock_eliminator_tables(&mut self) {
         for k in 0..3 {
-            let kind = match rand() & 15 {
+            let kind = match rand::random_range(0..16) {
                 0..=5 => TABLE_CARS[0],
                 6..=10 => TABLE_CARS[1],
                 _ => TABLE_CARS[2],
             };
-            let color = rand() % 6;
+            let color = rand::random_range(0..6);
             let vid = self.corporation_spawn_vehicle(kind, k, color);
             let map = &self.world.map;
             let car = crate::traffic::spawn::create_traffic_car(&mut self.traffic, map, &self.vehicle_types, kind, 0, 0, 0, 0, 0.0);
@@ -281,7 +277,6 @@ impl Sim {
             let r0 = rot[0];
             let mut p = base.table;
             for _ in 0..TABLE_GUNS {
-                rand();
                 self.create_item(ItemKind::Pistol, p, None, rot);
                 for _ in 0..3 {
                     p = step(p, r0);
@@ -289,7 +284,7 @@ impl Sim {
                 }
                 p = step(p, r0);
             }
-            let two = rand() & 1 != 0;
+            let two = rand::random::<bool>();
             self.create_item(ItemKind::Bandage, p, None, rot);
             p = step(p, r0);
             if two {
@@ -424,22 +419,21 @@ impl Sim {
     /// A supply drop: a grenade near one mission spot and a gun with three magazines near another, then one to three
     /// tables restocked (all three with more than 14 players ready).
     fn eliminator_drop(&mut self, ready: usize) {
-        let r = rand();
+        let r = rand::random_range(0..8);
         let v = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, DROP_SPREAD, 0.0);
-        let spot = MISSION_SPOTS[(r % 8) as usize].pos;
+        let spot = MISSION_SPOTS[r as usize].pos;
         let p = Vec3::new(v.x + spot.x, v.y + spot.y, v.z + spot.z);
         self.create_item(ItemKind::Grenade, p, None, IDENTITY);
-        let spot = MISSION_SPOTS[(rand() % 8) as usize].pos;
+        let spot = MISSION_SPOTS[rand::random_range(0..8) as usize].pos;
         let (gun, mag) = random_gun();
         for j in 0..4 {
             let v = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, DROP_GUN_SPREAD, 0.0);
             let p = Vec3::new(v.x + spot.x, 0.0 + spot.y, v.z + spot.z);
             self.create_item(if j == 0 { gun } else { mag }, p, None, IDENTITY);
         }
-        let r = rand();
         let mut tables = 7;
         if ready <= 14 {
-            let s = r % 3;
+            let s = rand::random_range(0..3);
             tables = 1 << s;
             if ready > 7 {
                 let s2 = s + 1;
@@ -476,7 +470,7 @@ impl Sim {
         }
         self.create_item(ItemKind::Grenade, p, None, rot);
         p = step(p, r0);
-        let two = rand() & 1 != 0;
+        let two = rand::random::<bool>();
         self.create_item(ItemKind::Bandage, p, None, rot);
         p = step(p, r0);
         if two {

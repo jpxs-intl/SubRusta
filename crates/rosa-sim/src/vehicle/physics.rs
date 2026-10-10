@@ -1,14 +1,14 @@
 use glam::Vec3;
 use rosa_protocol::clientbound::game::VehicleKind;
 use rosa_physics::{
-    RigidBodies, RigidBody, Table,
-    rotation::rotate_vector_about_axis,
+    RigidBodies, RigidBody, RotMatrix, Table,
+    bond::Bond,
+    rotation::{multiply_matrixes, quaternion_to_rotation_vector, rot_matrix_to_quaternion, rotate_vector_about_axis},
 };
 use rosa_protocol::clientbound::game::events::sound::Sound;
 
 use super::{Vehicle, types::VehicleType};
 use crate::{
-    rng::rand,
     world::{
         capsule::{capsule_intersect_triangle, capsule_intersect_triangle_facing},
         collide::{calculate_face_normal, point_in_triangle_oriented, segment_intersect_face},
@@ -105,7 +105,7 @@ pub fn update_vehicle_bounds(v: &mut Vehicle, bodies: &RigidBodies, types: &[Veh
 }
 
 fn crash_sound(v: &Vehicle, out: &mut Vec<VehicleOutput>) {
-    let r = (rand() & 0xff) as f32;
+    let r = rand::random_range(0..256) as f32;
     out.push(VehicleOutput::Sound { sound: Sound::CarCrash, pos: v.pos, volume: v.crash * 0.5, pitch: r * (1.0 / 1024.0) + 0.875 });
 }
 
@@ -505,13 +505,14 @@ const BRAKE_LIMIT: f32 = 0.75;
 const FULL_PULL: f32 = f32::from_bits(0x3a7e_dcbb);
 const FULL_BRAKE: f32 = f32::from_bits(0xba5a_740e);
 const SPEEDO_SCALE: f32 = 120.0;
-const HORN: i32 = 3;
-const HORN_ON: i32 = 0;
-const HORN_OFF: i32 = 6;
+/// The train door is its window 3: open (broken) while the train stands, so the capsule test lets humans through.
+const TRAIN_DOOR: usize = 3;
+const DOOR_OPEN: i32 = 0;
+const DOOR_CLOSED: i32 = 6;
 
 /// The type 13 part of vehicleSimulation: the speedometer, the cruising speed the track's straightness allows
-/// (slowing to stop at the station it is heading for, and moving on to the next after 15 seconds there), the horn
-/// while it runs, and the chassis pushed along its length towards that speed.
+/// (slowing to stop at the station it is heading for, and moving on to the next after 15 seconds there), the door
+/// open while it stands, and the chassis pushed along its length towards that speed.
 fn drive_train(id: usize, v: &mut Vehicle, bodies: &mut RigidBodies, track: &crate::world::track::Track, out: &mut Vec<VehicleOutput>) {
     let r2 = v.rot[2];
     let s = v.vel.z * r2.z + (v.vel.x * r2.x + v.vel.y * r2.y);
@@ -525,14 +526,15 @@ fn drive_train(id: usize, v: &mut Vehicle, bodies: &mut RigidBodies, track: &cra
         let w = minss(weight(n), minss(weight(p), weight(v.train_segment)));
         w * (w * TRAIN_CRUISE)
     };
+    let open = v.broken_windows.get(TRAIN_DOOR).copied().unwrap_or(false);
     if s > TRAIN_MOVING {
-        if !v.horn {
-            out.push(VehicleOutput::Update { vehicle: id, kind: HORN_ON, part: HORN, pos: v.pos, vel: v.vel });
-            v.horn = true;
+        if !open {
+            out.push(VehicleOutput::Update { vehicle: id, kind: DOOR_OPEN, part: TRAIN_DOOR as i32, pos: v.pos, vel: v.vel });
+            set_door(v, true);
         }
-    } else if v.horn {
-        out.push(VehicleOutput::Update { vehicle: id, kind: HORN_OFF, part: HORN, pos: v.pos, vel: v.vel });
-        v.horn = false;
+    } else if open {
+        out.push(VehicleOutput::Update { vehicle: id, kind: DOOR_CLOSED, part: TRAIN_DOOR as i32, pos: v.pos, vel: v.vel });
+        set_door(v, false);
     }
     let station = track.spawns.get(v.train_index as usize).map_or(Vec3::ZERO, |s| s.0);
     let p = v.pos;
@@ -574,14 +576,146 @@ fn drive_train(id: usize, v: &mut Vehicle, bodies: &mut RigidBodies, track: &cra
     b.vel = Vec3::new(r.x * f + b.vel.x, r.y * f + b.vel.y, r.z * f + b.vel.z);
 }
 
+fn set_door(v: &mut Vehicle, open: bool) {
+    if let Some(d) = v.broken_windows.get_mut(TRAIN_DOOR) {
+        *d = open;
+    }
+}
+
 fn minss(a: f32, b: f32) -> f32 {
     if a < b { a } else { b }
 }
 
+/// The rotor winds up 10 RPM a step to 2000 while a driver sits in an unlocked, unwrecked helicopter, and down 10 a
+/// step otherwise.
+const ROTOR_RPM_MAX: i32 = 2000;
+const ROTOR_RPM_STEP: i32 = 10;
+const ROTOR_PI: f64 = f64::from_bits(0x4009_21fb_5444_2eea);
+const ROTOR_TURN: f64 = f64::from_bits(0x4019_21fb_5444_2eea);
+const BLADE_PI: f64 = std::f64::consts::PI;
+/// The hull's drag along its side, up and forward axes, per speed squared.
+const HULL_DRAG: [f32; 3] = [1.5, 3.0, 0.375];
+/// The yaw the driver's steering puts on the rotor.
+const ROTOR_YAW: f32 = f32::from_bits(0x3b91_a2b4);
+/// The rotor disc is pushed at 16 points around it, a sixteenth of a turn apart, 1 from its hub.
+const BLADE_POINTS: usize = 16;
+const BLADE_STEP: f64 = f64::from_bits(0x3fd9_21fb_5444_2d18);
+const BLADE_REACH: f64 = f64::from_bits(0x3ff8_8af3_4000_0000);
+/// The fixed bite the blades' pitch starts from.
+const BLADE_BITE: f64 = f64::from_bits(0x3fc2_d97c_7f33_2330);
+
+fn vdot(a: Vec3, b: Vec3) -> f32 {
+    (a.x * b.x + a.y * b.y) + a.z * b.z
+}
+
+fn vlen(v: Vec3) -> f32 {
+    vdot(v, v).sqrt()
+}
+
+fn unit(v: Vec3) -> Vec3 {
+    let len = vlen(v);
+    if len == 0.0 { Vec3::ZERO } else { v * (1.0 / len) }
+}
+
+/// The point (`x`, 0, `z`) of a body's frame, from its centre.
+fn in_frame(rot: &RotMatrix, x: f32, z: f32) -> Vec3 {
+    let [r0, _, r2] = *rot;
+    Vec3::new(r0.x * x + r2.x * z, r0.y * x + r2.y * z, r0.z * x + r2.z * z)
+}
+
+/// rigidbody_apply_impulse_at_point: the impulse straight onto the velocity, and its turn about `offset` onto the
+/// angular momentum.
+fn apply_impulse_at(b: &mut RigidBody, offset: Vec3, j: Vec3) {
+    b.vel += j;
+    let l = b.ang_momentum;
+    b.ang_momentum = Vec3::new((j.y * offset.z - j.z * offset.y) + l.x, (j.z * offset.x - offset.z * j.x) + l.y, (offset.y * j.x - j.y * offset.x) + l.z);
+}
+
+/// The main and tail rotors' turn per step at `rpm`.
+fn rotor_steps(rpm: i32) -> (f64, f64) {
+    let r = rpm as f32;
+    let main = (((r + r) as f64 * ROTOR_PI) / 60.0) / 60.0;
+    let tail = ((((r * 0.125) + (r * 0.125)) as f64 * ROTOR_PI) / 60.0) / 60.0;
+    (main, tail)
+}
+
+/// vehicle_update_helicopter: the rotor's speed and angles; the angular bond holding the rotor square to the hull;
+/// then, while powered, the hull's drag, the driver's yaw on the rotor and the lift of the blades at 16 points around
+/// the disc, pitched by the gas (collective) and the gear stick (cyclic).
+fn update_helicopter(v: &mut Vehicle, bodies: &mut RigidBodies, driven: bool) {
+    let Some(rotor) = v.rotor.as_mut() else { return };
+    let rpm = v.engine_rpm;
+    let powered = v.health > 0 && !v.locked && driven;
+    let (main, tail) = if powered {
+        v.engine_rpm = if rpm > ROTOR_RPM_MAX - ROTOR_RPM_STEP { ROTOR_RPM_MAX } else { rpm + ROTOR_RPM_STEP };
+        rotor_steps(v.engine_rpm)
+    } else if rpm >= ROTOR_RPM_STEP {
+        v.engine_rpm = rpm - ROTOR_RPM_STEP;
+        rotor_steps(v.engine_rpm)
+    } else {
+        v.engine_rpm = 0;
+        (0.0, 0.0)
+    };
+    let a = (rotor.angles[0] as f64 + main) as f32;
+    rotor.angles[0] = a;
+    rotor.angles[1] = (a as f64 - tail) as f32;
+    let a = a as f64;
+    if a > ROTOR_PI {
+        rotor.angles[0] = (a - ROTOR_TURN) as f32;
+    } else if -ROTOR_PI > a {
+        rotor.angles[0] = (a + ROTOR_TURN) as f32;
+    }
+
+    let (Some(hull), Some(blade)) = (bodies.get(v.body).cloned(), bodies.get(rotor.body).cloned()) else { return };
+    let q = rot_matrix_to_quaternion(&multiply_matrixes(&blade.rot, &hull.rot));
+    let q = if 0.0 > q[3] { q.map(|c| -c) } else { q };
+    let t = quaternion_to_rotation_vector([-q[0], -q[1], -q[2], q[3]]);
+    let [b0, b1, b2] = blade.rot;
+    let target = Vec3::new(b0.x * t.x + b1.x * t.y + b2.x * t.z, b0.y * t.x + b1.y * t.y + b2.y * t.z, b0.z * t.x + b1.z * t.y + b2.z * t.z);
+    if let Some(Bond::ItemAngular(bond)) = bodies.bond_mut(rotor.angular_bond) {
+        bond.target = target;
+    }
+    if !powered {
+        return;
+    }
+
+    let speed = vlen(hull.vel);
+    let dir = unit(hull.vel);
+    if let Some(h) = bodies.get_mut(v.body) {
+        for k in 0..3 {
+            let c = vdot(dir, hull.rot[k]) * (-(HULL_DRAG[k] * (speed * speed)) / 1000.0);
+            h.vel += v.rot[k] * c;
+        }
+    }
+
+    let (blade_vel, w, up) = (blade.vel, blade.ang_vel, blade.rot[1]);
+    let Some(b) = bodies.get_mut(rotor.body) else { return };
+    b.ang_momentum += hull.rot[1] * (ROTOR_YAW * v.steer_control);
+    let collective = (((v.gas_control * 0.125) * 0.25) as f64 * BLADE_PI + BLADE_BITE) as f32 as f64;
+    let mut angle = 0.0f32;
+    for _ in 0..BLADE_POINTS {
+        let (c, s) = ((angle as f64).cos(), (angle as f64).sin());
+        angle = (BLADE_STEP + angle as f64) as f32;
+        let r = in_frame(&blade.rot, -c as f32, -s as f32);
+        let radial = unit(in_frame(&blade.rot, (-BLADE_REACH * c) as f32, (-BLADE_REACH * s) as f32));
+        let point_vel = Vec3::new(r.y * w.z - r.z * w.y, r.z * w.x - r.x * w.z, r.x * w.y - r.y * w.x) + blade_vel;
+        let pitch = ((((v.gear_y * 0.125) * 0.125) * 0.5) as f64 * BLADE_PI) * c + collective - ((v.gear_x * 0.125) * 0.125) as f64 * BLADE_PI * s;
+        let lift = ((-(pitch as f32 as f64).sin() * 240.0) / 60.0) as f32;
+        let air = up * lift + point_vel;
+        let m = vlen(air);
+        let push = vdot(unit(air), up) - (vdot(radial, blade_vel) * 0.0625) * 0.5;
+        apply_impulse_at(b, r, up * (((0.03125 * -(((m * m) * 0.125 * 4.0) * 0.5)) * push) * 0.3125));
+        let sp = vlen(point_vel);
+        let along = unit(point_vel);
+        let sp2 = ((sp * sp) * 0.25) * 4.0;
+        apply_impulse_at(b, r, v.rot[0] * ((vdot(along, v.rot[0]) * (-(0.5 * sp2) * (1.0 / 256.0))) * 0.125));
+        apply_impulse_at(b, r, v.rot[2] * ((vdot(along, v.rot[2]) * (-(sp2 * 0.375) * (1.0 / 256.0))) * 0.125));
+    }
+}
+
 /// vehicleSimulation: crashes and drag, then for each vehicle its drivetrain, wheels and the chassis against the
-/// level.
-pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, map: &mut Map, types: &[VehicleType]) -> (Vec<VehicleOutput>, Vec<crate::human::physics::HumanOutput>) {
-    // TODO: the type 17 hitch pass
+/// level. `driven` holds the vehicles with someone in the driver's seat.
+pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, map: &mut Map, types: &[VehicleType], driven: &[usize]) -> (Vec<VehicleOutput>, Vec<crate::human::physics::HumanOutput>) {
     let mut out = Vec::new();
     let mut glass = Vec::new();
     for (id, v) in vehicles.iter_mut() {
@@ -592,8 +726,7 @@ pub fn vehicle_simulation(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodie
             update_car_drivetrain(v, &mut out);
         }
         if v.controllable_state == ROTOR || v.kind == VehicleKind::Helicopter {
-            // TODO: vehicle_update_helicopter (rotor speed and angles, the rotor bond's target, lift and steering
-            // impulses)
+            update_helicopter(v, bodies, driven.contains(&id));
         }
         if v.kind == VehicleKind::Train {
             update_train(v, bodies, &map.level.area.track);
@@ -758,10 +891,10 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
             }
         };
         let torque = torque * v.throttle;
-        let drive = (v.engine_power / 3600.0) * torque / (v.unk_38b8 * v.engine_inertia) * 0.03125 + 0.0;
+        let drive = (v.engine_power / 3600.0) * torque / (v.drive_divisor * v.engine_inertia) * 0.03125 + 0.0;
         let q = es * 0.125 * 0.125 * 0.375;
         let loss = (q as f64 * q.abs() as f64) * (1.125 - v.throttle) as f64;
-        v.unk_38ac = 64.0;
+        v.wheel_feedback = 64.0;
         let es_new = ((drive as f64 - loss) as f32) + es;
         v.gearbox_inertia = 8.0;
         v.engine_speed = es_new;
@@ -773,7 +906,7 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
             let inv = 1.0 / (v.engine_inertia + 8.0);
             let gs = v.gearbox_speed;
             let dd = ((es_new * 0.125 - r * gs) * v.clutch) * 0.25;
-            let engine_share = ((8.0 * inv) * dd) * 0.125 * v.unk_38b4;
+            let engine_share = ((8.0 * inv) * dd) * 0.125 * v.clutch_drag;
             v.gearbox_speed = ((dd * (v.engine_inertia * inv)) * r) * 64.0 + gs;
             0.0 - engine_share
         };
@@ -799,7 +932,7 @@ pub fn apply_wheel_forces(vehicles: &mut Table<Vehicle>, bodies: &mut Table<Rigi
                 wb.ang_impulse = Vec3::new(axle.x * imp + i.x, axle.y * imp + i.y, imp * axle.z + i.z);
                 let inv = 1.0 / (wheel.mass + v.gearbox_inertia);
                 let dg = (v.gearbox_speed * 0.125 - avg * 0.4375) * 0.25;
-                accum -= ((wheel.mass * inv) * dg) * 0.125 * v.unk_38ac;
+                accum -= ((wheel.mass * inv) * dg) * 0.125 * v.wheel_feedback;
                 let imp2 = (dg * (v.gearbox_inertia * inv)) * 0.4375;
                 let axle = steered(d);
                 let i = wb.ang_impulse;

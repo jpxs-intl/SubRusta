@@ -94,10 +94,10 @@ impl Sim {
     /// shoots at what it has seen; seated, it drives its traffic car's route or watches from its window and shoots.
     pub(crate) fn player_ai(&mut self, pid: PlayerId) {
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
-        p.controls[0] = 0.0;
-        p.controls[1] = 0.0;
-        p.controls[2] = 0.0;
-        p.controls[3] = 0.0;
+        p.controls.gear_x = 0.0;
+        p.controls.strafe = 0.0;
+        p.controls.gear_y = 0.0;
+        p.controls.walk = 0.0;
         p.input_bits = 0;
         if p.bot.delay > 0 {
             p.bot.delay -= 1;
@@ -116,7 +116,7 @@ impl Sim {
                 } else if self.gamestate != GameState::Intermission {
                     self.player_ai_control_vehicle(pid, veh);
                 } else {
-                    self.players.get_mut(pid.idx()).unwrap().controls[3] = -1.0;
+                    self.players.get_mut(pid.idx()).unwrap().controls.walk = -1.0;
                 }
                 self.bot_check_wreck(pid, veh);
             }
@@ -152,10 +152,10 @@ impl Sim {
         if let Some(&mag) = gun.children.first() {
             let rounds = self.items.get(mag).map_or(0, |m| m.state.left());
             if rounds <= 0 {
-                if crate::rng::rand() & 0x1f == 0 {
+                if rand::random_ratio(1, 32) {
                     self.push_bot_action(pid, 1);
                 }
-            } else if crate::rng::rand() & 0x1f == 0 {
+            } else if rand::random_ratio(1, 32) {
                 self.players.get_mut(pid.idx()).unwrap().input_bits |= INPUT_CHAMBER;
             }
             return;
@@ -164,14 +164,14 @@ impl Sim {
             let pockets: Vec<(usize, Option<usize>)> = (3..7).map(|s| (s, (h.inventory[s].count > 0).then(|| h.inventory[s].items[0] as usize))).collect();
             for (s, first) in pockets {
                 let Some(kind) = first.and_then(|i| self.items.get(i)).map(|i| i.item_type as usize) else { continue };
-                if self.item_types[kind].can_mount_to[gun_type] != 0 && crate::rng::rand() & 1 == 0 {
+                if self.item_types[kind].can_mount_to[gun_type] != 0 && !rand::random::<bool>() {
                     self.push_bot_action(pid, s as u16 + 1);
                 }
             }
             return;
         }
         let rounds = self.items.get(h.inventory[1].items[0] as usize).map_or(0, |m| m.state.left());
-        if crate::rng::rand() & 0x1f == 0 {
+        if rand::random_ratio(1, 32) {
             self.push_bot_action(pid, if rounds <= 0 { 2 } else { 1 });
         }
     }
@@ -210,7 +210,6 @@ impl Sim {
             if !(0.0 > facing) {
                 continue;
             }
-            // TODO: line_intersect_level's flag 1 also traces the dynamic city objects (0x7d04ea0), which round mode leaves empty
             if !zombie && line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, chest, seen).is_some() {
                 continue;
             }
@@ -282,15 +281,15 @@ impl Sim {
         let tick = self.tick;
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.control_mode = 1;
-        let turn = wrap(p.controls[8], body_yaw);
-        let mut look = p.controls[4] - turn;
-        p.controls[8] = body_yaw;
+        let turn = wrap(p.controls.body_yaw, body_yaw);
+        let mut look = p.controls.look_yaw - turn;
+        p.controls.body_yaw = body_yaw;
         if -MAX_LOOK > look as f64 {
             look = -LOOK_LIMIT;
         } else if look as f64 > MAX_LOOK {
             look = LOOK_LIMIT;
         }
-        p.controls[4] = look;
+        p.controls.look_yaw = look;
         if UPRIGHT > pelvis_up {
             if (tick & 0x7f) > 0x40 {
                 p.input_bits |= INPUT_CROUCH;
@@ -299,7 +298,7 @@ impl Sim {
         }
         let mut yaw_to = p.bot.idle_yaw;
         if p.bot.waypoint < p.bot.waypoint_count {
-            p.controls[3] = 1.0;
+            p.controls.walk = 1.0;
             let wp = p.bot.waypoint_pos(p.bot.waypoint);
             let (dx, dz) = (wp.x - pos.x, wp.z - pos.z);
             let d = ((dx * dx + 0.0) + dz * dz).sqrt();
@@ -321,7 +320,7 @@ impl Sim {
             let t = p.bot.targets[p.bot.target as usize];
             let mut aw = t.awareness;
             if INVESTIGATE > aw && INVESTIGATE > (t.pos.y - pos.y).abs() {
-                if crate::rng::rand() & 0x1f == 0 {
+                if rand::random_ratio(1, 32) {
                     let p = self.players.get_mut(pid.idx()).unwrap();
                     p.bot.waypoint = 0;
                     p.bot.set_waypoint(0, t.pos);
@@ -336,7 +335,7 @@ impl Sim {
         }
         let (yaw_to, pitch_to) = if attack { self.bot_attack_on_foot(pid, hid) } else { (yaw_to, 0.0) };
         let p = self.players.get_mut(pid.idx()).unwrap();
-        let mut facing = (view_yaw + yaw_offset) + p.controls[4];
+        let mut facing = (view_yaw + yaw_offset) + p.controls.look_yaw;
         if -180.0_f64.to_radians() > facing as f64 {
             facing = (facing as f64 + 360.0_f64.to_radians()) as f32;
         }
@@ -344,8 +343,8 @@ impl Sim {
             facing = (facing as f64 - 360.0_f64.to_radians()) as f32;
         }
         let d = wrap(facing, yaw_to);
-        p.controls[4] += d * HALF;
-        p.controls[5] = (TURN_RATE * (pitch_to - p.controls[5])) * HALF + p.controls[5];
+        p.controls.look_yaw += d * HALF;
+        p.controls.look_pitch = (TURN_RATE * (pitch_to - p.controls.look_pitch)) * HALF + p.controls.look_pitch;
         p.zoom_level = 1;
         if p.bot.targets.first().is_some_and(|t| t.awareness > AIM) {
             p.zoom_level = 0;
@@ -357,7 +356,7 @@ impl Sim {
     fn bot_attack_on_foot(&mut self, pid: PlayerId, hid: usize) -> (f32, f32) {
         let p = self.players.get(pid.idx()).unwrap();
         let t = p.bot.targets[p.bot.target as usize];
-        let (zombie, pitch_now, team) = (p.bot.is_zombie, p.controls[5], p.team);
+        let (zombie, pitch_now, team) = (p.bot.is_zombie, p.controls.look_pitch, p.team);
         let h = self.humans.get(hid).unwrap();
         let eye = h.bones[7].pos;
         let (dx, dz) = (t.pos.x - eye.x, t.pos.z - eye.z);
@@ -368,9 +367,9 @@ impl Sim {
         let pitch = ((-dy) as f64).atan2(horiz) as f32;
         let p = self.players.get_mut(pid.idx()).unwrap();
         if zombie {
-            p.controls[3] = 1.0;
+            p.controls.walk = 1.0;
         } else if STOP_RANGE > d {
-            p.controls[3] = 0.0;
+            p.controls.walk = 0.0;
         }
         if !(FIRE_RANGE > d) {
             return (yaw, pitch);
@@ -385,7 +384,7 @@ impl Sim {
         if self.teammate_in_line(hid, team, chest, start, end, TEAMMATE_RANGE_FOOT) {
             return (yaw, pitch);
         }
-        if self.bot_gun_loaded(hid) && crate::rng::rand() & 3 == 0 {
+        if self.bot_gun_loaded(hid) && rand::random_ratio(1, 4) {
             self.players.get_mut(pid.idx()).unwrap().input_bits |= INPUT_FIRE;
         }
         (yaw, pitch)
@@ -443,13 +442,13 @@ impl Sim {
             let horiz = ((lx * lx + lz * lz) as f64).sqrt();
             pitch = ((-ly) as f64).atan2(horiz) as f32;
             let p = self.players.get(pid.idx()).unwrap();
-            if STOP_RANGE > d && AIM_TOLERANCE > wrap(p.controls[4], yaw).abs() && AIM_TOLERANCE > wrap(p.controls[5], pitch).abs() {
+            if STOP_RANGE > d && AIM_TOLERANCE > wrap(p.controls.look_yaw, yaw).abs() && AIM_TOLERANCE > wrap(p.controls.look_pitch, pitch).abs() {
                 self.bot_seated_fire(pid, hid, veh, team, n);
             }
         }
         let p = self.players.get_mut(pid.idx()).unwrap();
-        p.controls[4] = ((yaw - p.controls[4]) * TURN_RATE) * HALF + p.controls[4];
-        p.controls[5] = ((pitch - p.controls[5]) * TURN_RATE) * HALF + p.controls[5];
+        p.controls.look_yaw = ((yaw - p.controls.look_yaw) * TURN_RATE) * HALF + p.controls.look_yaw;
+        p.controls.look_pitch = ((pitch - p.controls.look_pitch) * TURN_RATE) * HALF + p.controls.look_pitch;
     }
 
     /// The seated bot's shot along its gun's magazine, when the gun points at the enemy (`n`, a unit vector).
@@ -489,20 +488,20 @@ impl Sim {
         let (steer, target, stuck) = (c.steer, c.target_speed, c.stuck);
         let (vel, r2) = (v.vel, v.rot[2]);
         let p = self.players.get_mut(pid.idx()).unwrap();
-        p.controls[0] = DRIVE_GEAR_X;
-        p.controls[2] = DRIVE_GEAR_Y;
-        p.controls[1] = steer;
+        p.controls.gear_x = DRIVE_GEAR_X;
+        p.controls.gear_y = DRIVE_GEAR_Y;
+        p.controls.strafe = steer;
         let gas = (((vel.x * r2.x + vel.y * r2.y) + vel.z * r2.z) + target) * THROTTLE_SCALE;
         let gas = if gas > 1.0 { 1.0 } else { gas };
-        p.controls[3] = if MIN_TARGET_SPEED > target { -1.0 } else { (gas as f64 / ((steer.abs() as f64) + 1.0)) as f32 };
+        p.controls.walk = if MIN_TARGET_SPEED > target { -1.0 } else { (gas as f64 / ((steer.abs() as f64) + 1.0)) as f32 };
         p.input_bits = 0;
         if stuck > STUCK_FORWARD {
-            p.controls[3] = 1.0;
-            p.controls[1] = 0.0;
-            p.controls[0] = DRIVE_GEAR_X;
-            p.controls[2] = 1.0;
+            p.controls.walk = 1.0;
+            p.controls.strafe = 0.0;
+            p.controls.gear_x = DRIVE_GEAR_X;
+            p.controls.gear_y = 1.0;
             if stuck > STUCK_REVERSE {
-                p.controls[3] = -1.0;
+                p.controls.walk = -1.0;
             }
         }
     }

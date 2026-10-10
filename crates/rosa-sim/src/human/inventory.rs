@@ -241,8 +241,6 @@ pub fn queue_inventory_action(h: &mut Human, a: i32, b: i32) {
         8 => h.actions[q] = QueuedAction { kind: 3, progress: 0.0, slot: b, arg: 0 },
         1 => h.actions[q] = QueuedAction { kind: 1, progress: 0.0, slot: b, arg: 0 },
         2 => {
-            // TODO: the binary also keeps 8 times a human float (physScratch + 4) as this action's argument; the drop
-            // action never reads it
             h.actions[q] = QueuedAction { kind: 0, progress: 0.0, slot: b, arg: 0 };
         }
         _ => return,

@@ -142,10 +142,6 @@ fn step(p: Vec3, r: Vec3, s: f32) -> Vec3 {
     Vec3::new(r.x * s + p.x, r.y * s + p.y, r.z * s + p.z)
 }
 
-fn rand() -> i32 {
-    crate::rng::rand() as i32
-}
-
 impl Sim {
     /// corp_active_mission_count: an undecided mission still running counts 1 for an acquisition, 2 otherwise.
     fn corp_active_mission_count(&self, k: usize) -> i32 {
@@ -186,8 +182,8 @@ impl Sim {
         let n = list.len() as i32;
         if n > 1 {
             for _ in 0..SHUFFLES {
-                let a = (rand() % n) as usize;
-                let b = (rand() % n) as usize;
+                let a = rand::random_range(0..n) as usize;
+                let b = rand::random_range(0..n) as usize;
                 list.swap(a, b);
             }
         }
@@ -206,38 +202,37 @@ impl Sim {
         let n = list.len() as i32;
         let couple_first = if n <= 1 {
             false
-        } else if rand() & 7 <= 5 {
+        } else if rand::random_ratio(3, 4) {
             return self.deal_transaction(list);
         } else if n == 3 {
-            if rand() & 3 == 0 {
+            if rand::random_ratio(1, 4) {
                 self.generate_twoteam_missions(&list[..3]);
                 return 3;
             }
             true
-        } else if rand() & 3 > 1 || n <= 3 {
+        } else if rand::random::<bool>() || n <= 3 {
             let many = n > 2;
-            if rand() & 3 == 0 && many {
+            if rand::random_ratio(1, 4) && many {
                 return self.couple_or_single(list);
             }
             return self.chase_or_single(list, n);
         } else {
-            if rand() & 3 == 0 {
+            if rand::random_ratio(1, 4) {
                 return self.couple_or_single(list);
             }
-            let size = if rand() & 3 == 0 { 1 } else { 3 };
+            let size = if rand::random_ratio(1, 4) { 1 } else { 3 };
             self.create_mission_acquisition(&list[..size]);
             return size as i32;
         };
-        rand();
-        if rand() & 3 == 0 && couple_first { self.couple_or_single(list) } else { self.chase_or_single(list, n) }
+        if rand::random_ratio(1, 4) && couple_first { self.couple_or_single(list) } else { self.chase_or_single(list, n) }
     }
 
     /// A transaction for two, three or all of `list`, or a two-team deal for three.
     fn deal_transaction(&mut self, list: &[i32]) -> i32 {
         let n = list.len() as i32;
-        let size = if rand() & 1 == 0 && n > 3 {
-            if rand() & 15 == 0 { 2 } else { 0 }
-        } else if rand() & 15 == 0 {
+        let size = if !rand::random::<bool>() && n > 3 {
+            if rand::random_ratio(1, 16) { 2 } else { 0 }
+        } else if rand::random_ratio(1, 16) {
             2
         } else if n == 3 {
             0
@@ -248,7 +243,7 @@ impl Sim {
             self.generate_transaction_missions(&list[..size as usize]);
             return size;
         }
-        if rand() & 3 != 0 {
+        if rand::random_ratio(3, 4) {
             self.generate_transaction_missions(&list[..3]);
         } else {
             self.generate_twoteam_missions(&list[..3]);
@@ -258,14 +253,14 @@ impl Sim {
 
     /// An acquisition for `size` corporations, or one in four times (with more than one to pick from) for the first.
     fn chase_or_single(&mut self, list: &[i32], size: i32) -> i32 {
-        let size = if rand() & 3 != 0 || list.len() <= 1 { size } else { 1 };
+        let size = if rand::random_ratio(3, 4) || list.len() <= 1 { size } else { 1 };
         self.create_mission_acquisition(&list[..size as usize]);
         size
     }
 
     /// An acquisition for the first two corporations, or one in four times the first alone.
     fn couple_or_single(&mut self, list: &[i32]) -> i32 {
-        let size = if rand() & 3 != 0 { 2 } else { 1 };
+        let size = if rand::random_ratio(3, 4) { 2 } else { 1 };
         self.create_mission_acquisition(&list[..size as usize]);
         size
     }
@@ -332,21 +327,21 @@ impl Sim {
     /// briefcase at a mission spot), one or two others are given round cash to buy it and the rest may buy it unfunded.
     fn generate_transaction_missions(&mut self, list: &[i32]) {
         let n = list.len();
-        let twice = (rand() & 3 == 0) as usize + 1;
+        let twice = rand::random_ratio(1, 4) as usize + 1;
         let funded = if twice < n { twice } else { 1 };
         let deadline = self.deadline(TRANSACTION_TIME);
         let colour = self.next_disk();
         let disk = ItemKind::try_from((ItemKind::DiskBlack as i32 + colour) as u8).unwrap();
-        let location = if rand() & 3 != 0 { rand() % 8 } else { NO_LOCATION };
+        let location = if rand::random_ratio(3, 4) { rand::random_range(0..8) } else { NO_LOCATION };
         let values: Vec<i32> = (0..n)
             .map(|i| {
                 if i == 0 {
                     return SELLER_VALUE;
                 }
 
-                let mut v = rand() % 5 * VALUE_STEP + BASE_VALUE;
+                let mut v = rand::random_range(0..5) * VALUE_STEP + BASE_VALUE;
                 if funded < i {
-                    v += rand() % 5 * VALUE_STEP;
+                    v += rand::random_range(0..5) * VALUE_STEP;
                 }
 
                 if colour == GOLD { v << 2 } else { v }
@@ -373,9 +368,9 @@ impl Sim {
                     }
                 }
             } else if i <= funded {
-                let mut count = rand() % 3 + 2;
+                let mut count = rand::random_range(0..3) + 2;
                 if colour == GOLD {
-                    count += rand() % 3 + 2;
+                    count += rand::random_range(0..3) + 2;
                 }
                 self.lay_out_cash(k, rot, p, count);
             }
@@ -418,8 +413,8 @@ impl Sim {
                 if i <= 1 {
                     return SELLER_VALUE;
                 }
-                let a = rand() % 5 * VALUE_STEP;
-                let b = rand() % 5 * VALUE_STEP;
+                let a = rand::random_range(0..5) * VALUE_STEP;
+                let b = rand::random_range(0..5) * VALUE_STEP;
                 let v = a + b + BASE_VALUE;
                 (if colour == GOLD { v * 4 } else { v }) * 2
             })
@@ -430,9 +425,9 @@ impl Sim {
             if i <= 1 {
                 self.missions.last_disks[i] = self.lay_out_disk(k, disk, values[i], rot, p);
             } else if i == 2 {
-                let mut count = rand() % 5 + 4;
+                let mut count = rand::random_range(0..5) + 4;
                 if colour == GOLD {
-                    count += rand() % 3 + 2;
+                    count += rand::random_range(0..3) + 2;
                 }
                 self.lay_out_cash(k, rot, p, count);
             }
@@ -480,7 +475,7 @@ impl Sim {
         for &c in list {
             let k = c as usize;
             let Some(slot) = self.open_mission(k) else { continue };
-            let mut value = rand() % 5 * VALUE_STEP + BASE_VALUE;
+            let mut value = rand::random_range(0..5) * VALUE_STEP + BASE_VALUE;
             if colour == GOLD {
                 value <<= 2;
             }
@@ -543,10 +538,10 @@ impl Sim {
     pub(crate) fn spawn_chase_car(&mut self, min_distance: Option<f32>) -> (usize, Option<usize>) {
         use crate::traffic::{random_street, route::plan_route, spawn::create_traffic_car};
         use rosa_physics::rotation::{IDENTITY, rotate_orientation};
-        let slot = rand() & 1;
+        let slot = rand::random_range(0..2);
         let streets = &self.world.map.streets;
         let street = if streets.streets.is_empty() { 0 } else { random_street(streets) };
-        let progress = (rand() & 255) as f32 * (1.0 / 256.0);
+        let progress = rand::random_range(0..256) as f32 * (1.0 / 256.0);
         let car = create_traffic_car(&mut self.traffic, &self.world.map, &self.vehicle_types, rosa_protocol::clientbound::game::VehicleKind::TownCar, 0, street, slot, 1, progress);
         self.missions.chase_car = car as i32;
         let streets = &self.world.map.streets;
@@ -564,7 +559,7 @@ impl Sim {
                 }
             }
         }
-        let to_slot = rand() & 1;
+        let to_slot = rand::random_range(0..2);
         let c = &mut self.traffic.cars[car];
         let from = c.street;
         plan_route(c, streets, from, slot, to, to_slot);
@@ -589,10 +584,10 @@ impl Sim {
     /// The chase car's guards: one in the front passenger seat, each back seat taken at even odds.
     pub(crate) fn create_guards(&mut self, deadline: i32, mission: Option<i32>, pos: Vec3, rot: RotMatrix, vehicle: usize) {
         self.create_guard(deadline, mission, pos, rot, vehicle, 1);
-        if rand() & 1 == 0 {
+        if !rand::random::<bool>() {
             self.create_guard(deadline, mission, pos, rot, vehicle, 2);
         }
-        if rand() & 1 == 0 {
+        if !rand::random::<bool>() {
             self.create_guard(deadline, mission, pos, rot, vehicle, 3);
         }
     }
@@ -633,15 +628,14 @@ impl Sim {
     /// create_player: a new player with 50000 money and a random look; in a round's intermission it starts in the
     /// lobby menu.
     pub(crate) fn create_player(&mut self) -> Option<PlayerId> {
-        rand();
-        let head = rand() % 5;
-        let mut skin = rand() % 6;
-        if rand() & 3 != 3 {
+        let head = rand::random_range(0..5);
+        let mut skin = rand::random_range(0..6);
+        if rand::random_ratio(3, 4) {
             skin = 2;
         }
-        let hair_color = rand() % 6;
-        let hair_style = rand() % 9;
-        let eye_color = rand() % 8;
+        let hair_color = rand::random_range(0..6);
+        let hair_style = rand::random_range(0..9);
+        let eye_color = rand::random_range(0..8);
         let customization = CharacterCustomization {
             gender: 0,
             head: head as u8,

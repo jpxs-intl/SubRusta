@@ -67,7 +67,7 @@ impl ConvexHull {
     }
 
     /// Every face of every group, in order.
-    fn faces(&self) -> impl Iterator<Item = &HullFace> {
+    pub(crate) fn faces(&self) -> impl Iterator<Item = &HullFace> {
         self.groups.iter().flat_map(|g| &g.faces)
     }
 

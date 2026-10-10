@@ -67,7 +67,8 @@ fn search_step(map: &StreetMap, nodes: &mut [SearchNode], from: usize, to: usize
 }
 
 /// traffic_car_plan_route: the route from one end of a street to one end of another, as the steps the car drives and
-/// the turn it takes onto each.
+/// the turn it takes onto each. Ends past the map's streets find no route (the binary searches whatever lies past the
+/// node table), and a path is cut at the record's 63 steps (the binary writes on over the fields after them).
 pub fn plan_route(car: &mut TrafficCar, map: &StreetMap, from_street: i32, from_slot: i32, to_street: i32, to_slot: i32) {
     let count = map.route_nodes.len();
     let (from, to) = ((from_street * 2 + from_slot) as usize, (to_street * 2 + to_slot) as usize);
@@ -82,7 +83,6 @@ pub fn plan_route(car: &mut TrafficCar, map: &StreetMap, from_street: i32, from_
             }
         }
     }
-    // TODO: the binary searches garbage for a street past the map's last (the Round City loop streets elsewhere)
     car.route_index = 0;
     car.route_len = 0;
     car.route[0].turn = 0;
@@ -92,7 +92,6 @@ pub fn plan_route(car: &mut TrafficCar, map: &StreetMap, from_street: i32, from_
     }
     let (mut from_way, mut to_way) = (0, 0);
     let mut street = map.route_nodes[path[n - 1]].street as i32;
-    // TODO: a path longer than the record's 63 steps runs over the fields after them in the binary
     for i in 1..=n.min(MAX_ROUTE) {
         let end = map.route_nodes[path[n - i]].end;
         car.route[i - 1].street = street;

@@ -197,11 +197,10 @@ fn pose_bones(h: &Human, bodies: &mut RigidBodies, map: &Map, has_item: bool, sc
 }
 
 /// The seated part of human_simulation: the view following the vehicle, the driver's controls, the pose, and getting
-/// out once the enter key has been held long enough (or straight away when hurt).
+/// out once the enter key has been held long enough (or straight away when hurt). The binary lengthens the wait by a
+/// velocity at human record 0xb4, which nothing but create_human (setting it to zero) ever writes.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map, touch: &mut Touchables, vid: usize, has_item: bool, scale: f32) {
-    // TODO: types with the +0x04 flag (none of the loaded ones) bind the pelvis to the seat with a bond and push the
-    // legs out of the seat plane instead of placing them
     let Some(v) = touch.vehicles.get(vid) else { return };
     let r2 = v.rot[2];
     h.view_yaw = ((-r2.x) as f64).atan2(r2.z as f64) as f32;
@@ -226,10 +225,8 @@ pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map
     if h.seat_exit <= 0 {
         return;
     }
-    let u = h.unk_b4;
-    let speed = ((u.y * u.y + u.x * u.x) + u.z * u.z).sqrt();
     h.seat_exit += 1;
-    if h.seat_exit <= (scale + speed * 60.0) as i32 + 29 {
+    if h.seat_exit <= scale as i32 + 29 {
         return;
     }
     h.look_pitch = h.view_pitch;

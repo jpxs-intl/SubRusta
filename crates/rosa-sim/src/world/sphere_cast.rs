@@ -1,9 +1,11 @@
 use glam::{IVec3, Vec3};
+use rosa_physics::RotMatrix;
 
 use crate::world::{
     area::{AreaGrid, CUBE, FOOTPRINT, MESH, TYPE_MASK, cell_index},
     city_objects::{object_pose, sphere_intersect_object},
     collide::{calculate_face_normal, segment_intersect_face},
+    item_sets::entry_pose,
     mesh::{CUBE_CORNERS, CUBE_FACES, CUBE_NORMALS},
     meshes::BlockMeshes,
     trace::{AreaFrame, cvtt},
@@ -140,10 +142,23 @@ fn custom_shape(meshes: &BlockMeshes, center: Vec3, cell: IVec3, s: f32, v: u32,
     best.hit()
 }
 
-/// collision_cast_area: a sphere at rest against the cells of the level area it overlaps. An area object it touches
-/// ends the search at once, its contact left in the area's frame as the binary leaves it.
+/// sphere_intersect_item_type_mesh: a sphere at rest against each face of an item's mesh placed at `pos` turned by `rot`
+/// (both triangles of a face under the first one's normal).
+fn sphere_intersect_item(hull: &crate::sim::hull::ConvexHull, pos: Vec3, rot: &RotMatrix, center: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32)> {
+    let world = hull.world_verts(pos, rot);
+    let mut best = Best::new();
+    for f in hull.faces() {
+        let [a, b, c, d] = f.verts.map(|i| world[i]);
+        let n = calculate_face_normal(a, b, c);
+        best.take(sphere_project_onto_triangle(center, n, a, b, c, radius).map(|(p, dist)| (p, n, dist)));
+        best.take(sphere_project_onto_triangle(center, n, a, c, d, radius).map(|(p, dist)| (p, n, dist)));
+    }
+    best.hit()
+}
+
+/// collision_cast_area: a sphere at rest against the cells of the level area it overlaps. An item of a cell's item set
+/// or an area object it touches ends the search at once, its contact left in the area's frame as the binary leaves it.
 pub fn collision_cast_area(area: &AreaGrid, meshes: &BlockMeshes, center: Vec3, radius: f32) -> Option<(Vec3, Vec3, f32)> {
-    // TODO: item-set objects (+0x1400) are tested before the area objects
     let f = AreaFrame::new(area);
     let (c3, mn, mx) = (center.to_array(), f.min.to_array(), f.max.to_array());
     if (0..3).any(|k| mn[k] > c3[k] + radius) || (0..3).any(|k| c3[k] - radius > mx[k]) {
@@ -160,6 +175,18 @@ pub fn collision_cast_area(area: &AreaGrid, meshes: &BlockMeshes, center: Vec3, 
                 let Some(rec) = area.record(x, y, z) else { continue };
                 let cell = IVec3::new(x, y, z);
                 let idx = cell_index(x, y, z);
+                let word = rec.item_set[idx];
+                if word != 0
+                    && let Some(set) = area.item_sets.set(word)
+                {
+                    for e in &set.entries {
+                        let Some(hull) = area.item_sets.hull(e.kind) else { continue };
+                        let (pos, rot) = entry_pose(e, cell, f.size, word >> 24 & 3);
+                        if let Some(hit) = sphere_intersect_item(hull, pos, &rot, lc, radius) {
+                            return Some(hit);
+                        }
+                    }
+                }
                 let object = rec.object[idx];
                 if object as i32 > 0 {
                     let (kind, pos, rot) = object_pose(object, cell, f.size);

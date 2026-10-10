@@ -301,14 +301,15 @@ pub struct ServerVehicleObject {
     /// Per wheel: its suspension height (0 to 255), spin (-255 to 255) and skid (0 to 255).
     pub wheels: [[i32; 3]; 4],
     pub engine_rpm: i32,
+    /// How overdue the vehicle was among those sent: 0 for the two most, 1 for the next six, 2 for the rest.
+    pub tier: i32,
 }
 
 impl ServerVehicleObject {
     fn write_body(&self, w: &mut Writer) {
-        // TODO: the update tier (2 bits: the two most overdue vehicles 0, the next six 1, the rest 2) and the
-        // per-connection snapshot each delta is taken from
+        // TODO: the per-connection snapshot each delta is taken from (every value is sent absolute)
         w.bits(self.vehicle_id as i32, 10);
-        w.bits(0, 2);
+        w.bits(self.tier, 2);
         w.bits(self.traffic_car, 10);
         w.bits(0, 8);
         let p = self.pos.0;
@@ -366,6 +367,8 @@ pub struct ServerHumanObject {
     pub human_id: u16,
     pub player_id: i32,
     pub customization: CharacterCustomization,
+    /// How wanted the human's player is: 0 not at all, 1 for a criminal rating of 1 to 99, 2 from 100.
+    pub wanted: i32,
     pub vehicle: i32,
     pub vehicle_seat: i32,
     pub alive: bool,
@@ -391,7 +394,7 @@ impl ServerHumanObject {
         w.bits(c.suit_color as i32, 4);
         w.bits(c.tie_color as i32, 4);
         w.bits(c.necklace as i32, 4);
-        w.bits(0, 2);
+        w.bits(self.wanted, 2);
 
         w.bits(0, 8);
         w.bits(self.vehicle, 8);
@@ -484,6 +487,13 @@ pub struct MenuButton {
 pub struct ServerGamePacket {
     pub client_id: u32,
     pub received_actions: u32,
+    /// Ticks since the last reset (the header's tick).
+    pub ticks_since_reset: u32,
+    /// The time of day (sun_time).
+    pub sun_time: i32,
+    /// This connection's packet count, then the client's own count and tick echoed back.
+    pub packet_sequence: u32,
+    pub client_packet_count: u32,
     pub round_number: u32,
     pub network_tick: u32,
     pub last_sdl_tick: u32,
@@ -491,6 +501,8 @@ pub struct ServerGamePacket {
     /// The building whose menu is open, and in a shop's list (menu 10) what it sells: type, price and a third value.
     pub menu_tab: i32,
     pub shop: Vec<(i32, i32, i32)>,
+    pub spawn_timer: i32,
+    pub old_health: i32,
     pub money: i32,
     /// The money and credit of the player's corporation (player +0x50 and +0x54).
     pub corp_money: i32,
@@ -540,7 +552,7 @@ impl WireWrite for ServerGamePacket {
     fn write(&self, w: &mut Writer) {
         w.byte(0x05);
         w.u32(self.round_number);
-        w.i32(self.network_tick as i32);
+        w.u32(self.ticks_since_reset);
 
         w.bits(self.gamestate as i32, 4);
 
@@ -559,7 +571,7 @@ impl WireWrite for ServerGamePacket {
 
         w.bits(self.game_timer, 24);
         w.bits(0, 16);
-        w.bits(get_sun_time(12, 60), 30);
+        w.bits(self.sun_time, 30);
 
         for n in self.team_counts {
             w.bits(n, 6);
@@ -611,10 +623,10 @@ impl WireWrite for ServerGamePacket {
         w.i32(self.corp_rating);
         w.i32(self.crim_rating);
 
-        w.bits(0, 16);
+        w.bits(self.spawn_timer, 16);
         w.bits(self.received_actions as i32, 8);
 
-        w.bits(0, 10);
+        w.bits(self.old_health, 10);
         w.bits(0, 6);
         w.bits(0, 8);
 
@@ -716,15 +728,8 @@ impl WireWrite for ServerGamePacket {
             e.write(w)
         }
 
-        w.u32(self.network_tick);
-        w.u32(self.network_tick);
+        w.u32(self.packet_sequence);
+        w.u32(self.client_packet_count);
         w.u32(self.last_sdl_tick);
     }
-}
-
-pub fn get_sun_time(hour: i32, minute: i32) -> i32 {
-    let hour_time: i32 = hour.clamp(0, 24) * 216000;
-    let minute_time: i32 = minute.clamp(0, 59) * 3600;
-
-    hour_time + minute_time
 }

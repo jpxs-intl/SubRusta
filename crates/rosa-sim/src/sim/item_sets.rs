@@ -34,7 +34,7 @@ impl Sim {
     }
 
     fn item_set_cell_event(&mut self, cell: IVec3, taken: u32) {
-        let e = EventItemSetCell { area: 0, block_x: cell.x, block_y: cell.y, block_z: cell.z, taken, unk: 1 };
+        let e = EventItemSetCell { area: 0, block_x: cell.x, block_y: cell.y, block_z: cell.z, taken };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::ItemSetCell(e) });
     }
 

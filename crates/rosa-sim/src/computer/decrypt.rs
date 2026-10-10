@@ -62,7 +62,8 @@ fn is_letter(c: u8) -> bool {
 }
 
 impl Sim {
-    /// computer_decrypt_init: the file's text, wrapped and in capitals, its letters counted.
+    /// computer_decrypt_init: the file's text, wrapped and in capitals, its letters counted. Only the 8 shown rows are
+    /// kept (the binary writes further rows on over the content slot and cipher).
     pub(crate) fn decrypt_init(&mut self, id: usize, c: &mut Computer) {
         let (text, cipher) = self.fs.content(c.decrypt.content).map_or((Vec::new(), [0; 26]), |x| (x.text.clone(), x.cipher));
         let s: Vec<u8> = text.iter().copied().take_while(|&b| b != 0).take(MAX_TEXT).collect();
@@ -72,7 +73,6 @@ impl Sim {
             row[0] = 0;
         }
         d.timer = 0;
-        // TODO: past 8 rows the binary writes on over the content slot and cipher (item +0x1860 on)
         let mut w = wrap(&s, 0, len);
         let (mut row, mut col) = (0usize, 0usize);
         let mut k = 1i32;
@@ -296,13 +296,13 @@ impl Sim {
     /// decrypt_reveal_random_letter: a random letter that appears and is not guessed gets its true guess.
     fn decrypt_reveal(&mut self, id: usize, c: &mut Computer) {
         let mut tries = REVEAL_TRIES;
-        let mut p = (crate::rng::rand() % 26) as usize;
+        let mut p = rand::random_range(0..26) as usize;
         let e = loop {
             let e = c.decrypt.cipher[p].rem_euclid(26) as usize;
             if c.decrypt.counts[e] != 0 && c.decrypt.guesses[e] == -1 {
                 break e;
             }
-            p = (crate::rng::rand() % 26) as usize;
+            p = rand::random_range(0..26) as usize;
             tries -= 1;
             if tries == 0 {
                 break c.decrypt.cipher[p].rem_euclid(26) as usize;

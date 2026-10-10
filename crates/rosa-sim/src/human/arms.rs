@@ -231,7 +231,6 @@ pub fn calculate_arm_angles(h: &mut Human, bodies: &mut RigidBodies, map: &Map, 
         pose = quaternion_multiply(aimed, pitch_turn(h.view_pitch));
         pose = quaternion_multiply(pose, yaw_turn(0.25 * h.free_look_yaw));
     }
-    // TODO: the binary damps the head with the chest's relative spin, not the head's
     drive_spine_joint(h, bodies, 2, 3, pose, chest_damping, &mut frames[2]);
     h.locomotion.spine_frames = frames;
 
@@ -554,7 +553,6 @@ fn hold_frame(h: &Human, bodies: &RigidBodies, touch: &Touchables, k: usize, ite
         let t = -(((v.x * a.x + v.y * a.y) + v.z * a.z) * h.action_progress);
         v = Vec3::new(a.x * t + v.x, a.y * t + v.y, t * a.z + v.z);
     }
-    // TODO: the binary skips this pull while the global byte at 0x5b08aec0 is set
     let vel = bodies.get(item.body).map_or(Vec3::ZERO, |b| b.vel);
     let tv = h.locomotion.torso_vel;
     let d = Vec3::new(vel.x - tv.x, vel.y - tv.y, vel.z - tv.z);

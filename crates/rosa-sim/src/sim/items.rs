@@ -204,7 +204,6 @@ impl Sim {
         if let Some(parent) = self.items.get(id).and_then(|i| usize::try_from(i.parent_item).ok()) {
             remove_link(&mut self.items, id, parent);
         }
-        // TODO: the 64 sound-source bits clearing their sources
         if let Some(ItemState::Key { vehicle: Some(vid) }) = self.items.get(id).map(|i| i.state.clone())
             && let Some(v) = self.vehicles.get_mut(vid)
         {

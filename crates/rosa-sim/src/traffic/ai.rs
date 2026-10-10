@@ -1,7 +1,7 @@
 use glam::Vec3;
 
 use super::{
-    LOOP_STREET, LOOP_STREET_2, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, rand_bit, rand_mod, random_street,
+    LOOP_STREET, LOOP_STREET_2, Traffic, grid::lane_clearance, lane_count, left_lanes, maxss, minss, random_street,
     route::plan_route,
 };
 use crate::world::streets::{Lane, MapStreet, StreetMap};
@@ -115,7 +115,7 @@ fn replan(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32, mut de
             dest = random_street(map);
         }
     }
-    let r = rand_bit();
+    let r = rand::random_range(0..2);
     let c = &mut traffic.cars[id];
     let end = c.step(c.route_index).end;
     plan_route(c, map, street, end, dest, r);
@@ -132,8 +132,8 @@ fn roundcity_flip(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32
         step.end = end;
     }
     let mut dest = other;
-    if rand_bit() == 0 {
-        dest = rand_mod(n);
+    if !rand::random::<bool>() {
+        dest = rand::random_range(0..n);
     }
     if traffic.cars[id].is_aggressive != 0 {
         dest = n;
@@ -141,7 +141,7 @@ fn roundcity_flip(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32
             dest = random_street(map);
         }
     }
-    let r = rand_bit();
+    let r = rand::random_range(0..2);
     let c = &mut traffic.cars[id];
     let e = c.step(c.route_index).end;
     plan_route(c, map, street, e, dest, r);
@@ -173,12 +173,12 @@ fn clamp_lane(map: &StreetMap, street: i32, reverse: bool, mut nl: i32) -> i32 {
 fn pick_lane(traffic: &mut Traffic, map: &StreetMap, id: usize, street: i32) -> i32 {
     let c = &mut traffic.cars[id];
     let mut nl = c.next_lane;
-    if crate::rng::rand() & 0x7f != 0 {
+    if rand::random_ratio(127, 128) {
         return nl;
     }
     let turn = c.step(c.route_index + 1).turn;
-    if turn == 0 && crate::rng::rand() & 0xff == 0 {
-        nl += if rand_bit() != 0 { 1 } else { -1 };
+    if turn == 0 && rand::random_ratio(1, 256) {
+        nl += if rand::random::<bool>() { 1 } else { -1 };
     }
     let reverse = c.step(c.route_index).end != 0;
     nl = match (turn, reverse) {
@@ -218,11 +218,10 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         if c.route_len - 1 <= c.route_index {
             c.street = street;
             c.intersection = -1;
-            let r = crate::rng::rand() as i32;
             let dest = if traffic.roundcity {
                 if street == LOOP_STREET { LOOP_STREET_2 } else { LOOP_STREET }
             } else {
-                r.wrapping_rem(n_streets)
+                rand::random_range(0..n_streets)
             };
             replan(traffic, map, id, street, dest);
         }
@@ -268,7 +267,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     c.steer += ds;
     let next_street = c.step(c.route_index + 1).street;
     c.target_lane = c.lane;
-    let r = rand_bit();
+    let r = rand::random_range(0..2);
     let nxt = c.step(c.route_index + 1);
     if nxt.turn == 1 {
         c.target_lane = if nxt.end != 0 { r + 1 } else { !r + lane_count(map, next_street) - 1 };
@@ -399,7 +398,7 @@ pub fn ai_traffic_car(traffic: &mut Traffic, map: &StreetMap, id: usize) {
     }
     let c = &mut traffic.cars[id];
     if tail && CRAWL > c.target_speed && c.next_lane == lane {
-        let mut nl = c.next_lane + if crate::rng::rand() & 1 != 0 { 1 } else { -1 };
+        let mut nl = c.next_lane + if rand::random::<bool>() { 1 } else { -1 };
         if nl < 0 {
             nl = 0;
         }
@@ -510,7 +509,6 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
         } else {
             c.intersection = -1;
             c.street = cur.street;
-            crate::rng::rand();
             let n = map.streets.len() as i32;
             if cur.street == LOOP_STREET {
                 if aggressive && n != 0 {
@@ -525,7 +523,7 @@ fn cross_intersection(traffic: &mut Traffic, map: &StreetMap, id: usize) {
                     }
                 }
                 if !((cur.street - LOOP_STREET) as u32 <= 1) {
-                    let r = rand_bit();
+                    let r = rand::random_range(0..2);
                     let c = &mut traffic.cars[id];
                     let e = c.step(c.route_index).end;
                     plan_route(c, map, cur.street, e, dest, r);

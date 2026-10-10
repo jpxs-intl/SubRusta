@@ -698,14 +698,13 @@ fn interior_span(raw: &BuildingFile, rot: u32) -> ((i32, i32), (i32, i32)) {
 }
 
 /// The building's frame as the city loader builds it: from its cell less its offsets, each quarter turn moves the
-/// origin back by the offsets, turns the axes about their up axis and moves it on by the new offsets.
+/// origin back by the offsets, turns the axes about their up axis and moves it on by the new offsets (the x and z
+/// offsets swapping with each turn, as every lab's (4, 0, 4) agrees with).
 fn placement(raw: &BuildingFile, city: IVec3, rot: u32) -> (Vec3, RotMatrix) {
     let off = raw.offsets.map_or(IVec3::ZERO, |v| v.0.as_ivec3());
     let cell = |v: i32| v as f32 * 4.0;
     let mut pos = Vec3::new(cell(city.x - off.x), cell(city.y - off.y), cell(city.z - off.z));
     let mut m = IDENTITY;
-    // TODO: the offsets the loaded building's quarter turn leaves (rotate_loaded_building_tiles_quarter_turn); taken
-    // as swapped, which every lab (4, 0, 4) agrees with
     let (mut ox, mut oz) = (off.x, off.z);
     for _ in 0..rot {
         let (a4, c4) = (cell(ox), cell(oz));

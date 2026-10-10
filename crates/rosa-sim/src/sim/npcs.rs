@@ -8,7 +8,7 @@ use rosa_protocol::{
 };
 
 use super::Sim;
-use crate::{PlayerId, rng::rand};
+use crate::PlayerId;
 
 pub const MAX_NPCS: usize = 0x400;
 /// An NPC's bot comes in when a living player is within 96 of it, stays while one is within 104, and leaves when
@@ -189,7 +189,7 @@ impl Sim {
         self.npcs[idx].as_mut().unwrap().human = Some(h);
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.bot.idle_yaw = npc.yaw;
-            p.controls[4] = 0.0;
+            p.controls.look_yaw = 0.0;
         }
         if let Some(hu) = self.humans.get_mut(h) {
             hu.view_yaw = npc.yaw;
@@ -201,7 +201,7 @@ impl Sim {
                 }
             }
             GUARD => {
-                let gun = if rand() & 1 != 0 { ItemKind::Pistol } else { ItemKind::Mp5 };
+                let gun = if rand::random::<bool>() { ItemKind::Pistol } else { ItemKind::Mp5 };
                 self.give_weapon(h, gun, GUARD_MAGAZINES);
             }
             _ => {}

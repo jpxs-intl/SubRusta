@@ -20,6 +20,11 @@ const FULL_HEALTH: i32 = 100;
 /// A train's bogies: 80000 each, set 6 along and 1 (the front 1.25) below the chassis.
 const BOGIE_MASS: f32 = 80000.0;
 const BOGIE_INERTIA: Vec3 = Vec3::new(0.9375, 1.5, 0.9375);
+/// A helicopter's rotor: 160, 1.5 up the chassis' up axis, held by a point bond at (0, 1.5, 0) and an angular bond.
+const ROTOR_MASS: f32 = 160.0;
+const ROTOR_HEIGHT: f32 = 1.5;
+const ROTOR_INERTIA: Vec3 = Vec3::new(f32::from_bits(0x4080_2aab), 8.0, f32::from_bits(0x4080_2aab));
+const ROTOR_COEFS: [f32; 3] = [4.0, 0.125, 4.0];
 /// The control flags a vehicle starts with: the handbrake on.
 pub const HANDBRAKE: i32 = 4;
 
@@ -109,12 +114,13 @@ pub struct Vehicle {
     pub engine_power: f32,
     pub gearbox_speed: f32,
     pub gearbox_inertia: f32,
-    // TODO: name once apply_vehicle_wheel_forces is fully understood (+0x38ac, 64 every step)
-    pub unk_38ac: f32,
+    /// How strongly the driven wheels pull back on the gearbox (+0x38ac, 64 every step).
+    pub wheel_feedback: f32,
     pub engine_inertia: f32,
-    // TODO: name once apply_vehicle_wheel_forces is fully understood (+0x38b4 and +0x38b8, 199.99998 and 0.005)
-    pub unk_38b4: f32,
-    pub unk_38b8: f32,
+    /// How strongly the clutch's drag slows the engine (+0x38b4, 199.99998) and what the engine's drive is divided by
+    /// with its inertia (+0x38b8, 0.005).
+    pub clutch_drag: f32,
+    pub drive_divisor: f32,
     /// The gear (-1 reverse, 0 neutral, 1 to 4), the gear last step, its ratio and inverse, the clutch (1 engaged)
     /// and the brake (+0x38bc..+0x38d4).
     pub gear: i32,
@@ -144,11 +150,20 @@ pub struct Vehicle {
     /// The track piece a train's bogies last touched (+0x4fb0) and which train spawn it came from (+0x4fb8).
     pub train_segment: i32,
     pub train_index: i32,
-    /// Ticks a train has stood at its station (+0x4fac), its running direction (+0x4fb4, 1 reversed) and whether its
-    /// horn is sounding (+0x2808).
+    /// Ticks a train has stood at its station (+0x4fac) and its running direction (+0x4fb4, 1 reversed).
     pub train_wait: i32,
     pub train_reverse: i32,
-    pub horn: bool,
+    pub rotor: Option<Rotor>,
+}
+
+/// A helicopter's rotor (bladeBodyID): its body, the bonds holding it to the chassis and
+/// the angles the main and tail rotors have turned through (kept in the first two wheels' angles, +0x3988, +0x3a34).
+#[derive(Clone, Debug)]
+pub struct Rotor {
+    pub body: usize,
+    pub point_bond: usize,
+    pub angular_bond: usize,
+    pub angles: [f32; 2],
 }
 
 /// The chassis body's centre: the vehicle's position plus its centre of mass turned by `rot`.
@@ -165,8 +180,6 @@ fn body_centre(pos: Vec3, rot: &RotMatrix, com: Vec3) -> Vec3 {
 /// and a body for each wheel.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, types: &[VehicleType], kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: RotMatrix, vel: Option<Vec3>) -> Option<usize> {
-    // TODO: the helicopter's rotor body (type 12: 160 at 1.5 up, coefs 4, 0.125, 4, a point bond at (0, 1.5, 0) and an
-    // angular bond); the cage weights the record keeps; the per-connection update state
     let t = types.get(kind as usize)?;
     let centre = body_centre(pos, &rot, t.center_of_mass);
     let body = bodies.create(RigidBodyType::Vehicle, centre, rot, vel, t.inertia, t.mass)?;
@@ -222,6 +235,19 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
             bogies.push((bogie, turn));
         }
     }
+    let rotor = if kind == rosa_protocol::clientbound::game::VehicleKind::Helicopter {
+        let [_, r1, _] = rot;
+        let at = Vec3::new(r1.x * ROTOR_HEIGHT + centre.x, r1.y * ROTOR_HEIGHT + centre.y, ROTOR_HEIGHT * r1.z + centre.z);
+        let rotor_body = bodies.create(RigidBodyType::Vehicle, at, rot, vel, ROTOR_INERTIA, ROTOR_MASS)?;
+        if let Some(b) = bodies.get_mut(rotor_body) {
+            b.coefs = ROTOR_COEFS;
+        }
+        let point_bond = bodies.create_bond(Bond::ItemPoint(ItemPoint::vehicle(body, rotor_body, Vec3::new(0.0, ROTOR_HEIGHT, 0.0), Vec3::ZERO)))?;
+        let angular_bond = bodies.create_bond(Bond::ItemAngular(ItemAngular::vehicle(body, rotor_body)))?;
+        Some(Rotor { body: rotor_body, point_bond, angular_bond, angles: [0.0; 2] })
+    } else {
+        None
+    };
     let driven = if kind == rosa_protocol::clientbound::game::VehicleKind::Hatchback { vec![0, 1] } else { vec![2, 3] };
     let vel = vel.unwrap_or(Vec3::ZERO);
     vehicles.insert(Vehicle {
@@ -259,10 +285,10 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         engine_power: ENGINE_POWER_SCALE * t.engine_power,
         gearbox_speed: 0.0,
         gearbox_inertia: 0.0,
-        unk_38ac: 0.0,
+        wheel_feedback: 0.0,
         engine_inertia: 12.0,
-        unk_38b4: f32::from_bits(0x4347ffff),
-        unk_38b8: f32::from_bits(0x3ba3d70b),
+        clutch_drag: f32::from_bits(0x4347ffff),
+        drive_divisor: f32::from_bits(0x3ba3d70b),
         gear: 0,
         prev_gear: 0,
         gear_ratio: 0.0,
@@ -285,6 +311,6 @@ pub fn spawn_vehicle(vehicles: &mut Table<Vehicle>, bodies: &mut RigidBodies, ty
         train_index: 0,
         train_wait: 0,
         train_reverse: 0,
-        horn: false,
+        rotor,
     })
 }

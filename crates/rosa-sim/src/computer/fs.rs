@@ -127,8 +127,8 @@ impl FileSystem {
         content.encrypted = true;
         content.cipher = std::array::from_fn(|i| i as i32);
         for _ in 0..1024 {
-            let a = (crate::rng::rand() % 26) as usize;
-            let b = (crate::rng::rand() % 26) as usize;
+            let a = rand::random_range(0..26) as usize;
+            let b = rand::random_range(0..26) as usize;
             content.cipher.swap(a, b);
         }
     }

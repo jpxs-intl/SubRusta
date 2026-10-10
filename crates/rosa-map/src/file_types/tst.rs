@@ -34,16 +34,16 @@ pub struct TstFace {
     pub count: u32,
     #[br(count = count)]
     pub corners: Vec<TstCorner>,
-    // TODO: name once its readers are ported (face +0x34)
-    pub unk_34: i32,
+    /// Read and never used (face +0x34).
+    pub unused: i32,
 }
 
 /// A mesh block (tst_read_heli, version 2).
 #[derive(BinRead, Debug, Clone)]
 #[brw(little)]
 pub struct TstMesh {
-    // TODO: name once its readers are ported
-    pub unk_04: i32,
+    /// Read and never used.
+    pub unused: i32,
     pub vertex_count: u32,
     #[br(count = vertex_count)]
     pub vertices: Vec<TstVertex>,

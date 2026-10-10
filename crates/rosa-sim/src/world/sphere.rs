@@ -176,7 +176,6 @@ fn cube_faces(centre: Vec3, axis: Vec3, radius: f32, cell: IVec3, s: f32, v: u32
 /// sphere_intersect_voxel_custom_shape_with_direction: the disc against each quad of a custom shape cell, both
 /// triangles under their own normals.
 fn custom_shape(meshes: &BlockMeshes, centre: Vec3, axis: Vec3, radius: f32, cell: IVec3, s: f32, v: u32) -> Option<DiscHit> {
-    // TODO: the shape's triangle list (+0x60), empty for every shape the level loads, and the face attribute of the hit
     let mesh = meshes.get(v & 65535)?;
     let base = Vec3::new(cell.x as f32 * s, cell.y as f32 * s, cell.z as f32 * s);
     let sc = |p: Vec3| Vec3::new(p.x * s + base.x, p.y * s + base.y, p.z * s + base.z);

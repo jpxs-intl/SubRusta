@@ -30,7 +30,6 @@ fn grow(min: &mut Vec3, max: &mut Vec3, p: Vec3) {
 /// lanes it covers, and the street's list of cars.
 pub fn add_cars(traffic: &mut Traffic, map: &StreetMap) {
     traffic.street_cars.iter_mut().for_each(Vec::clear);
-    // TODO: skipped while the global at raw 0xa4f16e4 is set
     for id in 0..traffic.cars.len() {
         let c = &mut traffic.cars[id];
         let (s, co) = (c.yaw as f64).sin_cos();

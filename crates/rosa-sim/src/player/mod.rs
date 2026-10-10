@@ -10,6 +10,24 @@ pub mod voice;
 /// create_player's starting money.
 const BOT_MONEY: i32 = 50000;
 
+/// A player's movement and view controls (player +0xa0 on), from their game packet or set by the bot AI.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Controls {
+    pub gear_x: f32,
+    pub strafe: f32,
+    pub gear_y: f32,
+    pub walk: f32,
+    pub look_yaw: f32,
+    pub look_pitch: f32,
+    pub free_look_yaw: f32,
+    pub free_look_pitch: f32,
+    /// The body yaw the client reports.
+    pub body_yaw: f32,
+    /// The spin a jump starts with, about the head's up and side axes (player +0xe0, +0xe4).
+    pub spin_yaw: f32,
+    pub spin_pitch: f32,
+}
+
 pub struct Player {
     pub player_id: PlayerId,
     pub username: String,
@@ -55,6 +73,8 @@ pub struct Player {
     pub corp_rating: i32,
     pub crim_rating: i32,
     pub spawn_timer: i32,
+    /// The human's health as of the last tick, never below zero (player oldHealth, sent to the client).
+    pub old_health: i32,
     pub phone_number: u32,
     pub is_ready: bool,
     pub voice: PlayerVoice,
@@ -63,10 +83,7 @@ pub struct Player {
     pub view_yaw: f32,
     pub view_pitch: f32,
     pub human: Option<usize>,
-    // TODO: name the control floats (player +0xa0..+0xdc, the first 9 read from the game packet) and the four after
-    // them (player +0xe0..+0xec, the first 2 read from the game packet and used as the jump's spin)
-    pub controls: [f32; 16],
-    pub controls_extra: [f32; 4],
+    pub controls: Controls,
     pub input_bits: u32,
     pub control_mode: u32,
     pub zoom_level: u32,
@@ -160,6 +177,7 @@ impl Player {
             corp_rating: 0,
             crim_rating: 0,
             spawn_timer: 0,
+            old_health: 0,
             phone_number: j.auth_packet.phone_number,
             is_ready: false,
             voice: PlayerVoice::new(),
@@ -179,8 +197,7 @@ impl Player {
             view_yaw: 0.0,
             view_pitch: 0.0,
             human: None,
-            controls: [0.0; 16],
-            controls_extra: [0.0; 4],
+            controls: Controls::default(),
             input_bits: 0,
             control_mode: 0,
             zoom_level: 0,
@@ -196,7 +213,6 @@ impl Player {
 
     /// create_player: an empty player with 50000 money, no account and a random look (head, skin, hair, eyes).
     pub fn new_bot(player_id: PlayerId, customization: CharacterCustomization, menu: MenuType) -> Self {
-        // TODO: the aim and reaction floats create_player sets (player +0x140 and +0x36ec..+0x3718) for the bot AI
         Self {
             player_id,
             steam_id: 0,
@@ -225,6 +241,7 @@ impl Player {
             corp_rating: 0,
             crim_rating: 0,
             spawn_timer: 0,
+            old_health: 0,
             phone_number: 0,
             is_ready: false,
             voice: PlayerVoice::new(),
@@ -233,8 +250,7 @@ impl Player {
             view_yaw: 0.0,
             view_pitch: 0.0,
             human: None,
-            controls: [0.0; 16],
-            controls_extra: [0.0; 4],
+            controls: Controls::default(),
             input_bits: 0,
             control_mode: 0,
             zoom_level: 0,
@@ -266,10 +282,19 @@ impl Player {
         self.voice.ingest(msg.voice_data);
 
         self.input = InputFlags::from_bits_retain(msg.input_flags);
-        let c = [msg.gear_x, msg.left_right, msg.gear_y, msg.forward_back, msg.view_yaw_delta, msg.view_pitch, msg.free_look_yaw, msg.free_look_pitch, msg.view_yaw];
-        self.controls[..c.len()].copy_from_slice(&c);
-        self.controls_extra[0] = msg.unknown;
-        self.controls_extra[1] = msg.view_pitch_delta;
+        self.controls = Controls {
+            gear_x: msg.gear_x,
+            strafe: msg.left_right,
+            gear_y: msg.gear_y,
+            walk: msg.forward_back,
+            look_yaw: msg.view_yaw_delta,
+            look_pitch: msg.view_pitch,
+            free_look_yaw: msg.free_look_yaw,
+            free_look_pitch: msg.free_look_pitch,
+            body_yaw: msg.view_yaw,
+            spin_yaw: msg.unknown,
+            spin_pitch: msg.view_pitch_delta,
+        };
         self.input_bits = msg.input_flags;
         self.control_mode = msg.input_type as u32;
         self.zoom_level = msg.zoom_level as u32;

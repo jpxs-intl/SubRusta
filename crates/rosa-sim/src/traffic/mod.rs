@@ -143,25 +143,16 @@ pub(crate) fn minss(a: f32, b: f32) -> f32 {
     if a < b { a } else { b }
 }
 
-/// rand() % n as the binary's idiv does it.
-pub(crate) fn rand_mod(n: i32) -> i32 {
-    (crate::rng::rand() as i32).wrapping_rem(n)
-}
-
-pub(crate) fn rand_bit() -> i32 {
-    (crate::rng::rand() & 1) as i32
-}
-
 /// get_random_street: a street with at most three lanes each way, rerolled up to 1024 times.
 pub fn random_street(map: &StreetMap) -> i32 {
     let n = map.streets.len() as i32;
     let wide = |s: i32| map.streets.get(s as usize).is_some_and(|st| st.left_lanes > 3 || st.right_lanes > 3);
-    let mut r = rand_mod(n);
+    let mut r = rand::random_range(0..n);
     for _ in 0..0x400 {
         if !wide(r) {
             break;
         }
-        r = rand_mod(n);
+        r = rand::random_range(0..n);
     }
     r
 }

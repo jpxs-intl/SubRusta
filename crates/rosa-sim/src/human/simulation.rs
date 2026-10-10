@@ -54,7 +54,6 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     if h.spawn_protection > 0 {
         h.spawn_protection -= 1;
     }
-    // TODO: the stance handling (with the crouch input) when the server setting at 0xa8ce184 is off
     let base_strength = 1.0f32;
     if ticks & 7 == 0 && h.pain > 0 {
         h.pain -= 1;
@@ -68,8 +67,6 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
     } else {
         turn_towards_view(h);
     }
-    // TODO: the player's network state flag at 0x6fd4 (from the owning player's state)
-
     h.strength = base_strength;
     if h.old_health <= 24 {
         h.strength = weak_strength(id, h.old_health, ticks, base_strength);
@@ -138,7 +135,9 @@ pub(crate) fn simulate_human(id: usize, h: &mut Human, bodies: &mut RigidBodies,
         bone.ang_vel = b.ang_vel;
     }
     calculate_arm_angles(h, bodies, map, touch, noise_seed);
-    simulate_movement(h, bodies, &Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby: &nearby }, ticks);
+    if let Some(lift) = simulate_movement(h, bodies, &Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby: &nearby }, ticks) {
+        lift_held_items(h, bodies, touch, lift);
+    }
     if h.old_health <= 0 || h.health <= 49 {
         joint_limits(h, bodies);
     }
@@ -415,8 +414,9 @@ fn bleed(id: usize, h: &mut Human, ticks: u32, out: &mut Vec<HumanOutput>) {
     }
 }
 
-/// human_simulate_movement: picks the movement simulation for the human's movement state.
-fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface, ticks: u32) {
+/// human_simulate_movement: picks the movement simulation for the human's movement state. Returns a jump's upward
+/// speed.
+fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface, ticks: u32) -> Option<f32> {
     if 0.707 > h.bones[0].rot[1].y {
         h.locomotion.jump_charge = 0;
     }
@@ -431,7 +431,7 @@ fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface,
                 h.locomotion.active_foot = 0;
             }
             2 if h.input_flags & 0x80000 == 0 => h.movement_state = 0,
-            3 => return step_locomotion_ik(h, bodies, surface),
+            3 => return Some(step_locomotion_ik(h, bodies, surface)),
             _ => {}
         }
     }
@@ -441,8 +441,21 @@ fn simulate_movement(h: &mut Human, bodies: &mut RigidBodies, surface: &Surface,
     match h.movement_state {
         0 | 1 | 5 => update_locomotion_constraints(h, bodies, surface, ticks),
         2 => slide_simulation(h, bodies),
-        3 => step_locomotion_ik(h, bodies, surface),
+        3 => return Some(step_locomotion_ik(h, bodies, surface)),
         4 => walk_simulation(h, bodies),
         _ => {}
+    }
+    None
+}
+
+/// The end of human_step_locomotion_ik: the first item in each hand rises with the jump.
+fn lift_held_items(h: &Human, bodies: &mut RigidBodies, touch: &Touchables, lift: f32) {
+    for slot in &h.inventory[..2] {
+        if slot.count <= 0 {
+            continue;
+        }
+        if let Some(b) = touch.items.get(slot.items[0] as usize).and_then(|i| bodies.get_mut(i.body)) {
+            b.vel.y += lift;
+        }
     }
 }

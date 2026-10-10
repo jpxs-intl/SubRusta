@@ -94,7 +94,7 @@ impl Sim {
         }
         for &(left, top) in &QUARTERS {
             for _ in 0..APPLES_PER_QUARTER {
-                let roll = || ((crate::rng::rand() % 12) as i32 + left, (crate::rng::rand() % 9) as i32 + top);
+                let roll = || (rand::random_range(0..12) as i32 + left, rand::random_range(0..9) as i32 + top);
                 let mut p = roll();
                 let mut tries = APPLE_TRIES;
                 let free = loop {

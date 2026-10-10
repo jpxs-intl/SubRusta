@@ -97,10 +97,10 @@ fn pick_name(used: &mut Vec<bool>, take: bool) -> usize {
     if used.len() < NAME_FLAGS {
         used.resize(NAME_FLAGS, false);
     }
-    let mut k = (crate::rng::rand() & 0x1f) as usize;
+    let mut k = rand::random_range(0..32) as usize;
     let mut tries = PICK_TRIES;
     while used[k] {
-        k = (crate::rng::rand() & 0x1f) as usize;
+        k = rand::random_range(0..32) as usize;
         tries -= 1;
         if tries == 0 {
             break;
@@ -117,23 +117,23 @@ fn pick_volume(vols: &[i32]) -> i32 {
     if vols.is_empty() {
         return -1;
     }
-    vols[(crate::rng::rand() % vols.len() as u32) as usize]
+    vols[rand::random_range(0..vols.len() as u32) as usize]
 }
 
 /// create_world_mode_mission_string: what the INTEL file says about a mission.
 fn mission_string(file: &str, a: &str, b: &str, project: &str, high_value: bool) -> String {
     let mut s = String::new();
-    match crate::rng::rand() % 3 {
+    match rand::random_range(0..3) {
         0 => s += "We have received reports that ",
         1 => s += "Reports indicate that ",
         _ => {}
     }
-    s += &match crate::rng::rand() % 3 {
+    s += &match rand::random_range(0..3) {
         0 => format!("the laboratory at {a} and {b} "),
         1 => format!("the lab at {a} and {b} "),
         _ => format!("{a} and {b} laboratory "),
     };
-    s += match crate::rng::rand() % 3 {
+    s += match rand::random_range(0..3) {
         0 => "acquired a disk",
         1 => "has disks containing info",
         _ => "may have disks",
@@ -148,7 +148,6 @@ impl Sim {
     /// corporation, and each lab becomes a mission spot with a volume per computer.
     pub(crate) fn init_mission_spots(&mut self) {
         self.world_missions.spots.clear();
-        // TODO: game type 0 (none) makes every lab a spot without volumes
         if self.gamemode != GameMode::World {
             return;
         }
@@ -222,7 +221,7 @@ impl Sim {
     /// and their documents spread out.
     pub(crate) fn start_world_missions(&mut self) {
         self.world_missions.names_used = vec![false; NAME_FLAGS];
-        self.world_missions.boosted = (crate::rng::rand() % DAILY_MISSIONS) as i32;
+        self.world_missions.boosted = rand::random_range(0..DAILY_MISSIONS) as i32;
         for _ in 0..DAILY_MISSIONS {
             self.create_world_mission();
         }
@@ -279,10 +278,10 @@ impl Sim {
             return;
         }
         let least = w.spots.iter().map(|s| s.used).fold(0x10000, i32::min);
-        let mut r = (crate::rng::rand() % n as u32) as usize;
+        let mut r = rand::random_range(0..n as u32) as usize;
         let mut tries = PICK_TRIES;
         while w.spots[r].used > least {
-            r = (crate::rng::rand() % n as u32) as usize;
+            r = rand::random_range(0..n as u32) as usize;
             tries -= 1;
             if tries == 0 {
                 break;
@@ -298,14 +297,14 @@ impl Sim {
         let k = pick_name(&mut self.world_missions.names_used, true);
         let doc = NAMES[PROJECTS + k];
         self.fs.add_file(vol, 0, &format!("{doc}.DOC"), content as i32);
-        let high_value = crate::rng::rand() % 5 == 0;
-        let mut reward = (crate::rng::rand() % 5) as i32 * REWARD_STEP + REWARD_BASE;
+        let high_value = rand::random_ratio(1, 5);
+        let mut reward = rand::random_range(0..5) as i32 * REWARD_STEP + REWARD_BASE;
         if self.world_missions.boosted == idx as i32 {
             reward *= BOOST;
         }
         self.world_missions.missions[idx].reward = reward;
         for _ in 0..3 {
-            let t = (crate::rng::rand() % 6) as usize;
+            let t = rand::random_range(0..6) as usize;
             self.world_missions.missions[idx].teams[t].value = self.manager_bonus(t) * reward / 100 + reward;
         }
         let (a, b) = self.world.map.level.buildings.get(building).map_or((0, 0), |b| b.streets);
@@ -347,8 +346,8 @@ impl Sim {
                     continue;
                 }
                 for _ in 0..SHUFFLES {
-                    let a = (crate::rng::rand() % n as u32) as usize;
-                    let b = (crate::rng::rand() % n as u32) as usize;
+                    let a = rand::random_range(0..n as u32) as usize;
+                    let b = rand::random_range(0..n as u32) as usize;
                     if a != b
                         && let Some(vol) = self.fs.volume_mut(v)
                     {
@@ -470,13 +469,9 @@ const INTEL_DISK_SLOT: usize = 3;
 /// The intel car's key and disk are made here before being handed to the driver.
 const INTEL_ITEMS_POS: Vec3 = Vec3::new(62.0, 10.0, 60.0);
 
-fn rand_mod(n: i32) -> i32 {
-    crate::rng::rand() as i32 % n
-}
-
 /// The INTEL part naming the lab's streets.
 fn streets_part(a: &str, b: &str) -> String {
-    match rand_mod(3) {
+    match rand::random_range(0..3) {
         0 => format!("the laboratory at {a} and {b} has the data. "),
         1 => format!("the lab at {a} and {b} has made great strides. "),
         _ => format!("we are increasing development at the {a} and {b} laboratory. "),
@@ -485,7 +480,7 @@ fn streets_part(a: &str, b: &str) -> String {
 
 /// The INTEL part naming the project.
 fn project_part(project: &str) -> String {
-    match rand_mod(3) {
+    match rand::random_range(0..3) {
         0 => format!("project {project} has made progress in many areas. "),
         1 => format!("there are new developments in the {project} project. "),
         _ => format!("the {project} project will revolutionize the industry. "),
@@ -495,9 +490,9 @@ fn project_part(project: &str) -> String {
 /// The INTEL part about the project's worth: office chatter, or for the boosted mission a hint.
 fn worth_part(boosted: bool) -> &'static str {
     if boosted {
-        return if rand_mod(2) == 1 { "this is a high priority project. " } else { "this project is extremely high value. " };
+        return if rand::random_range(0..2) == 1 { "this is a high priority project. " } else { "this project is extremely high value. " };
     }
-    match rand_mod(4) {
+    match rand::random_range(0..4) {
         1 => "the company picnic is next saturday. ",
         2 => "next friday is hawaiian shirt day. ",
         3 => "we need to create more synergy. ",
@@ -515,18 +510,20 @@ impl Sim {
         if missions.len() < daily {
             return;
         }
+
         let least_asked = missions[..daily].iter().map(|m| m.teams[t].status).fold(256, i32::min);
         let least_state = missions[..daily].iter().map(|m| m.state).fold(256, i32::min);
         if least_state > 0 {
             return;
         }
+
         let list: Vec<usize> = (0..daily).filter(|&i| missions[i].teams[t].status == least_asked && missions[i].state == least_state).collect();
         if list.is_empty() {
             return;
         }
         let mut m = 0;
         for tries in 1.. {
-            m = list[rand_mod(list.len() as i32) as usize];
+            m = list[rand::random_range(0..list.len() as i32) as usize];
             let wanted = (0..6).any(|j| self.corp_state[j].player_count > 0 && self.world_missions.missions[m].teams[j].value > 0);
             if wanted || tries >= MEMO_TRIES {
                 break;
@@ -534,8 +531,8 @@ impl Sim {
         }
         let mut order = [0, 1, 2];
         for _ in 0..PART_SHUFFLES {
-            let a = rand_mod(3) as usize;
-            let b = rand_mod(3) as usize;
+            let a = rand::random_range(0..3) as usize;
+            let b = rand::random_range(0..3) as usize;
             order.swap(a, b);
         }
         self.world_missions.missions[m].teams[t].status += 1;
@@ -557,7 +554,7 @@ impl Sim {
         self.fs.encipher(content);
         self.world_missions.intel_files += 1;
         let file = format!("INTEL{:02}.CDE", self.world_missions.intel_files);
-        if crate::rng::rand() & 1 != 0 {
+        if rand::random::<bool>() {
             return self.intel_disk_memo(t, &file, content);
         }
         let expiry = self.world_time + INTEL_TIME;
@@ -595,7 +592,7 @@ impl Sim {
         if spots == 0 {
             return;
         }
-        let building = self.world_missions.spots[rand_mod(spots) as usize].building;
+        let building = self.world_missions.spots[rand::random_range(0..spots) as usize].building;
         let (lobby, (a, b)) = self.world.map.level.buildings.get(building).map_or((Vec3::ZERO, (-1, -1)), |b| (b.lobby, b.streets));
         if let Some(disk) = self.create_item(rosa_protocol::clientbound::game::ItemKind::DiskBlue, lobby, None, rosa_physics::rotation::IDENTITY) {
             let vol = self.fs.alloc_volume(DISK_CAPACITY);

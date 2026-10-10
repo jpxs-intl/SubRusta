@@ -156,7 +156,6 @@ impl ItemAngular {
         let s = &self.solve;
         let (Some(a), Some(b)) = (bodies.get(self.body_a), bodies.get(self.body_b)) else { return };
         let (wa, wb) = (a.ang_vel, b.ang_vel);
-        // TODO: when the global byte at 0x5b08aec0 is set the binary takes another path here (0x462111)
         let mut t = Vec3::new(
             JOINT_DAMPING * wb.x + (-JOINT_DAMPING * wa.x + s.target.x),
             JOINT_DAMPING * wb.y + (-JOINT_DAMPING * wa.y + s.target.y),

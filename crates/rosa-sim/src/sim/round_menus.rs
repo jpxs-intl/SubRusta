@@ -79,14 +79,14 @@ impl Sim {
     /// gets a random type and colour at its list price.
     pub(crate) fn randomize_corp_vehicle_stock(&mut self) {
         for o in self.vehicle_stock.iter_mut().filter(|o| o.active) {
-            if crate::rng::rand() & 7 == 0 {
+            if rand::random_ratio(1, 8) {
                 o.active = false;
             }
         }
         for o in self.vehicle_stock.iter_mut().filter(|o| !o.active) {
             let kind = crate::vehicle::types::random_stock_vehicle();
             let price = self.vehicle_types.get(kind as usize).map_or(0, |t| t.price);
-            let color = (crate::rng::rand() as i32) % VEHICLE_COLORS;
+            let color = rand::random_range(0..VEHICLE_COLORS);
             *o = VehicleOffer { active: true, kind, color, price };
         }
     }

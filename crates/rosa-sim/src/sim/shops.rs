@@ -92,7 +92,8 @@ impl Sim {
     }
 
     /// One player's shop menu. Returns None for a player without a human, and the human's position when it is in no
-    /// shop or bank.
+    /// shop or bank (where world mode then closes every menu outside a corporation base), except with the /stocks test
+    /// menu open, which is kept.
     fn shop_menu(&mut self, pid: PlayerId) -> Option<Option<glam::Vec3>> {
         let buildings = &self.world.map.level.buildings;
         let restarting = self.gamestate == rosa_protocol::clientbound::game::GameState::Restarting;
@@ -125,7 +126,6 @@ impl Sim {
         });
         let found = shop.or_else(|| buildings.iter().position(|b| b.kind == crate::world::building::BANK && b.contains(pos, 0.0)).map(|k| (k, 13)));
         let Some((k, m)) = found else {
-            // TODO: the binary closes every menu here in world mode; the /stocks test menu is kept open
             return Some((p.menu != MenuType::RoundCorpStock).then_some(pos));
         };
         if p.menu == MenuType::Empty {
@@ -432,7 +432,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
         let mut j = 0;
 
         while j < b.shop.len() {
-            if crate::rng::rand() & 7 == 0 {
+            if rand::random_ratio(1, 8) {
                 let last = b.shop.pop().unwrap();
 
                 if j < b.shop.len() {
@@ -447,7 +447,7 @@ pub fn restock_dealerships(buildings: &mut [BuildingRecord], types: &[VehicleTyp
             let kind = crate::vehicle::types::random_stock_vehicle() as i32;
 
             let price = types.get(kind as usize).map_or(0, |t| t.price);
-            let extra = (crate::rng::rand() as i32) % VEHICLE_COLORS;
+            let extra = rand::random_range(0..VEHICLE_COLORS);
 
             b.shop.push(ShopEntry { kind, price, extra });
         }

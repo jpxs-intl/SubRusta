@@ -421,13 +421,10 @@ impl Sim {
         }
 
         if let Some(mode) = self.admin.next_mode.filter(|m| matches!(m, GameMode::Round | GameMode::Eliminator) && *m != self.gamemode) {
-            // TODO: reset_game loads the round map for these modes; switching from another map needs map reloading
-            if self.world.map.map_name == "round" {
-                for (_, p) in self.players.iter_mut() {
-                    p.team = Team::Spectator;
-                }
-                self.gamemode = mode;
+            for (_, p) in self.players.iter_mut() {
+                p.team = Team::Spectator;
             }
+            self.gamemode = mode;
         }
 
         self.reset_game();

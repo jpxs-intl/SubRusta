@@ -6,7 +6,6 @@ use tokio::sync::mpsc::UnboundedSender;
 pub mod computer;
 pub mod human;
 pub mod player;
-pub mod rng;
 pub mod world;
 pub mod sim;
 pub mod traffic;
@@ -65,6 +64,11 @@ pub struct Client {
     /// How overdue each traffic car is for this client (connection +0x6da4), and which intersection's lights it gets
     /// next (connection +0x54).
     traffic_priority: Vec<i32>,
+    /// How overdue each vehicle is for this client, by vehicle id.
+    vehicle_priority: Vec<i32>,
+    /// The game packets sent to this connection, and the client's own packet count, echoed back.
+    packet_sequence: u32,
+    client_packet_count: u32,
     signal_cursor: i32,
     /// The line links this connection has been sent, per item (connection +0x1dac on), the 256 entry ring of links
     /// queued for it (+0x2ddd0 on), how far it is filled (+0x2ddc4) and acknowledged (+0x2ddcc).
@@ -83,6 +87,7 @@ impl Client {
         self.pack_ack = 0;
         self.packed.clear();
         self.traffic_priority.clear();
+        self.vehicle_priority.clear();
         self.signal_cursor = 0;
         self.earshots = [None; 8];
     }

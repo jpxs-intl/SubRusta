@@ -3,9 +3,6 @@ use rosa_protocol::clientbound::game::ItemKind;
 
 use super::hull::ConvexHull;
 
-// TODO: read from the second header vector of data/uzi.itm like load_item_file
-const UZI_ITM_INERTIA: Vec3 = Vec3::new(f32::from_bits(0x3c7f2ac6), f32::from_bits(0x3c68311c), f32::from_bits(0x3b0be6ea));
-
 pub struct ItemType {
     pub name: String,
     pub price: i32,
@@ -155,8 +152,14 @@ pub fn item_types() -> Vec<ItemType> {
     let r = ball.bounds.x;
     ball.inv_inertia = Vec3::splat(1.0 / (r * r * 0.45));
 
-    for kind in [Auto5, Uzi] {
-        types[kind as usize].inv_inertia = Vec3::ONE / UZI_ITM_INERTIA;
+    let uzi = std::path::Path::new("data").join("uzi.itm");
+    match rosa_map::file_types::itm::ItmFile::load(&uzi) {
+        Ok(itm) => {
+            for kind in [Auto5, Uzi] {
+                types[kind as usize].inv_inertia = Vec3::ONE / itm.inertia.0;
+            }
+        }
+        Err(e) => eprintln!("[Items] could not load {}: {e}", uzi.display()),
     }
 
     for (i, t) in types.iter_mut().enumerate() {
