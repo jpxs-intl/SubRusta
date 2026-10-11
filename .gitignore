@@ -4,6 +4,7 @@ Cargo.lock
 map.ppm
 server.srk
 stats.txt
+config.toml
 config_world.txt
 config_round.txt
 config.toml
