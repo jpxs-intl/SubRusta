@@ -62,18 +62,27 @@ pub struct Earshot {
 pub(crate) struct EventRing {
     slots: Vec<Option<Event>>,
     pub(crate) count: u16,
+    /// The ticks since the last reset, which every event is stamped with as it is announced (tickCreated), the clock
+    /// the clients compare it against in the packet header.
+    pub(crate) now: u32,
 }
 
 impl Default for EventRing {
     fn default() -> Self {
-        Self { slots: (0..65536).map(|_| None).collect(), count: 0 }
+        Self { slots: (0..65536).map(|_| None).collect(), count: 0, now: 0 }
     }
 }
 
 impl EventRing {
-    pub(crate) fn push(&mut self, event: Event) {
+    pub(crate) fn push(&mut self, mut event: Event) {
+        event.tick_created = self.now;
         self.slots[self.count as usize] = Some(event);
         self.count = self.count.wrapping_add(1);
+    }
+
+    /// Every event forgotten; the clock carries on.
+    pub(crate) fn clear(&mut self) {
+        *self = Self { now: self.now, ..Default::default() };
     }
 
     pub(crate) fn get(&self, idx: u16) -> Option<&Event> {
@@ -384,6 +393,7 @@ impl Sim {
 
         self.tick += 1;
         self.ticks_since_reset = self.ticks_since_reset.wrapping_add(1);
+        self.events.now = self.ticks_since_reset;
 
         if matches!(self.gamestate, GameState::InGame | GameState::Idle | GameState::Intermission) {
             self.bullet_simulation();
@@ -708,11 +718,11 @@ impl Sim {
         for i in 0..to_send {
             let idx = client.event_cursor.wrapping_add(i);
             let Some(ev) = ctx.events.get(idx) else {
-                out.push((idx as u32, Event { tick_created: ctx.tick, kind: ServerEvent::Empty }));
+                out.push((idx as u32, Event { tick_created: ctx.ticks_since_reset, kind: ServerEvent::Empty }));
                 continue;
             };
 
-            let expired = ctx.tick.wrapping_sub(ev.tick_created) > 600;
+            let expired = ctx.ticks_since_reset.wrapping_sub(ev.tick_created) > 600;
             let ephemeral = matches!(ev.kind, ServerEvent::Sound(_) | ServerEvent::PhoneSound(_));
             let foreign = match &ev.kind {
                 ServerEvent::UpdateCorporation(e) => e.corporation() != team,

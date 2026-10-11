@@ -43,7 +43,7 @@ pub struct Bone {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Joint {
-    pub bond: usize
+    pub bond: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -55,7 +55,7 @@ pub struct AttachmentGroup {
 
 #[derive(Clone, Debug, Default)]
 pub struct Attachments {
-    pub groups: Vec<AttachmentGroup>
+    pub groups: Vec<AttachmentGroup>,
 }
 
 pub struct HumanHealth {

@@ -6,3 +6,5 @@ server.srk
 stats.txt
 config_world.txt
 config_round.txt
+config.toml
+serveradmin.txt

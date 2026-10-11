@@ -1,8 +1,5 @@
 use super::{COLUMNS, Computer, DISK_OP_COPY, DISK_OP_DIR, DRIVE_A, DRIVE_C, LINES, Mode, WHITE, fs, put_text, text_len};
-use crate::{
-    items::state::ItemState,
-    sim::Sim,
-};
+use crate::{items::state::ItemState, sim::Sim};
 
 /// The last column the shell reads and types into.
 const LAST: i32 = 61;

@@ -16,7 +16,8 @@ const NAME_ORIGIN: i32 = 256;
 const AVENUE_SPACING: i32 = 56;
 const STREET_SPACING: i32 = 32;
 const AVENUES: [&str; 8] = ["Abrash Ave", "Bunten Ave", "Carmack Ave", "David Ave", "Eugene Ave", "Flinn Ave", "Garriott Ave", "Holland Ave"];
-const STREETS: [&str; 9] = ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
+const STREETS: [&str; 9] =
+    ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
 /// Avenue ids follow the nine street ids.
 const FIRST_AVENUE_ID: i32 = 9;
 
@@ -170,8 +171,7 @@ impl StreetMap {
             let start = Vec3::new(side.x * off + lane_x, side.y * off + lane_y, side.z * off + lane_z);
             Lane { start, end: Vec3::new(start.x + dir.x * len, start.y + dir.y * len, start.z + dir.z * len) }
         };
-        let lanes =
-            (1..=left).rev().map(|k| lane(-(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(k as f32 * UNIT - LANE_INSET))).collect();
+        let lanes = (1..=left).rev().map(|k| lane(-(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(k as f32 * UNIT - LANE_INSET))).collect();
         MapStreet {
             name,
             intersections: [i0, i1],

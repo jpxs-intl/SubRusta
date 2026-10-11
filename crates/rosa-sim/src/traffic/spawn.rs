@@ -165,7 +165,7 @@ pub fn create_traffic_car(
     if traffic.generations.len() <= id {
         traffic.generations.resize(id + 1, 0);
     }
-    
+
     traffic.generations[id] += 1;
     id
 }

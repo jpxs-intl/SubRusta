@@ -8,7 +8,7 @@ use rosa_protocol::{
 use crate::{PlayerId, items::state::ItemState};
 use crate::{
     items,
-    sim::{EventRing, Sim, missions},
+    sim::{Sim, missions},
     time::TICKS_PER_MINUTE,
 };
 
@@ -620,7 +620,7 @@ impl Sim {
         self.bullets.clear();
         self.npcs.clear();
         self.traffic = crate::traffic::Traffic::new(&self.world.map.streets, self.world.map.map_name == "round");
-        self.events = EventRing::default();
+        self.events.clear();
 
         for c in self.clients.values_mut() {
             c.reset_for_round();

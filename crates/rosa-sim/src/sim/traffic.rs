@@ -57,6 +57,7 @@ impl Sim {
         self.load_mode_map();
 
         self.ticks_since_reset = 0;
+        self.events.now = 0;
         self.do_traffic = None;
 
         for (_, p) in self.players.iter_mut() {
