@@ -83,11 +83,12 @@ In sandbox mode, or as an admin, there are test commands as well:
 | `subrusta-net` | The UDP connection layer and the master server. |
 | `subrusta-math` | Shared math types. |
 
-### The future
----
+## The future
+
 We intend to add WASM into the server, so that way plugins can create custom game modes, this will be fleshed out in further updates. But as it stand right now, the server works.
 
 ## AI Disclosure
+
 Im gonna be frank, I did *not* want to port all of that physics code by hand, AI has gotten to a point where it can right competent code, so I entrusted it with the work, making sure it verified the output of the physics functions via GDB with the real binary.
 
 If you dont like this, dont use it. I dont really know what to tell you.

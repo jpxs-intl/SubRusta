@@ -12,7 +12,6 @@ impl Vector {
     }
 }
 
-#[cfg(feature = "binrw")]
 mod binrw_impls {
     use super::*;
     use binrw::BinRead;

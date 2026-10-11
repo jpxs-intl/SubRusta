@@ -4,8 +4,6 @@ use crate::sim::{economy::SELL_RATE, traffic::TRAFFIC_CARS};
 /// than which mode it is. The default is a plain mode; each mode changes what it needs from there.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModeRules {
-    /// The map reset_game loads, or none to keep the one loaded.
-    pub map: Option<&'static str>,
     /// The share of a teammate's damage that comes back on the attacker's head.
     pub team_damage: i32,
     /// The share of the price a sale of shares pays.
@@ -64,7 +62,6 @@ pub struct ModeRules {
 impl Default for ModeRules {
     fn default() -> Self {
         Self {
-            map: None,
             team_damage: 0,
             stock_sell_rate: SELL_RATE,
             reset_traffic: Some(TRAFFIC_CARS),

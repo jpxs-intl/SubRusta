@@ -18,6 +18,8 @@ const EARTH_GRAVITY: f32 = 9.8;
 
 impl Sim {
     pub(crate) fn on_join(&mut self, conn: ConnId, src: SocketAddr, j: SimJoinMsg) {
+        println!("[Sim] Player {} is joining...", j.auth_packet.player_name);
+
         let accout_data = self.join_account(&j.auth_packet);
 
         if accout_data.ban_time > 0 {

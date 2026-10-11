@@ -1,5 +1,5 @@
-use subrusta_math::vector::Vector;
 use serde::{Deserialize, Serialize};
+use subrusta_math::vector::Vector;
 
 use crate::{
     CharacterCustomization,

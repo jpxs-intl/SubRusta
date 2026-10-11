@@ -273,7 +273,7 @@ impl Sim {
 
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         player.human = None;
-        
+
         self.update_player_event(pid);
     }
 

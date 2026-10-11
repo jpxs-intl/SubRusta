@@ -70,6 +70,11 @@ pub trait ModeHooks: Sync {
     /// The mode clients and the server list are told.
     fn client_mode(&self) -> GameMode;
 
+    /// The map the mode plays, loaded at start-up and by reset_game; none keeps config.toml's map_name.
+    fn map(&self) -> Option<&'static str> {
+        None
+    }
+
     /// The settings shared code reads, taken at every reset_game.
     fn rules(&self, sim: &Sim) -> ModeRules;
 

@@ -257,7 +257,7 @@ impl Sim {
             hu.vehicle = Some(vehicle);
             hu.seat = seat;
         }
-        
+
         Some((pid, new_human))
     }
 

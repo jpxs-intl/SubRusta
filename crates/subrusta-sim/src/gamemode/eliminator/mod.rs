@@ -529,9 +529,12 @@ impl super::ModeHooks for Hooks {
         GameMode::Eliminator
     }
 
+    fn map(&self) -> Option<&'static str> {
+        Some("round")
+    }
+
     fn rules(&self, _sim: &Sim) -> super::rules::ModeRules {
         super::rules::ModeRules {
-            map: Some("round"),
             reset_traffic: None,
             parked_cars: true,
             keep_bodies: true,

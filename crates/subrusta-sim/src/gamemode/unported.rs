@@ -32,11 +32,19 @@ impl ModeHooks for Unported {
         self.0
     }
 
+    fn map(&self) -> Option<&'static str> {
+        match self.0 {
+            GameMode::CoOp => Some("round"),
+            GameMode::None => Some("test2"),
+            _ => None,
+        }
+    }
+
     fn rules(&self, sim: &Sim) -> ModeRules {
         let base = ModeRules::default();
         match self.0 {
             GameMode::Racing => ModeRules { reset_traffic: None, intermission_lobby: true, ..base },
-            GameMode::CoOp => ModeRules { map: Some("round"), coop_traffic: true, intermission_lobby: true, ..base },
+            GameMode::CoOp => ModeRules { coop_traffic: true, intermission_lobby: true, ..base },
             GameMode::Versus => ModeRules {
                 team_damage: VERSUS_TEAM_DAMAGE,
                 corp_buy_menus: true,
@@ -45,7 +53,6 @@ impl ModeHooks for Unported {
                 move_delay: Some(sim.modes.round.versus.movedelay * TICKS_PER_SECOND),
                 ..base
             },
-            GameMode::None => ModeRules { map: Some("test2"), ..base },
             _ => base,
         }
     }

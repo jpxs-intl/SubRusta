@@ -5,11 +5,8 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-binrw = { version = "0.15", optional = true }
+binrw.workspace = true
 glam.workspace = true
-
-[features]
-binrw = ["dep:binrw"]
 
 [lints]
 workspace = true

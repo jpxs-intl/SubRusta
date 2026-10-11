@@ -203,7 +203,7 @@ impl Sim {
             ticks_since_reset: 0,
             in_rx,
             out_tx,
-            world: World::new(map_name),
+            world: World::new(mode.map().map_or(map_name, str::to_string)),
             mode,
             gamestate: GameState::Intermission,
             round_number: 0,
@@ -746,7 +746,7 @@ impl Sim {
     /// reset_game's map: world mode plays test2 and round and eliminator modes the round city, anything else keeps
     /// the map it has; a different map is loaded (load_map) and the world emptied with it.
     pub(crate) fn load_mode_map(&mut self) {
-        let Some(name) = self.rules.map else { return };
+        let Some(name) = self.mode.map() else { return };
 
         if self.world.map.map_name == name {
             return;

@@ -27,7 +27,7 @@ impl Default for ConfigMain {
             master_server_ip: None,
             port: 27584,
             map_name: "test2".to_string(),
-            server_name: "Baro Serv".to_string(),
+            server_name: "SubRusta Server".to_string(),
             admin_password: "admin".to_string(),
             server_password: "".to_string(),
             gamemode: "round".to_string(),

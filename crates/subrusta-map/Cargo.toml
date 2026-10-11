@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-subrusta-math = { workspace = true, features = ["binrw"] }
+subrusta-math.workspace = true
 
 glam.workspace = true
 binrw.workspace = true

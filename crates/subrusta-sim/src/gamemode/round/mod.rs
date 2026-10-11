@@ -784,7 +784,7 @@ impl Sim {
                 p.is_ready = false;
             }
         }
-        
+
         self.update_player_event(pid);
     }
 }
@@ -808,9 +808,12 @@ impl super::ModeHooks for Hooks {
         GameMode::Round
     }
 
+    fn map(&self) -> Option<&'static str> {
+        Some("round")
+    }
+
     fn rules(&self, sim: &Sim) -> super::rules::ModeRules {
         super::rules::ModeRules {
-            map: Some("round"),
             team_damage: sim.modes.round.cfg.teamdamage,
             stock_sell_rate: crate::sim::economy::ROUND_SELL_RATE,
             reset_traffic: None,

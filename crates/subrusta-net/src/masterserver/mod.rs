@@ -34,8 +34,12 @@ impl MasterServer {
 
     pub fn register_auth(&mut self, from: SocketAddr, pkt: AuthPacket) -> bool {
         if from != self.address {
+            println!("[Net] Dropped fake auth packet from {} for {}", from, pkt.player_name);
+
             return false;
         }
+
+        println!("[Net] Received MS authentication packet for {}", pkt.player_name);
 
         self.auth.stash(from, pkt)
     }

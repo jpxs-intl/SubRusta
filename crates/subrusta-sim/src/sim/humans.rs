@@ -202,7 +202,9 @@ impl Sim {
             }
         }
 
-        if let Some(player) = human.player.and_then(|p| self.players.get_mut(p.idx())) && player.human == Some(id) {
+        if let Some(player) = human.player.and_then(|p| self.players.get_mut(p.idx()))
+            && player.human == Some(id)
+        {
             player.human = None;
 
             let id = player.player_id;

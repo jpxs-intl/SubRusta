@@ -754,9 +754,12 @@ impl super::ModeHooks for Hooks {
         GameMode::World
     }
 
+    fn map(&self) -> Option<&'static str> {
+        Some("test2")
+    }
+
     fn rules(&self, _sim: &Sim) -> super::rules::ModeRules {
         super::rules::ModeRules {
-            map: Some("test2"),
             reset_traffic: None,
             crime: true,
             punish_team_kills: false,
