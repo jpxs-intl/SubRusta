@@ -1,3 +1,12 @@
+# **MOVED**
+
+**THIS REPOSITORY HAS MOVED TO (THE NEW FERROSA TEAM)[https://github.com/ferrosa-game/Dedicated-Server]. DEVELOPMENT WILL CONTINUE HERE**
+
+---
+
+<br>
+<br>
+
 # SubRusta
 
 A Sub Rosa dedicated server written in Rust: a port of the original Sub Rosa dedicated server.
