@@ -1,4 +1,5 @@
 use glam::Vec3;
+use rayon::prelude::*;
 
 use crate::{
     Bond, Table,
@@ -159,17 +160,19 @@ impl RigidBodies {
 
     pub fn simulate(&mut self) {
         let gravity = GRAVITY * self.gravity_scale;
-        for (_, b) in self.bodies.iter_mut() {
+
+        self.bodies.par_iter_mut().for_each(|(_, b)| {
             if b.settled {
-                continue;
+                return;
             }
+
             let vy = b.vel.y - gravity;
             b.vel.y = vy;
             b.pos.x += b.vel.x;
             b.pos.y += vy;
             b.pos.z += b.vel.z;
             b.ang_vel = rk4_rotation(&mut b.rot, b.ang_momentum, b.inv_inertia);
-        }
+        });
     }
 
     pub fn add_impulse(&mut self, id: usize, offset: Vec3, impulse: Vec3) {
@@ -228,23 +231,29 @@ impl RigidBodies {
     /// and after (apply_vehicle_wheel_forces) each pass over the bonds.
     pub fn solve_bonds_with(&mut self, mut step: impl FnMut(&mut Table<RigidBody>, SolverStep)) {
         let Self { bodies, bonds, .. } = self;
-        for (_, bond) in bonds.iter_mut() {
-            match bond {
+        {
+            let bodies: &Table<RigidBody> = bodies;
+
+            bonds.par_iter_mut().for_each(|(_, bond)| match bond {
                 Bond::Joint(j) => j.prepare(bodies),
                 Bond::ItemPoint(j) => j.prepare(bodies),
                 Bond::ItemAngular(j) => j.prepare(bodies),
                 _ => {}
-            }
+            });
         }
+
         for (_, b) in bodies.iter_mut() {
             b.slide = 0.0;
         }
+
         for _ in 0..32 {
             for (_, b) in bodies.iter_mut() {
                 b.impulse = Vec3::ZERO;
                 b.ang_impulse = Vec3::ZERO;
             }
+
             step(bodies, SolverStep::BeforeBonds);
+
             for (_, bond) in bonds.iter() {
                 match bond {
                     Bond::Joint(j) => j.solve(bodies),
@@ -263,13 +272,16 @@ impl RigidBodies {
                     }
                 }
             }
+
             step(bodies, SolverStep::AfterBonds);
+
             for (_, b) in bodies.iter_mut() {
                 if !b.settled {
                     apply_impulses(b);
                 }
             }
         }
+
         for id in bonds.ids() {
             if bonds.get(id).is_some_and(|b| b.despawn_time() == 0) {
                 bonds.remove(id);

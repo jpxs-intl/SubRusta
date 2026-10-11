@@ -767,11 +767,6 @@ pub fn random_stock_vehicle() -> VehicleKind {
 pub fn vehicle_types(data: &std::path::Path) -> Vec<VehicleType> {
     let mut types = vec![VehicleType::default(); VEHICLE_TYPES];
 
-    for spec in &SBV_TYPES {
-        if let Some(t) = VehicleType::from_sbv(spec, data) {
-            types[spec.kind as usize] = t;
-        }
-    }
     let loaded: Vec<_> = SBV_TYPES.par_iter().filter_map(|spec| VehicleType::from_sbv(spec, data).map(|t| (spec.kind, t))).collect();
     for (kind, t) in loaded { types[kind as usize] = t; }
 

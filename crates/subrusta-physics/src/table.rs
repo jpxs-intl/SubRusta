@@ -1,5 +1,7 @@
 use std::{cmp::Reverse, collections::BinaryHeap};
 
+use rayon::prelude::*;
+
 /// Slots handed out lowest free index first, like the game's fixed arrays, up to `capacity` of them.
 pub struct Table<T> {
     slots: Vec<Option<T>>,
@@ -57,6 +59,14 @@ impl<T> Table<T> {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut T)> {
         self.slots.iter_mut().enumerate().filter_map(|(i, s)| Some((i, s.as_mut()?)))
+    }
+
+    /// iter_mut across threads, for work where each entry touches only itself.
+    pub fn par_iter_mut(&mut self) -> impl ParallelIterator<Item = (usize, &mut T)>
+    where
+        T: Send,
+    {
+        self.slots.par_iter_mut().enumerate().filter_map(|(i, s)| Some((i, s.as_mut()?)))
     }
 
     pub fn ids(&self) -> Vec<usize> {
