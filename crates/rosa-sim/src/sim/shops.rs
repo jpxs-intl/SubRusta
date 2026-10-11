@@ -76,10 +76,12 @@ impl Sim {
     /// The mode then builds each player's base menus.
     pub(crate) fn update_shop_menus(&mut self) {
         let mode = self.mode;
+
         for pid in self.players.iter().map(|(_, p)| p.player_id).collect::<Vec<_>>() {
             let outside = self.shop_menu(pid).flatten();
             mode.base_menus(self, pid, outside);
         }
+
         mode.menus_done(self);
     }
 
@@ -272,8 +274,8 @@ impl Sim {
         }
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.vehicles_bought += 1;
-            let e = p.make_update_player_event(self.tick);
-            self.events.push(e);
+
+            self.update_player_event(pid);
         }
         if self.rules.round_money_updates
             && let Some(p) = self.players.get(pid.idx())
@@ -351,8 +353,8 @@ impl Sim {
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.money -= entry.price;
         p.items_bought += 1;
-        let e = p.make_update_player_event(self.tick);
-        self.events.push(e);
+
+        self.update_player_event(pid);
     }
 
     /// burger_shop_menu: a burger (button 1) into the first slot that takes it, paid for.
@@ -399,12 +401,13 @@ impl Sim {
             _ => {}
         }
         p.customization = look;
-        let e = p.make_update_player_event(self.tick);
+
         if let Some(h) = self.humans.get_mut(human) {
             h.customization.suit_color = look.suit_color;
             h.customization.necklace = look.necklace;
         }
-        self.events.push(e);
+
+        self.update_player_event(pid);
     }
 }
 

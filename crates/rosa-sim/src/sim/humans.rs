@@ -42,7 +42,8 @@ impl Sim {
             player.ghost_human = false;
             player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
             player.items_bought = 0;
-            self.events.push(player.make_update_player_event(self.tick));
+
+            self.update_player_event(player_id);
         }
         println!("[Sim] Spawned human #{id} at {:?}", pos);
     }
@@ -50,13 +51,17 @@ impl Sim {
     /// player_simulation: hands each player's latest controls to their human.
     pub(crate) fn player_simulation(&mut self) {
         let held = self.rules.move_delay.is_some_and(|ticks| self.round_elapsed < ticks);
+
         for (_, player) in self.players.iter_mut() {
             if player.spawn_timer > 0 {
                 player.spawn_timer -= 1;
             }
+
             let Some(h) = player.human.and_then(|id| self.humans.get_mut(id)) else { continue };
+
             h.stocks = player.stocks;
             player.vitality = h.health.vitality.max(0);
+
             if h.vehicle.is_some() {
                 if matches!(player.control_mode, 2 | 3) {
                     let c = &player.controls;
@@ -82,6 +87,7 @@ impl Sim {
                 h.client_body_yaw = c.body_yaw;
                 h.jump_spin_yaw = c.spin_yaw;
                 h.jump_spin_pitch = c.spin_pitch;
+
                 if held {
                     h.strafe_input = 0.0;
                     h.walk_input = 0.0;
@@ -90,6 +96,7 @@ impl Sim {
                 h.look_yaw = h.view_yaw;
                 h.look_pitch = h.view_pitch;
             }
+
             h.input_flags = player.input_bits;
             h.movement_mode = player.zoom_level as i32;
         }
@@ -98,8 +105,11 @@ impl Sim {
     pub(crate) fn sync_humans(&mut self) {
         for id in self.humans.ids() {
             let Some(h) = self.humans.get_mut(id) else { continue };
+
             sync_bones(h, &mut self.bodies, &self.world.map);
+
             let (lo, hi) = (glam::IVec3::from_array(h.grid_min), glam::IVec3::from_array(h.grid_max));
+
             self.spawn_set_items_in(lo, hi);
         }
     }
@@ -178,28 +188,32 @@ impl Sim {
     /// delete_human: the human's items dropped, its player left without one (an update_player event standing in for the
     /// binary's per-player update counter), and its bonds and bodies removed.
     pub(crate) fn delete_human(&mut self, id: usize) {
-        let Some(mut h) = self.humans.remove(id) else { return };
+        let Some(mut human) = self.humans.remove(id) else { return };
         let mut touch = touchables!(self, occupied_seats(&self.humans));
-        for slot in 0..h.inventory.len() {
-            while h.inventory[slot].count > 0 {
-                let item = h.inventory[slot].items[h.inventory[slot].count as usize - 1] as usize;
-                let before = h.inventory[slot].count;
-                detach_item(&mut h, &mut self.bodies, &mut touch, item, slot);
-                if h.inventory[slot].count == before {
+
+        for slot in 0..human.inventory.len() {
+            while human.inventory[slot].count > 0 {
+                let item = human.inventory[slot].items[human.inventory[slot].count as usize - 1] as usize;
+                let before = human.inventory[slot].count;
+                detach_item(&mut human, &mut self.bodies, &mut touch, item, slot);
+                if human.inventory[slot].count == before {
                     break;
                 }
             }
         }
-        if let Some(player) = h.player.and_then(|p| self.players.get_mut(p.idx()))
-            && player.human == Some(id)
-        {
+
+        if let Some(player) = human.player.and_then(|p| self.players.get_mut(p.idx())) && player.human == Some(id) {
             player.human = None;
-            self.events.push(player.make_update_player_event(self.tick));
+
+            let id = player.player_id;
+            self.update_player_event(id);
         }
-        for joint in &h.joints {
+
+        for joint in &human.joints {
             self.bodies.remove_bond(joint.bond);
         }
-        for bone in &h.bones {
+
+        for bone in &human.bones {
             self.bodies.remove(bone.body);
         }
     }

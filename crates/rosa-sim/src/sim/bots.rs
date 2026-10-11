@@ -70,6 +70,7 @@ impl Sim {
     /// The bots' part of server_main: player_ai for every bot while the round is on.
     pub(crate) fn run_bots(&mut self) {
         let bots: Vec<PlayerId> = self.players.iter().filter(|(_, p)| p.is_bot).map(|(_, p)| p.player_id).collect();
+
         for pid in bots {
             self.player_ai(pid);
         }

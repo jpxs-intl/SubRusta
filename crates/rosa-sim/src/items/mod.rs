@@ -310,6 +310,7 @@ impl Sim {
         for (_, h) in self.humans.iter_mut() {
             h.progress_bar = 0;
         }
+
         self.bodies.simulate();
         self.update_vehicle_bounds();
         self.sync_humans();

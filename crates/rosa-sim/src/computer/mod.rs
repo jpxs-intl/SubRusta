@@ -124,10 +124,12 @@ impl Computer {
     /// Writes `text` across the first 62 columns of line `l`, the rest spaces, in `color`, ended at column 62.
     pub(crate) fn banner(&mut self, l: usize, text: &[u8], color: u8) {
         let n = text_len(text);
+
         for k in 0..62 {
             self.lines[l][k] = if k < n { text[k] } else { b' ' };
             self.colors[l][k] = color;
         }
+
         self.lines[l][62] = 0;
     }
 }

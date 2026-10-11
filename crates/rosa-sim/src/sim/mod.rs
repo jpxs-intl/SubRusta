@@ -26,7 +26,7 @@ use rosa_protocol::{
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
-use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::round, items, player::Player, world::World};
+use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::round, human::inventory, items, player::Player, world::World};
 
 pub mod admin;
 pub mod bots;
@@ -252,6 +252,7 @@ impl Sim {
         if self.is_kicked(input.src.ip()) {
             return;
         }
+
         match input.msg {
             SimMsg::Join(msg) => self.on_join(input.conn, input.src, msg),
             SimMsg::Game(g) => {
@@ -416,7 +417,7 @@ impl Sim {
                         let human = self.players.get(player.idx()).and_then(|p| p.human);
 
                         if let Some(h) = human.and_then(|id| self.humans.get_mut(id)) {
-                            crate::human::inventory::queue_inventory_action(h, inventory_action.a as i32, inventory_action.b as i32);
+                            inventory::queue_inventory_action(h, inventory_action.a as i32, inventory_action.b as i32);
                         }
                     }
                     GameAction::Admin(a) => self.admin_action(player, a.kind, a.a, a.b),
@@ -452,6 +453,8 @@ impl Sim {
         ready_vec
     }
 
+    /// Broadcast the events of the tick to each client
+    /// Send a game packet to each client
     fn broadcast_tick(&mut self) {
         let humans = self.human_objects();
         let own_humans = self.own_human_data();
@@ -757,6 +760,14 @@ impl Sim {
                 println!("[Sim] Loaded map {name}");
             }
             Err(e) => eprintln!("[Sim] could not load map {name}: {e}"),
+        }
+    }
+
+    pub(crate) fn update_player_event(&mut self, pid: PlayerId) {
+        if let Some(p) = self.players.get(pid.idx()) {
+            let e = p.make_update_player_event(self.tick);
+
+            self.events.push(e);
         }
     }
 }

@@ -231,6 +231,7 @@ impl Sim {
     fn snake_render(&mut self, id: usize, c: &mut Computer) {
         let header = HEADER.replace("{score:05}", &format!("{:05}", c.snake.score)).replace("{level:03}", &format!("{:03}", c.snake.level));
         c.banner(0, header.as_bytes(), 0x70);
+
         for row in 1..SCREEN_LINES {
             for k in 0..62 {
                 c.lines[row][k] = b' ';
@@ -244,9 +245,11 @@ impl Sim {
             }
             c.lines[row][62] = 0;
         }
+
         if c.snake.over != 0 {
             c.banner(1, GAME_OVER, WHITE);
         }
+
         for l in 0..SCREEN_LINES as i32 {
             self.register_line(id, c, l);
         }

@@ -212,12 +212,13 @@ impl Sim {
     fn update_human_look(&mut self, pid: PlayerId, human: Buyer) {
         let Some(p) = self.players.get(pid.idx()) else { return };
         let look = p.customization;
-        let e = p.make_update_player_event(self.tick);
+
         if let Some(h) = human.live().and_then(|h| self.humans.get_mut(h)) {
             h.customization.suit_color = look.suit_color;
             h.customization.necklace = look.necklace;
         }
-        self.events.push(e);
+
+        self.update_player_event(pid);
     }
 
     /// A vehicle from the stock, parked in the first free space of the buyer's base (who must be inside it), its key
@@ -340,10 +341,13 @@ impl Sim {
 
     fn strip_fired_human(&mut self, h: usize) {
         let Some(slots) = self.humans.get(h).map(|h| h.inventory) else { return };
+
         for slot in slots {
             for &id in &slot.items[..slot.count.max(0) as usize] {
                 let Some(item) = self.items.get_mut(id as usize) else { continue };
+
                 let ty = &self.item_types[item.item_type as usize];
+
                 if !(ty.is_gun || ty.magazine_ammo > 0 || matches!(item.item_type, ItemKind::Key | ItemKind::Grenade | ItemKind::Bandage)) {
                     continue;
                 }

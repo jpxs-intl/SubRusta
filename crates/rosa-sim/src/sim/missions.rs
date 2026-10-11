@@ -233,26 +233,32 @@ impl Sim {
     ) -> Option<(PlayerId, Option<usize>)> {
         let pid = self.create_player()?;
         let p = self.players.get_mut(pid.idx()).unwrap();
+
         p.team = Team::Mission;
         p.username.clear();
         p.bot_deadline = deadline;
+
         if let Some(m) = mission {
             p.bot_mission = m;
         }
+
         p.is_bot = true;
         p.customization.gender = 1;
         p.customization.model = 2;
         p.customization.suit_color = 1;
-        let h = self.spawn_human(pos, &rot, Some(pid));
-        let p = self.players.get_mut(pid.idx()).unwrap();
-        p.human = h;
-        let e = p.make_update_player_event(self.tick);
-        self.events.push(e);
-        if let Some(hu) = h.and_then(|h| self.humans.get_mut(h)) {
+
+        let new_human = self.spawn_human(pos, &rot, Some(pid));
+        let bot_player = self.players.get_mut(pid.idx()).unwrap();
+
+        bot_player.human = new_human;
+        self.update_player_event(pid);
+
+        if let Some(hu) = new_human.and_then(|h| self.humans.get_mut(h)) {
             hu.vehicle = Some(vehicle);
             hu.seat = seat;
         }
-        Some((pid, h))
+        
+        Some((pid, new_human))
     }
 
     /// create_player: a new player with 50000 money and a random look; in a round's intermission it starts in the

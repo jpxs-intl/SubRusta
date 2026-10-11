@@ -46,9 +46,11 @@ impl Default for Decrypter {
 fn wrap(s: &[u8], from: i32, left: i32) -> i32 {
     let at = |k: i32| s.get(k as usize).copied().unwrap_or(0);
     let mut w = if left > 58 { WRAP_MAX } else { left };
+
     if !(left > 58 || w > WRAP_MIN) || at(from + w) == b' ' {
         return w;
     }
+
     loop {
         w -= 1;
         if w == WRAP_MIN || at(from + w) == b' ' {

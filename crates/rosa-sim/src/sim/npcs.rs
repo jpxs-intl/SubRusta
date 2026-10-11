@@ -54,35 +54,45 @@ impl Sim {
     pub(crate) fn do_npc(&mut self) {
         for idx in 0..self.npcs.len() {
             let Some(npc) = self.npcs[idx].as_mut() else { continue };
+
             if npc.timer > 0 {
                 npc.timer -= 1;
             }
+
             if (self.tick ^ idx as u32) & CHECK_MASK != 0 {
                 continue;
             }
+
             if npc.timer != 0 {
                 self.despawn_npc_bot(idx);
                 continue;
             }
+
             let centre = npc.human.and_then(|h| self.humans.get(h)).map_or(npc.pos, |h| h.pos);
             let mut state = 0;
+
             for (_, h) in self.humans.iter() {
                 let Some(p) = h.player.and_then(|p| self.players.get(p.idx())) else { continue };
+
                 if p.is_bot || h.health.vitality <= 0 {
                     continue;
                 }
+
                 if state == 2 {
                     continue;
                 }
+
                 let b = h.bones[0].pos;
                 let (dx, dz) = (centre.x - b.x, centre.z - b.z);
                 let d = ((dx * dx + 0.0) + dz * dz).sqrt();
+
                 if NEAR > d {
                     state = 2;
                 } else if KEEP > d {
                     state = 1;
                 }
             }
+
             match state {
                 2 => {
                     if self.npcs[idx].as_ref().is_some_and(|n| n.human.is_none()) {
@@ -174,7 +184,9 @@ impl Sim {
         let Some(pid) = self.create_player() else { return };
         let Some(npc) = self.npcs[idx].clone() else { return };
         self.npcs[idx].as_mut().unwrap().bot = Some(pid);
+
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
+
         p.team = NPC_TEAM;
         p.username = String::new();
         p.is_bot = true;
@@ -183,26 +195,33 @@ impl Sim {
         p.customization.suit_color = 1;
         p.bot.waypoint = 0;
         p.bot.waypoint_count = npc.waypoints.len() as i32;
+
         for (k, &w) in npc.waypoints.iter().enumerate() {
             p.bot.set_waypoint(k, w);
         }
-        let e = p.make_update_player_event(self.tick);
-        self.events.push(e);
+
+        self.update_player_event(pid);
+
         let mut rot = rosa_physics::rotation::IDENTITY;
         rosa_physics::rotation::rotate_orientation(&mut rot, Vec3::Y, npc.yaw);
+
         let human = self.spawn_human(npc.pos, &rot, Some(pid));
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.human = human;
         }
+
         let Some(h) = human else { return };
         self.npcs[idx].as_mut().unwrap().human = Some(h);
+
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.bot.idle_yaw = npc.yaw;
             p.controls.look_yaw = 0.0;
         }
+
         if let Some(hu) = self.humans.get_mut(h) {
             hu.view_yaw = npc.yaw;
         }
+
         match npc.kind {
             ZOMBIE => {
                 if let Some(p) = self.players.get_mut(pid.idx()) {

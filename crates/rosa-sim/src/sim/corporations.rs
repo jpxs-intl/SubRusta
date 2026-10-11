@@ -206,11 +206,4 @@ impl Sim {
             _ => {}
         }
     }
-
-    pub(crate) fn update_player_event(&mut self, pid: PlayerId) {
-        if let Some(p) = self.players.get(pid.idx()) {
-            let e = p.make_update_player_event(self.tick);
-            self.events.push(e);
-        }
-    }
 }

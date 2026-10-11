@@ -115,6 +115,7 @@ impl Sim {
             Menu::Lobby => 2,
             Menu::Other(m) => m,
         };
+
         if id == 1 && self.enter_city_menu(player_id, action.button) {
             return;
         }
@@ -151,7 +152,7 @@ impl Sim {
                     other => println!("Got other {other}"),
                 }
 
-                self.events.push(player.make_update_player_event(self.tick))
+                self.update_player_event(player_id);
             }
 
             Menu::Other(other) => println!("Unknown menu option! {}", other),

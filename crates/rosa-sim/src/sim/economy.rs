@@ -272,9 +272,9 @@ impl Sim {
         }
 
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-
         player.human = None;
-        self.events.push(player.make_update_player_event(tick));
+        
+        self.update_player_event(pid);
     }
 
     /// create_account_from_join_ticket: the joining player's account, made new (1000 money, startcash in world mode,

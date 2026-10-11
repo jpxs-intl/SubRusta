@@ -234,8 +234,9 @@ impl Sim {
         }
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.menu = MenuType::Empty;
-        let e = p.make_update_player_event(self.tick);
-        self.events.push(e);
+
+        self.update_player_event(pid);
+
         let me = pid.0 as i32;
         let mut told = false;
         for i in 0..self.modes.eliminator.count {

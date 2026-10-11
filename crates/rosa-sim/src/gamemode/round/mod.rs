@@ -364,8 +364,8 @@ impl Sim {
         if let Some(hu) = self.humans.get_mut(h) {
             hu.view_yaw = yaw;
         }
-        let e = p.make_update_player_event(self.tick);
-        self.events.push(e);
+
+        self.update_player_event(pid);
         self.init_player_inventory(pid);
     }
 
@@ -784,10 +784,8 @@ impl Sim {
                 p.is_ready = false;
             }
         }
-        if let Some(p) = self.players.get(pid.idx()) {
-            let e = p.make_update_player_event(self.tick);
-            self.events.push(e);
-        }
+        
+        self.update_player_event(pid);
     }
 }
 
