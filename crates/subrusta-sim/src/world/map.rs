@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use subrusta_map::file_types::{LoaderError, csx::CityFileCSX, sbc::CityFileSBC};
 
@@ -19,6 +19,8 @@ pub struct Map {
 
 impl Map {
     pub(crate) fn load_map(map_name: String) -> Result<Self, LoaderError> {
+        let start_time = Instant::now();
+
         let name = format!("data/{}", map_name);
         let dir = Path::new(&name);
 
@@ -48,7 +50,7 @@ impl Map {
         let mut level = level;
         crate::world::building::assign_streets(&mut level.buildings, &streets);
 
-        println!("[Map] Loading complete!");
+        println!("[Map] Loading complete in {}ms!", start_time.elapsed().as_millis());
 
         Ok(Self { map_name, level, ground, streets })
     }
