@@ -20,7 +20,6 @@ pub mod capsule;
 pub mod city;
 pub mod city_objects;
 pub mod collide;
-pub mod grid;
 pub mod ground;
 pub mod item_sets;
 pub mod level;

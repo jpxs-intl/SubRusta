@@ -339,7 +339,7 @@ impl Sim {
                 5
             };
         let n = self.modes.eliminator.count;
-        if let Some(pos) = (0..n).filter_map(|i| self.player_human_pos(self.modes.eliminator.groups[i].target)).last() {
+        if let Some(pos) = (0..n).filter_map(|i| self.player_human_pos(self.modes.eliminator.groups[i].target)).next_back() {
             self.modes.eliminator.last_target = pos;
         }
         enum Next {

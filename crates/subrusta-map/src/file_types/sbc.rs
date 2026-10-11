@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path};
+use std::{io::Cursor, path::Path};
 
 use binrw::{BinRead, BinWrite, binread};
 use subrusta_math::vector::{IntVector, Vector};
@@ -100,9 +100,10 @@ pub struct CityFileSBC {
 impl CityFileSBC {
     pub fn load(path: &Path) -> Result<Self, LoaderError> {
         let map_file = path.join("city2.sbc");
+        let bytes = std::fs::read(map_file)?;
 
-        let mut file = File::open(map_file).unwrap();
+        let mut cursor = Cursor::new(bytes);
 
-        Ok(CityFileSBC::read(&mut file)?)
+        Ok(CityFileSBC::read(&mut cursor)?)
     }
 }

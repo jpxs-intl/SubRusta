@@ -141,7 +141,7 @@ pub(super) fn bone_world_contacts(h: &mut Human, bodies: &mut RigidBodies, map: 
         let b = row * half + p;
         let radius = t.shape_size[1];
 
-        let Some(hit) = capsule_intersect_level(&map.ground, &map.level.area, &map.level.meshes, a, b, radius) else { continue };
+        let Some(hit) = capsule_intersect_level(&map.ground, &mut map.level.area, &map.level.meshes, a, b, radius) else { continue };
         let n = hit.normal;
         let impact = bone.vel.dot(n).abs();
         if !(impact <= 1.0 / 15.0) && hit.area != -1 && hit.block.x != -1 {

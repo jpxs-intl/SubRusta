@@ -1,5 +1,6 @@
 use glam::Vec3;
 
+use rayon::prelude::*;
 use subrusta_map::file_types::tst::TstFile;
 use subrusta_protocol::clientbound::game::VehicleKind;
 
@@ -765,11 +766,15 @@ pub fn random_stock_vehicle() -> VehicleKind {
 /// The vehicle type table (load_towncar and friends): the body file cars and the types built in code.
 pub fn vehicle_types(data: &std::path::Path) -> Vec<VehicleType> {
     let mut types = vec![VehicleType::default(); VEHICLE_TYPES];
+
     for spec in &SBV_TYPES {
         if let Some(t) = VehicleType::from_sbv(spec, data) {
             types[spec.kind as usize] = t;
         }
     }
+    let loaded: Vec<_> = SBV_TYPES.par_iter().filter_map(|spec| VehicleType::from_sbv(spec, data).map(|t| (spec.kind, t))).collect();
+    for (kind, t) in loaded { types[kind as usize] = t; }
+
     types[VehicleKind::TownCar2 as usize] = VehicleType::town_car_2();
     types[VehicleKind::Metro as usize] = VehicleType::metro();
     types[VehicleKind::Limo as usize] = VehicleType::limo();

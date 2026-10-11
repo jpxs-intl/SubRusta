@@ -270,10 +270,11 @@ impl Sim {
         }
 
         let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.health.vitality > 0));
+        let volume = action.volume as i32;
 
-        match (self.gamestate, speaker) {
-            (GameState::Intermission, _) | (_, None) => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
-            (_, Some(human)) => self.send_chat(&action.message, ChatType::Chat, human as i32, 0),
+        match speaker.filter(|_| !self.rules.announce_chat) {
+            None => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, volume),
+            Some(human) => self.send_chat(&action.message, ChatType::Chat, human as i32, volume),
         }
     }
 }

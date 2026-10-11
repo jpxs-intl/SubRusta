@@ -57,6 +57,8 @@ pub struct ModeRules {
     pub round_money_updates: bool,
     /// Everyone may use the test commands (/human, /guns, ...).
     pub test_commands: bool,
+    /// Chat is announced to everyone rather than spoken by the human.
+    pub announce_chat: bool,
 }
 
 impl Default for ModeRules {
@@ -88,6 +90,7 @@ impl Default for ModeRules {
             move_delay: None,
             round_money_updates: false,
             test_commands: false,
+            announce_chat: false,
         }
     }
 }

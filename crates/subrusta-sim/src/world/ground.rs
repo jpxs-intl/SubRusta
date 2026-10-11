@@ -311,20 +311,6 @@ impl Ground {
         (0..NAV).contains(&ix) && (0..NAV).contains(&iz) && self.covered(ix >> 2, iz >> 2)
     }
 
-    pub(crate) fn height_at(&self, wx: f32, wz: f32) -> Option<f32> {
-        let (lx, lz) = (wx - ORIGIN, wz - ORIGIN);
-        let (ix, iz) = (lx.floor() as i32, lz.floor() as i32);
-        if !self.cell_ok(ix, iz) {
-            return None;
-        }
-        let (tx, tz) = (lx - ix as f32, lz - iz as f32);
-        let h00 = self.vertex(ix, iz);
-        let h10 = self.vertex(ix + 1, iz);
-        let h01 = self.vertex(ix, iz + 1);
-        let h11 = self.vertex(ix + 1, iz + 1);
-        Some(if tx >= tz { h00 + (h10 - h00) * tx + (h11 - h10) * tz } else { h00 + (h11 - h01) * tx + (h01 - h00) * tz })
-    }
-
     pub(crate) fn line_intersect_landscape(&self, start: Vec3, end: Vec3) -> Option<TraceHit> {
         let (s, e) = ([start.x, start.y, start.z], [end.x, end.y, end.z]);
         let origin = [ORIGIN, 0.0, ORIGIN];

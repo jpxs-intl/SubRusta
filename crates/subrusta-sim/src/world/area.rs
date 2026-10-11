@@ -11,7 +11,6 @@ pub const FOOTPRINT: u32 = 6 << 29;
 pub const ALL_FACES: u8 = 255;
 
 pub struct BlockRecord {
-    pub pos: IVec3,
     pub layer0: [u32; CELLS],
     pub layer1: [u32; CELLS],
     pub object: [u32; CELLS],
@@ -20,8 +19,8 @@ pub struct BlockRecord {
 }
 
 impl BlockRecord {
-    fn new(pos: IVec3) -> Box<Self> {
-        Box::new(Self { pos, layer0: [0; CELLS], layer1: [0; CELLS], object: [0; CELLS], item_set: [0; CELLS], taken: [0; CELLS] })
+    fn new() -> Box<Self> {
+        Box::new(Self { layer0: [0; CELLS], layer1: [0; CELLS], object: [0; CELLS], item_set: [0; CELLS], taken: [0; CELLS] })
     }
 }
 
@@ -42,7 +41,7 @@ pub struct AreaGrid {
     index: HashMap<IVec3, u32>,
     /// line_intersect_result.unk21: the face of the last custom shape a capsule touched (its wall index | 0x10000 for
     /// a breakable wall). The binary keeps it in a global that only custom shape hits overwrite.
-    pub face_attr: std::cell::Cell<u32>,
+    pub face_attr: u32,
     /// The item sets the level's item-set cells place, and the item hulls traces test them against.
     pub item_sets: crate::world::item_sets::ItemSets,
     /// The dynamic meshes reset_game builds on test2 (the race track and ramps).
@@ -51,20 +50,7 @@ pub struct AreaGrid {
 
 impl AreaGrid {
     pub(crate) fn new(chunks: IVec3, origin: Vec3, block_size: f32) -> Self {
-        Self {
-            origin,
-            block_size,
-            chunks,
-            records: Vec::new(),
-            index: HashMap::new(),
-            face_attr: std::cell::Cell::new(0),
-            item_sets: Default::default(),
-            track: Default::default(),
-        }
-    }
-
-    pub(crate) fn records(&self) -> &[Box<BlockRecord>] {
-        &self.records
+        Self { origin, block_size, chunks, records: Vec::new(), index: HashMap::new(), face_attr: 0, item_sets: Default::default(), track: Default::default() }
     }
 
     #[inline]
@@ -88,7 +74,7 @@ impl AreaGrid {
             Some(&i) => i,
             None => {
                 let i = self.records.len() as u32;
-                self.records.push(BlockRecord::new(key));
+                self.records.push(BlockRecord::new());
                 self.index.insert(key, i);
                 i
             }

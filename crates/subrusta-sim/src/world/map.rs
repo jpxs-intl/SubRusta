@@ -3,7 +3,6 @@ use std::path::Path;
 use subrusta_map::file_types::{LoaderError, csx::CityFileCSX, sbc::CityFileSBC};
 
 use crate::world::{
-    grid::write_world_ppm,
     ground::{Ground, generate_grass},
     level::{Level, build_level},
     roads::RoadNetwork,
@@ -27,13 +26,9 @@ impl Map {
             return Err(LoaderError::NotFound);
         }
 
-        println!("[Map] Attempting to load {}/city2.sbc", map_name);
-        let city = CityFileSBC::load(dir)?;
-
-        println!("[Map] Map file version: {}", city.version);
-
-        println!("[Map] Attempting to load {}/test.csx", map_name);
-        let city_data = CityFileCSX::load(dir)?;
+        println!("[Map] Attempting to load map files for {}.", map_name);
+        let (city, city_data) = rayon::join(|| CityFileSBC::load(dir), || CityFileCSX::load(dir));
+        let (city, city_data) = (city?, city_data?);
 
         let roundcity = map_name == "round";
 
@@ -52,8 +47,6 @@ impl Map {
         let streets = StreetMap::build(&roads);
         let mut level = level;
         crate::world::building::assign_streets(&mut level.buildings, &streets);
-
-        let _ = write_world_ppm(&level.area, &ground, "map.ppm", 1);
 
         println!("[Map] Loading complete!");
 

@@ -5,12 +5,12 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-
 subrusta-protocol.workspace = true
 subrusta-map.workspace = true
 subrusta-math.workspace = true
 subrusta-physics.workspace = true
 
+rayon.workspace = true
 glam.workspace = true
 rand.workspace = true
 tokio.workspace = true

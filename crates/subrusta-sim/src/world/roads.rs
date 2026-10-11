@@ -1,4 +1,5 @@
 use glam::IVec3;
+use subrusta_map::file_types::sbc::CityFileSBC;
 
 use crate::world::{
     area::{ALL_FACES, AreaGrid, BlockDims, CUBE, MESH},
@@ -49,7 +50,7 @@ pub struct RoadNetwork {
 }
 
 impl RoadNetwork {
-    pub(crate) fn from_city(city: &subrusta_map::file_types::sbc::CityFileSBC) -> Self {
+    pub(crate) fn from_city(city: &CityFileSBC) -> Self {
         let inters: Vec<IVec3> = city.intersections.iter().map(|i| i.0.as_ivec3()).collect();
         let streets: Vec<(usize, usize, i32, i32)> = city
             .streets

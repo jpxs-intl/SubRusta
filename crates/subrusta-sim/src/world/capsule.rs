@@ -268,7 +268,8 @@ fn custom_shape(meshes: &BlockMeshes, start: Vec3, end: Vec3, cell: IVec3, s: f3
 
 pub type CapsuleAreaHit = (Vec3, Vec3, f32, IVec3, u32, Option<SetHit>);
 
-pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleAreaHit> {
+/// The capsule against the area grid; every custom shape it touches leaves its face in `face_attr`, hit or not.
+pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32, face_attr: &mut u32) -> Option<CapsuleAreaHit> {
     let f = AreaFrame::new(area);
     let (s3, e3, mn, mx) = (start.to_array(), end.to_array(), f.min.to_array(), f.max.to_array());
     for k in 0..3 {
@@ -333,9 +334,9 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
                 }
                 for layer in 0..2 {
                     let v = if layer == 0 { rec.layer0[idx] } else { rec.layer1[idx] };
-                    let shape = |at: IVec3, w: u32| {
+                    let mut shape = |at: IVec3, w: u32| {
                         let h = custom_shape(meshes, ls, le, at, f.size, w, radius)?;
-                        area.face_attr.set(h.3);
+                        *face_attr = h.3;
                         Some((h.0, h.1, h.2))
                     };
                     let (hit, at, w) = match v & TYPE_MASK {
@@ -369,7 +370,7 @@ pub fn capsule_intersect_area(area: &AreaGrid, meshes: &BlockMeshes, start: Vec3
     Some((pos, f.rotate_back(best.normal), best.dist, block, word, set))
 }
 
-pub fn capsule_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleHit> {
+pub fn capsule_intersect_level(ground: &Ground, area: &mut AreaGrid, meshes: &BlockMeshes, start: Vec3, end: Vec3, radius: f32) -> Option<CapsuleHit> {
     let (smin, smax) = (start - radius, start + radius);
     let (emin, emax) = (end - radius, end + radius);
     let (mut min, mut max) = (smin.to_array(), smax.to_array());
@@ -404,12 +405,14 @@ pub fn capsule_intersect_level(ground: &Ground, area: &AreaGrid, meshes: &BlockM
         best_d = d;
         best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block: IVec3::splat(-1), cell: 0, face_attr: 0, set: None });
     }
-    let area_hit = capsule_intersect_area(area, meshes, start, end, radius);
+    let mut face_attr = area.face_attr;
+    let area_hit = capsule_intersect_area(area, meshes, start, end, radius, &mut face_attr);
+    area.face_attr = face_attr;
     let set = area_hit.and_then(|h| h.5);
     if let Some((pos, normal, d, block, cell, _)) = area_hit
         && best_d > d
     {
         best = Some(CapsuleHit { pos, normal, dist: d, area: 0, block, cell, face_attr: 0, set });
     }
-    best.map(|h| CapsuleHit { face_attr: area.face_attr.get(), set, ..h })
+    best.map(|h| CapsuleHit { face_attr, set, ..h })
 }

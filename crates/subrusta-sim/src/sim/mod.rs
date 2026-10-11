@@ -26,7 +26,15 @@ use subrusta_protocol::{
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
-use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::round, human::inventory, items, player::Player, world::World};
+use crate::{
+    Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg,
+    gamemode::round,
+    human::inventory,
+    items,
+    player::Player,
+    world::{World, map::Map},
+};
+use rayon::prelude::*;
 
 pub mod admin;
 pub mod bots;
@@ -406,6 +414,7 @@ impl Sim {
         }
     }
 
+    /// Handle the `actions` that came in from a players game packet
     fn process_actions(&mut self, player_actions: HashMap<PlayerId, Vec<GameAction>>) {
         for (player, actions) in player_actions {
             for action in actions {
@@ -506,19 +515,16 @@ impl Sim {
             radio_channels,
         };
 
-        for client in clients.values_mut() {
-            let Some(player) = players.get(client.player_id.idx()) else {
-                continue;
-            };
-
+        clients.par_iter_mut().for_each(|(_, client)| {
+            let Some(player) = ctx.players.get(client.player_id.idx()) else { return };
             if client.round_number != round_number {
                 let _ = out_tx.send((frame_packet(sync.clone()), client.addr));
-                continue;
+                return;
             }
-            let packet = Sim::build_game_packet(client, &ctx, player.player_id);
 
+            let packet = Sim::build_game_packet(client, &ctx, player.player_id);
             let _ = out_tx.send((frame_packet(packet), client.addr));
-        }
+        });
     }
 
     fn build_game_packet(client: &mut Client, ctx: &TickCtx, player_id: PlayerId) -> ServerGamePacket {
@@ -752,7 +758,7 @@ impl Sim {
             return;
         }
 
-        match crate::world::map::Map::load_map(name.to_string()) {
+        match Map::load_map(name.to_string()) {
             Ok(map) => {
                 self.world.map = map;
                 self.item_grid = Default::default();
