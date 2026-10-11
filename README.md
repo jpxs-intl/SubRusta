@@ -1,6 +1,6 @@
 # **MOVED**
 
-**THIS REPOSITORY HAS MOVED TO (THE NEW FERROSA TEAM)[https://github.com/ferrosa-game/Dedicated-Server]. DEVELOPMENT WILL CONTINUE HERE**
+**THIS REPOSITORY HAS MOVED TO https://github.com/ferrosa-game/Dedicated-Server. DEVELOPMENT WILL CONTINUE HERE**
 
 ---
 
