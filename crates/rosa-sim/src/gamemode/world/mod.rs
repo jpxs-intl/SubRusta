@@ -1,13 +1,21 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{
-    Team,
+    GameMode, Team,
     clientbound::game::{GameState, ItemKind, MenuType, VehicleKind},
 };
 
-use crate::{PlayerId, items, sim::{Sim, economy::{self, CORPORATIONS}, missions}};
 use crate::time::WORLD_HOUR;
+use crate::{
+    PlayerId, items,
+    sim::{
+        Sim,
+        economy::{self, CORPORATIONS},
+        missions,
+    },
+};
 
+pub mod corporations;
 pub mod world_missions;
 
 /// The world clock starts each day at 8 AM and moves 10 a tick; the day's missions are handed out a world second later,
@@ -109,7 +117,7 @@ impl Default for WorldConfig {
 
 impl WorldConfig {
     /// The config in config_world.txt's `key=value` lines.
-    pub fn to_text(&self) -> String {
+    pub(crate) fn to_text(self) -> String {
         [
             ("traffic", self.traffic),
             ("crimecivciv", self.crimecivciv),
@@ -132,7 +140,7 @@ impl WorldConfig {
     }
 
     /// Reads config_world.txt, writing the defaults there first when there is no such file.
-    pub fn load(path: &std::path::Path) -> Self {
+    pub(crate) fn load(path: &std::path::Path) -> Self {
         let mut c = WorldConfig::default();
         if !path.exists()
             && let Err(e) = std::fs::write(path, c.to_text())
@@ -179,6 +187,24 @@ pub struct SavedVehicle {
     pub color: i32,
     pub pos: Vec3,
     pub rot: rosa_physics::RotMatrix,
+}
+
+/// World mode's state: its config, the day's state and the missions.
+#[derive(Clone, Debug)]
+pub struct WorldMode {
+    pub cfg: WorldConfig,
+    pub state: WorldState,
+    pub missions: world_missions::WorldMissions,
+}
+
+impl WorldMode {
+    pub(crate) fn load() -> Self {
+        Self {
+            cfg: WorldConfig::load(std::path::Path::new("config_world.txt")),
+            state: WorldState { max_time: DEFAULT_MAX_TIME, ..Default::default() },
+            missions: Default::default(),
+        }
+    }
 }
 
 /// The world mode state beyond the clock: how fast it runs, the memos placed, each corporation's memo countdown and the
@@ -277,7 +303,7 @@ impl Sim {
     }
 
     /// world_create_train: a train (colour 1) 2 above each of the track's train spawns, turned to its heading.
-    pub fn world_create_train(&mut self) {
+    pub(crate) fn world_create_train(&mut self) {
         let spawns = self.world.map.level.area.track.spawns.clone();
         for (i, (p, angle)) in spawns.into_iter().enumerate() {
             let mut rot = rosa_physics::rotation::IDENTITY;
@@ -304,7 +330,7 @@ impl Sim {
             return;
         }
 
-        self.world_time += self.world_state.rate;
+        self.world_time += self.modes.world.state.rate;
 
         let clock = self.world_time;
 
@@ -319,10 +345,10 @@ impl Sim {
 
             for k in 0..CORPORATIONS {
                 if self.corp_state[k].player_count > 0 {
-                    if self.world_state.memo_timers[k] <= 0 {
+                    if self.modes.world.state.memo_timers[k] <= 0 {
                         self.generate_team_mission_memo(k);
                     } else {
-                        self.world_state.memo_timers[k] -= 1;
+                        self.modes.world.state.memo_timers[k] -= 1;
                     }
                 }
             }
@@ -437,15 +463,12 @@ impl Sim {
     /// The first tick after a reset: the day starts, with the train, the traffic and the labs' guards.
     fn start_world(&mut self) {
         self.gamestate = GameState::InGame;
-        self.game_timer = self.world_state.max_time;
+        self.game_timer = self.modes.world.state.max_time;
         self.world_time = CLOCK_START;
-        self.world_state.rate = CLOCK_RATE;
+        self.modes.world.state.rate = CLOCK_RATE;
         self.world_create_train();
 
-        let map = &self.world.map;
-        if !map.streets.streets.is_empty() {
-            crate::traffic::spawn::create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, self.world_cfg.traffic);
-        }
+        self.do_traffic = Some(self.modes.world.cfg.traffic.max(0) as u32);
 
         let labs: Vec<usize> =
             self.world.map.level.buildings.iter().enumerate().filter(|(_, b)| b.kind == crate::world::building::LAB).map(|(i, _)| i).collect();
@@ -454,7 +477,7 @@ impl Sim {
             self.spawn_building_patrol_npcs(building, LAB_GUARD);
         }
 
-        self.world_state.memo_timers = [0; CORPORATIONS];
+        self.modes.world.state.memo_timers = [0; CORPORATIONS];
     }
 
     /// Every 18000: stamina ceilings drop, the dealerships and gun stores restock, and the accounts, play times and
@@ -492,7 +515,7 @@ impl Sim {
         for c in &mut self.corp_state {
             c.prints = 0;
         }
-        let nobuy = self.world_cfg.crimenobuy;
+        let nobuy = self.modes.world.cfg.crimenobuy;
         for pid in self.players.iter().map(|(i, _)| i).collect::<Vec<_>>() {
             let Some(p) = self.players.get_mut(pid) else { continue };
             let mut crim = p.crim_rating;
@@ -523,12 +546,12 @@ impl Sim {
     /// The memos at the spawn, topped back up to 8.
     fn place_world_memos(&mut self) {
         let s = self.map_spawn();
-        while self.world_state.memos < MEMOS {
+        while self.modes.world.state.memos < MEMOS {
             let pos = Vec3::new(s.x - MEMO_WEST, s.y, MEMO_SOUTH + s.z);
             let Some(id) = self.create_item(ItemKind::PaperWorld, pos, None, IDENTITY) else { break };
-            let paper = self.world_state.newspaper.clone();
+            let paper = self.modes.world.state.newspaper.clone();
             self.write_memo(id, &paper);
-            self.world_state.memos += 1;
+            self.modes.world.state.memos += 1;
         }
     }
 
@@ -538,7 +561,7 @@ impl Sim {
         for k in 0..CORPORATIONS {
             self.update_corp_player_ratings(k);
         }
-        self.world_state.saved_vehicles.clear();
+        self.modes.world.state.saved_vehicles.clear();
         for pid in self.players.iter().map(|(i, _)| PlayerId(i as u32)).collect::<Vec<_>>() {
             self.save_inventory(pid);
             let Some(p) = self.players.get(pid.idx()) else { continue };
@@ -576,9 +599,9 @@ impl Sim {
     /// The world respawn of reset_game: the saved vehicles where they were, then each saved player's human where it
     /// stood, with their things and back in their seat.
     pub(crate) fn respawn_world(&mut self) {
-        for k in 0..self.world_state.saved_vehicles.len() {
-            let sv = self.world_state.saved_vehicles[k];
-            self.world_state.saved_vehicles[k].new_id = self.spawn_vehicle(sv.kind, sv.color, sv.pos, sv.rot);
+        for k in 0..self.modes.world.state.saved_vehicles.len() {
+            let sv = self.modes.world.state.saved_vehicles[k];
+            self.modes.world.state.saved_vehicles[k].new_id = self.spawn_vehicle(sv.kind, sv.color, sv.pos, sv.rot);
         }
         for pid in self.players.iter().map(|(i, _)| PlayerId(i as u32)).collect::<Vec<_>>() {
             let Some(body) = self.players.get(pid.idx()).and_then(|p| p.saved_body) else { continue };
@@ -594,7 +617,7 @@ impl Sim {
             }
             self.init_player_inventory(pid);
             if body.vehicle != -1
-                && let Some(v) = self.world_state.saved_vehicles.iter().find(|s| s.old_id as i32 == body.vehicle).and_then(|s| s.new_id)
+                && let Some(v) = self.modes.world.state.saved_vehicles.iter().find(|s| s.old_id as i32 == body.vehicle).and_then(|s| s.new_id)
                 && let Some(hu) = self.humans.get_mut(h)
             {
                 hu.vehicle = Some(v);
@@ -613,13 +636,13 @@ impl Sim {
     /// The key a world player keeps across the day: its vehicle is saved to respawn, the key remembering the old id.
     pub(crate) fn save_world_key(&mut self, v: usize) -> Option<i32> {
         let veh = self.vehicles.get(v).filter(|v| v.health > 0)?;
-        self.world_state.saved_vehicles.push(SavedVehicle { old_id: v, new_id: None, kind: veh.kind, color: veh.color, pos: veh.pos, rot: veh.rot });
+        self.modes.world.state.saved_vehicles.push(SavedVehicle { old_id: v, new_id: None, kind: veh.kind, color: veh.color, pos: veh.pos, rot: veh.rot });
         Some(v as i32)
     }
 
     /// The key's vehicle after the reset: the respawned vehicle saved under the key's old id.
     pub(crate) fn world_key_vehicle(&self, old: i32) -> Option<usize> {
-        self.world_state.saved_vehicles.iter().find(|s| s.old_id as i32 == old).and_then(|s| s.new_id)
+        self.modes.world.state.saved_vehicles.iter().find(|s| s.old_id as i32 == old).and_then(|s| s.new_id)
     }
 
     /// The enter-city menu (1) of a player without a human: button 1 enters as a civilian, button 2 as they are, once
@@ -637,7 +660,7 @@ impl Sim {
             ENTER_AS_TEAM => {}
             _ => return true,
         }
-        if self.players.get(pid.idx()).is_some_and(|p| p.crim_rating < self.world_cfg.crimenospawn) {
+        if self.players.get(pid.idx()).is_some_and(|p| p.crim_rating < self.modes.world.cfg.crimenospawn) {
             self.enter_city(pid);
         }
         true
@@ -685,42 +708,99 @@ impl Sim {
 
     /// A world paper (the memos) going away lets logic_world place another.
     pub(crate) fn world_paper_deleted(&mut self) {
-        self.world_state.memos -= 1;
+        self.modes.world.state.memos -= 1;
     }
 }
 
-/// Hooks for checking world mode against the original server.
 impl Sim {
+    /// The length of a world mode day in ticks (config.toml's round_time).
     pub fn set_world_max_time(&mut self, ticks: i32) {
-        self.world_state.max_time = ticks;
+        self.modes.world.state.max_time = ticks;
     }
 
-    pub fn world_tick(&mut self) {
-        self.tick_world();
+    /// The world mode part of reset_game: the corporations' day reset, an intermission of no length, the players and
+    /// saved vehicles respawned where they were, and the garage doors open.
+    pub(crate) fn reset_world(&mut self) {
+        self.reset_corporation_rounds();
+
+        self.gamestate = GameState::Intermission;
+        self.game_timer = 0;
+        self.round_elapsed = 0;
+
+        self.reset_world_players();
+        self.respawn_world();
+
+        for k in 0..Team::CORPORATIONS.len() {
+            self.set_team_door(k, true);
+        }
+
+        self.apply_team_doors();
+    }
+}
+
+/// The corporation base and tab menus' ids.
+const CORP_MENUS_FIRST: u8 = 20;
+const CORP_MENUS_LAST: u8 = 26;
+
+/// World mode's hooks: the persistent city with its day, crime and corporations.
+pub struct Hooks;
+
+impl super::ModeHooks for Hooks {
+    fn name(&self) -> &'static str {
+        "world"
     }
 
-    pub fn world_enter_city(&mut self, pid: PlayerId) {
-        self.enter_city(pid);
+    fn client_mode(&self) -> GameMode {
+        GameMode::World
     }
 
-    pub fn world_status(&self) -> (i32, i32, i32) {
-        (self.world_time, self.world_state.rate, self.world_state.memos)
+    fn rules(&self, _sim: &Sim) -> super::rules::ModeRules {
+        super::rules::ModeRules {
+            map: Some("test2"),
+            reset_traffic: None,
+            crime: true,
+            punish_team_kills: false,
+            world_corporations: true,
+            mission_spots: true,
+            saved_accounts: true,
+            world_start_cash: true,
+            shares_follow_human: true,
+            keys_keep_vehicles: true,
+            respawn_wait: true,
+            ready_start: false,
+            ..Default::default()
+        }
     }
 
-    pub fn world_spawn(&self) -> Vec3 {
-        self.map_spawn()
+    fn reset(&self, sim: &mut Sim) {
+        sim.reset_world();
     }
 
-    pub fn street_layout(&self) -> (Vec<Vec3>, Vec<[usize; 2]>) {
-        let s = &self.world.map.streets;
-        (s.intersections.iter().map(|i| i.world_pos).collect(), s.streets.iter().map(|st| st.intersections).collect())
+    fn tick_after_traffic(&self, sim: &mut Sim) {
+        sim.tick_world();
     }
 
-    pub fn account_list(&self) -> &[rosa_map::file_types::srk::SrkPlayerData] {
-        &self.saved_accounts.players
+    fn base_menus(&self, sim: &mut Sim, pid: PlayerId, outside: Option<Vec3>) {
+        if let Some(pos) = outside {
+            sim.corp_base_menu(pid, pos);
+        }
+        sim.corp_tab_menu(pid);
     }
 
-    pub fn saved_vehicle_count(&self) -> usize {
-        self.world_state.saved_vehicles.len()
+    fn menus_done(&self, sim: &mut Sim) {
+        sim.copy_corp_money();
+    }
+
+    fn on_menu(&self, sim: &mut Sim, pid: PlayerId, menu: u8, button: u32) -> bool {
+        let open = sim.players.get(pid.idx()).is_some_and(|p| p.menu as u8 == menu && p.human.is_some());
+        if !open || !(CORP_MENUS_FIRST..=CORP_MENUS_LAST).contains(&menu) {
+            return false;
+        }
+        sim.corp_menu_action(pid, menu, button as i32);
+        true
+    }
+
+    fn joining_money(&self, sim: &Sim, money: i32) -> i32 {
+        money.max(sim.modes.world.cfg.mincash)
     }
 }

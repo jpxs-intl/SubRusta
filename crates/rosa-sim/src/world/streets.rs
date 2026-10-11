@@ -16,8 +16,7 @@ const NAME_ORIGIN: i32 = 256;
 const AVENUE_SPACING: i32 = 56;
 const STREET_SPACING: i32 = 32;
 const AVENUES: [&str; 8] = ["Abrash Ave", "Bunten Ave", "Carmack Ave", "David Ave", "Eugene Ave", "Flinn Ave", "Garriott Ave", "Holland Ave"];
-const STREETS: [&str; 9] =
-    ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
+const STREETS: [&str; 9] = ["First Street", "Second Street", "Third Street", "Fourth Street", "Fifth Street", "Sixth Street", "Seventh Street", "Eighth Street", "Ninth Street"];
 /// Avenue ids follow the nine street ids.
 const FIRST_AVENUE_ID: i32 = 9;
 
@@ -39,7 +38,6 @@ pub struct StreetIntersection {
 /// A lane of a street: which way it runs (0 from the first intersection, 1 back from the second) and its ends.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Lane {
-    pub reverse: i32,
     pub start: Vec3,
     pub end: Vec3,
 }
@@ -48,7 +46,6 @@ pub struct Lane {
 #[derive(Clone, Debug, Default)]
 pub struct MapStreet {
     pub name: &'static str,
-    pub id: i32,
     pub intersections: [usize; 2],
     /// 1 for streets running along z (+0x2c).
     pub north_south: i32,
@@ -108,7 +105,7 @@ fn street_name(north_south: bool, i0: IVec3) -> (&'static str, i32) {
 impl StreetMap {
     /// create_intersection_internal, create_road, intersection_compute_world_bounds, street_compute_lane_geometry
     /// and build_street_route_graph over the city's road network (after its lane widths are final).
-    pub fn build(roads: &RoadNetwork) -> Self {
+    pub(crate) fn build(roads: &RoadNetwork) -> Self {
         let mut map = StreetMap { min: IVec3::new(i32::MAX, 0, i32::MAX), max: IVec3::new(i32::MIN, 0, i32::MIN), ..Default::default() };
         for (pos, lanes, streets) in roads.intersection_fields() {
             map.min = IVec3::new(map.min.x.min(pos.x), 0, map.min.z.min(pos.z));
@@ -128,7 +125,7 @@ impl StreetMap {
     fn street(&self, i0: usize, i1: usize, left: i32, right: i32) -> MapStreet {
         let (a, b) = (&self.intersections[i0], &self.intersections[i1]);
         let north_south = b.pos.x - a.pos.x <= b.pos.z - a.pos.z;
-        let (name, id) = street_name(north_south, a.pos);
+        let (name, _) = street_name(north_south, a.pos);
         let len = if north_south {
             (b.pos.z - b.lanes[3] - a.lanes[1] - a.pos.z) as f32 * UNIT
         } else {
@@ -169,15 +166,14 @@ impl StreetMap {
             lane_x = (a.pos.x + a.lanes[0]) as f32 * UNIT;
             lane_z = a.pos.z as f32 * UNIT;
         }
-        let lane = |reverse: i32, off: f32| {
+        let lane = |off: f32| {
             let start = Vec3::new(side.x * off + lane_x, side.y * off + lane_y, side.z * off + lane_z);
-            Lane { reverse, start, end: Vec3::new(start.x + dir.x * len, start.y + dir.y * len, start.z + dir.z * len) }
+            Lane { start, end: Vec3::new(start.x + dir.x * len, start.y + dir.y * len, start.z + dir.z * len) }
         };
         let lanes =
-            (1..=left).rev().map(|k| lane(0, -(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(1, k as f32 * UNIT - LANE_INSET))).collect();
+            (1..=left).rev().map(|k| lane(-(k as f32 * UNIT - LANE_INSET))).chain((1..=right).map(|k| lane(k as f32 * UNIT - LANE_INSET))).collect();
         MapStreet {
             name,
-            id,
             intersections: [i0, i1],
             north_south: north_south as i32,
             left_lanes: left,

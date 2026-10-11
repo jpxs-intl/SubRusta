@@ -3,15 +3,13 @@ use rosa_physics::{Bond, Joint as BondJoint, RigidBodies, RotMatrix, Table, body
 use rosa_protocol::CharacterCustomization;
 
 use super::{
-    AttachmentChain, AttachmentGroup, AttachmentLink, Attachments, BONE_COUNT, Bone, Human, INVENTORY_SLOTS, InventorySlot, Joint, Locomotion, QueuedAction,
+    AttachmentGroup, Attachments, BONE_COUNT, Bone, Human, INVENTORY_SLOTS, InventorySlot, Joint, Locomotion, QueuedAction,
     bones::{BONES, BoneTemplate},
 };
 use crate::{human::BoneId, player::Player};
 use crate::{human::HumanHealth, time::TICKS_PER_MINUTE};
 
-const PLAYER_FACE_SHAPE: [Vec3; 4] = [Vec3::new(3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE, Vec3::new(-3.0 / 64.0, 3.0 / 64.0, -0.15), Vec3::ONE];
 const JOINT_ORDER: [usize; 15] = [1, 2, 3, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7, 8, 9];
-const LINKS: [(usize, usize); 13] = [(0, 1), (1, 2), (2, 3), (0, 4), (4, 5), (0, 7), (7, 8), (2, 10), (10, 11), (11, 12), (2, 13), (13, 14), (14, 15)];
 
 pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Vec3, rot: &RotMatrix, player: Option<&Player>) -> Option<usize> {
     let id = humans.vacant()?;
@@ -43,11 +41,7 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
             vel: Vec3::ZERO,
             rot: *rot,
             ang_vel: Vec3::ZERO,
-            margin: t.margin,
-            half_extents: t.half_extents,
             mass: t.mass,
-            inertia,
-            inv_inertia,
             min_inertia,
             angles: Vec3::ZERO,
             networked_rot: [Vec3::ZERO; 3],
@@ -66,7 +60,7 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         let Some(bond) = bodies.create_bond(Bond::Joint(BondJoint::new(bones[t.parent as usize].body, bones[child].body, t.joint, anchor_b, id as i32))) else {
             continue;
         };
-        joints.push(Joint { bond, parent: t.parent as usize, child });
+        joints.push(Joint { bond });
         bones[child].joint = Some(bond);
     }
 
@@ -74,9 +68,9 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
     update_attachment_centroids(&mut attachments, bodies);
     update_attachment_centroids(&mut attachments, bodies);
 
-    let (team, customization, face_shape) = match player {
-        Some(p) => (Some(p.team), p.customization, PLAYER_FACE_SHAPE),
-        None => (None, bot_customization(), bot_face_shape()),
+    let (team, customization) = match player {
+        Some(p) => (Some(p.team), p.customization),
+        None => (None, bot_customization()),
     };
 
     let human = Human {
@@ -85,7 +79,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         stocks: 0,
         team,
         customization,
-        face_shape,
         health: HumanHealth::default(),
         stamina: 127,
         max_stamina: 255,
@@ -144,7 +137,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         client_body_yaw: 0.0,
         nearby_vehicles: Vec::new(),
         bleeding: false,
-        unk_6adc: Vec3::ZERO,
         pos: Vec3::ZERO,
         aabb_min: Vec3::ZERO,
         aabb_max: Vec3::ZERO,
@@ -152,7 +144,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
         grid_max: [0; 3],
         bones,
         joints,
-        attachments,
         locomotion: Locomotion::default(),
     };
     humans.insert(human)
@@ -160,12 +151,6 @@ pub fn create_human(humans: &mut Table<Human>, bodies: &mut RigidBodies, pos: Ve
 
 fn bot_customization() -> CharacterCustomization {
     CharacterCustomization { gender: 0, head: 0, skin: 0, hair_color: 0, hair_style: 0, eye_color: 0, model: 0, necklace: 0, suit_color: 0, tie_color: 0 }
-}
-
-fn bot_face_shape() -> [Vec3; 4] {
-    let x = rand::random_range(0..16) as f32 * 0.125 * 0.25 * 0.0625;
-    let s = rand::random_range(0..16) as f32 * 0.125 * 0.0625 + 1.0;
-    [Vec3::new(0.0625 - x, 0.03125, -0.15), Vec3::new(s, s, 1.0), Vec3::new(x - 0.0625, 0.03125, -0.15), Vec3::new(s, s, 1.0)]
 }
 
 fn build_attachments(bones: &[Bone]) -> Attachments {
@@ -199,38 +184,7 @@ fn build_attachments(bones: &[Bone]) -> Attachments {
     .map(|points| AttachmentGroup { points, ..Default::default() })
     .collect();
 
-    let links: Vec<AttachmentLink> = LINKS
-        .iter()
-        .map(|&(a, b)| {
-            let mut shared_body = groups[b].points[0].0;
-            for p in &groups[a].points {
-                for q in &groups[b].points {
-                    if p.0 == q.0 {
-                        shared_body = p.0;
-                    }
-                }
-            }
-            AttachmentLink { a, b, shared_body }
-        })
-        .collect();
-
-    let mut chains = Vec::new();
-    for i in 0..links.len() {
-        for j in i + 1..links.len() {
-            let (li, lj) = (links[i], links[j]);
-            for (k, s) in [li.a, li.b].into_iter().enumerate() {
-                let end = if k == 0 { li.b } else { li.a };
-                if s == lj.a {
-                    chains.push(AttachmentChain { end, middle: lj.a, other: lj.b, body_a: li.shared_body, body_b: lj.shared_body });
-                }
-                if s == lj.b {
-                    chains.push(AttachmentChain { end, middle: lj.b, other: lj.a, body_a: li.shared_body, body_b: lj.shared_body });
-                }
-            }
-        }
-    }
-
-    Attachments { groups, links, chains }
+    Attachments { groups }
 }
 
 pub fn update_attachment_centroids(attachments: &mut Attachments, bodies: &RigidBodies) {

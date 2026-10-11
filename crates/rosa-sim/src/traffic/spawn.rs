@@ -1,6 +1,6 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
-use rosa_protocol::{GameMode, clientbound::game::VehicleKind};
+use rosa_protocol::clientbound::game::VehicleKind;
 
 use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, route::plan_route};
 use crate::{vehicle::types::VehicleType, world::map::Map};
@@ -33,8 +33,9 @@ fn car_kind(roll: u32) -> VehicleKind {
     }
 }
 
-/// create_traffic3: `count` cars on random streets, ends and lanes, each partway along its lane.
-pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], mode: GameMode, count: i32) {
+/// create_traffic3: `count` cars on random streets, ends and lanes, each partway along its lane; with `parked_cars`
+/// (eliminator) some are parked in the third lane of flat three lane streets.
+pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], parked_cars: bool, count: u32) {
     let streets = &map.streets;
     let n = streets.streets.len() as i32;
     for _ in 0..count {
@@ -47,9 +48,8 @@ pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], m
         }
         let mut lane = rand::random_range(0..2);
         let st = &streets.streets[street as usize];
-        let flat_three = mode == GameMode::Eliminator
-            && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y
-            && st.left_lanes == 3;
+        let flat_three =
+            parked_cars && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y && st.left_lanes == 3;
         if flat_three {
             lane = rand::random_range(0..3);
         }
@@ -135,7 +135,6 @@ pub fn create_traffic_car(
         route_len: 0,
         route: [RouteStep::default(); MAX_ROUTE],
         street,
-        slot,
         intersection: -1,
         lane: car_lane,
         next_lane: car_lane,
@@ -151,17 +150,22 @@ pub fn create_traffic_car(
         lane_mask: 0,
         color,
     };
+
     let to = rand::random_range(0..streets.streets.len() as i32);
     let to_slot = rand::random_range(0..2);
     plan_route(&mut car, streets, street, slot, to, to_slot);
+
     let mut rot = IDENTITY;
     let axis = rot[1];
     rotate_orientation(&mut rot, axis, (yaw as f64 + SPAWN_HALF_PI) as f32);
+
     car.rot = rot;
     traffic.cars.push(car);
+
     if traffic.generations.len() <= id {
         traffic.generations.resize(id + 1, 0);
     }
+    
     traffic.generations[id] += 1;
     id
 }

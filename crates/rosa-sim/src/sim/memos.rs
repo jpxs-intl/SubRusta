@@ -127,7 +127,7 @@ impl Sim {
             }
         }
 
-        self.world_state.newspaper = paper;
+        self.modes.world.state.newspaper = paper;
     }
 
     /// place_corporation_mission_memo: a memo headed with the corporation and the time, on the corporation's table.
@@ -180,14 +180,5 @@ impl Sim {
             l = (l + 1) & 31;
         }
         self.write_memo(memo, &text);
-    }
-}
-
-impl Sim {
-    pub fn memo_text(&self, id: usize) -> Option<&[u8; MEMO_LEN]> {
-        match &self.items.get(id)?.state {
-            ItemState::Memo(b) => Some(b),
-            _ => None,
-        }
     }
 }

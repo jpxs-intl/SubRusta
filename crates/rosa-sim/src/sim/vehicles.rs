@@ -2,12 +2,16 @@ use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_physics::rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation};
 use rosa_protocol::clientbound::game::{
-    ServerVehicleObject, VehicleKind, events::{Event, ServerEvent, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor},
+    ServerVehicleObject, VehicleKind,
+    events::{Event, ServerEvent, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor},
 };
 
 use super::Sim;
 use crate::{
-    PlayerId, items::state::ItemState, vehicle::{NETWORKED_VEHICLES, physics, spawn_vehicle}, world::trace::line_intersect_level,
+    PlayerId,
+    items::state::ItemState,
+    vehicle::{NETWORKED_VEHICLES, physics, spawn_vehicle},
+    world::trace::line_intersect_level,
 };
 
 const SPAWN_DISTANCE: f32 = 6.0;
@@ -108,7 +112,13 @@ fn to_byte(v: f32, min: i32) -> i32 {
 
 impl Sim {
     /// spawn_vehicle and its update_vehicle_type_and_color event.
-    pub fn spawn_vehicle(&mut self, kind: rosa_protocol::clientbound::game::VehicleKind, color: i32, pos: Vec3, rot: rosa_physics::RotMatrix) -> Option<usize> {
+    pub(crate) fn spawn_vehicle(
+        &mut self,
+        kind: rosa_protocol::clientbound::game::VehicleKind,
+        color: i32,
+        pos: Vec3,
+        rot: rosa_physics::RotMatrix,
+    ) -> Option<usize> {
         let id = spawn_vehicle(&mut self.vehicles, &mut self.bodies, &self.vehicle_types, kind, color, pos, rot, None)?;
         let e = EventUpdateVehicleTypeColor { vehicle_id: id as i32, vehicle_type: kind, vehicle_color: color as u8 };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicleTypeColor(e) });
@@ -231,7 +241,7 @@ impl Sim {
         }
 
         v.health -= amount;
-        
+
         if v.health <= 0 {
             let e = EventUpdateVehicle { vehicle_id: id as i32, kind: WRECKED, part: 0, pos: Vector(v.pos), velocity: Vector(v.vel) };
             self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicle(e) });
@@ -353,15 +363,5 @@ impl Sim {
             SolverStep::BeforeBonds => crate::vehicle::physics::step_wheel_constraints(vehicles, b),
             SolverStep::AfterBonds => crate::vehicle::physics::apply_wheel_forces(vehicles, b),
         });
-    }
-}
-
-impl Sim {
-    pub fn bond_count(&self) -> usize {
-        self.bodies.bond_count()
-    }
-
-    pub fn vehicle(&self, id: usize) -> Option<&crate::vehicle::Vehicle> {
-        self.vehicles.get(id)
     }
 }

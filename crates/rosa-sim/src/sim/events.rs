@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use glam::Vec3;
 use rosa_protocol::{
-    GameMode, Team,
+    Team,
     clientbound::game::{
         GameState, ItemKind, MenuType,
         events::{Event, ServerEvent, chat::ChatType, update_player::EventUpdatePlayer},
@@ -83,10 +83,15 @@ impl Sim {
         }
 
         self.send_initial_sync(src);
+
+        let mode = self.mode;
+        mode.on_join(self, player_id);
     }
 
     pub(crate) fn on_leave(&mut self, conn: ConnId) {
         let client = self.clients.remove(&conn).unwrap();
+        let mode = self.mode;
+        mode.on_leave(self, client.player_id);
         self.settle_leave(client.player_id);
 
         let player = self.players.remove(client.player_id.idx());
@@ -114,6 +119,11 @@ impl Sim {
             return;
         }
 
+        let mode = self.mode;
+        if mode.on_menu(self, player_id, id, action.button) {
+            return;
+        }
+
         let Some(player) = self.players.get_mut(player_id.idx()) else {
             return;
         };
@@ -128,14 +138,6 @@ impl Sim {
 
         if player.menu as u8 == id && id == 13 {
             return self.bank_menu_action(player_id, action.button);
-        }
-
-        if self.gamemode == GameMode::World && player.menu as u8 == id && player.human.is_some() && matches!(id, 20..=26) {
-            return self.corp_menu_action(player_id, id, action.button as i32);
-        }
-
-        if matches!(self.gamemode, GameMode::Round | GameMode::Eliminator) && matches!(action.menu, Menu::Lobby) {
-            return self.round_lobby(player_id, action.button);
         }
 
         match action.menu {
@@ -215,9 +217,9 @@ impl Sim {
             return self.tps_command();
         }
 
-        let player = self.player(player_id).unwrap();
+        let player = self.players.get(player_id.idx()).unwrap();
 
-        if self.gamemode == GameMode::Sandbox || player.is_admin {
+        if self.rules.test_commands || player.is_admin {
             match action.message.trim() {
                 "/watermelon" => return self.spawn_watermelon_for(player_id),
                 "/human" => return self.spawn_human_for(player_id),
@@ -237,7 +239,9 @@ impl Sim {
                     return;
                 }
                 "/heal" => {
-                    if let Some(p) = self.players.get(player_id.idx()) && let Some(human) = p.human {
+                    if let Some(p) = self.players.get(player_id.idx())
+                        && let Some(human) = p.human
+                    {
                         let human = self.humans.get_mut(human).unwrap();
 
                         human.health.chest = 100;

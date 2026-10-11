@@ -9,7 +9,6 @@ use glam::Vec3;
 use rosa_map::file_types::srk::SrkData;
 use rosa_math::vector::Vector;
 use rosa_protocol::{
-    GameMode,
     clientbound::{
         game::{
             GameState, MenuType, ObjectPack, ServerGamePacket, ServerVoiceData,
@@ -27,7 +26,7 @@ use rosa_protocol::{
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
-use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::{round, world::{self, world_missions}}, items, player::Player, world::World};
+use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::round, items, player::Player, world::World};
 
 pub mod admin;
 pub mod bots;
@@ -35,7 +34,6 @@ pub mod bullets;
 pub mod corporations;
 pub mod crime;
 pub mod economy;
-pub mod eliminator;
 pub mod events;
 pub mod hull;
 pub mod humans;
@@ -63,7 +61,7 @@ pub struct Earshot {
 /// server_events: every event ever announced, in a ring of 65536 slots that a client walks with its own count.
 pub(crate) struct EventRing {
     slots: Vec<Option<Event>>,
-    count: u16,
+    pub(crate) count: u16,
 }
 
 impl Default for EventRing {
@@ -73,21 +71,16 @@ impl Default for EventRing {
 }
 
 impl EventRing {
-    pub fn push(&mut self, event: Event) {
+    pub(crate) fn push(&mut self, event: Event) {
         self.slots[self.count as usize] = Some(event);
         self.count = self.count.wrapping_add(1);
     }
 
-    pub fn get(&self, idx: u16) -> Option<&Event> {
+    pub(crate) fn get(&self, idx: u16) -> Option<&Event> {
         self.slots[idx as usize].as_ref()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Event> {
-        self.slots.iter().flatten()
     }
 }
 
-#[allow(unused)]
 struct TickCtx<'a> {
     players: &'a crate::player::PlayerTable,
     world: &'a World,
@@ -127,7 +120,7 @@ pub struct Sim {
     pub(crate) tick: u32,
     pub(crate) ticks_since_reset: u32,
     pub(crate) round_number: u32,
-    pub(crate) gamemode: GameMode,
+    pub(crate) mode: crate::gamemode::Mode,
     pub(crate) gamestate: GameState,
     in_rx: mpsc::UnboundedReceiver<Inbound>,
     out_tx: Outbound,
@@ -160,33 +153,26 @@ pub struct Sim {
     pub(crate) tick_stats: tps::TickStats,
     /// Each corporation's manager, applicants and account.
     pub(crate) corp_state: [corporations::CorpState; 6],
-    /// The vehicles the corporations can buy in round mode.
-    pub(crate) vehicle_stock: [round::menus::VehicleOffer; round::menus::VEHICLE_STOCK],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
     /// (+0x23c).
     pub(crate) game_timer: i32,
     pub(crate) round_elapsed: i32,
     pub(crate) round_max_time: i32,
-    pub(crate) round_cfg: round::RoundConfig,
-    pub(crate) versus_cfg: round::VersusConfig,
-    pub(crate) world_cfg: world::WorldConfig,
-    pub(crate) world_state: world::WorldState,
+    /// Each game mode's own state and config.
+    pub(crate) modes: crate::gamemode::Modes,
     pub(crate) npcs: Vec<Option<npcs::Npc>>,
     pub(crate) admin: admin::AdminState,
-    /// The round mode weekday (rounds since the weekly reset).
-    pub(crate) weekday: i32,
     pub(crate) missions: missions::MissionGlobals,
-    /// The percent of team damage dealt back to the attacker's head (game_mode_state +0x248), set at reset_game.
-    pub(crate) team_damage: i32,
     /// Whether people (not bots) were on the server at the last check of the main loop.
     pub(crate) occupied: bool,
     pub(crate) stats: ServerStats,
-    pub(crate) eliminator: eliminator::EliminatorState,
     /// The computers' volumes and file contents.
     pub(crate) fs: crate::computer::fs::FileSystem,
-    pub(crate) world_missions: world_missions::WorldMissions,
     pub(crate) links: crate::computer::links::LinkPool,
-    pub(crate) stock_sell_rate: f32,
+    /// What the mode turns on and off, set by reset_game.
+    pub(crate) rules: crate::gamemode::rules::ModeRules,
+    /// How many traffic cars a mode asked for, made at the next server tick when the map has streets.
+    pub(crate) do_traffic: Option<u32>,
 }
 
 /// What stats.txt counts since the server started: mission deals (0x7d078a4) and bullets (0x7d078a0).
@@ -197,7 +183,7 @@ pub struct ServerStats {
 }
 
 impl Sim {
-    pub fn new(in_rx: mpsc::UnboundedReceiver<Inbound>, out_tx: Outbound, map_name: String, gamemode: GameMode, max_players: u8) -> Self {
+    pub fn new(in_rx: mpsc::UnboundedReceiver<Inbound>, out_tx: Outbound, map_name: String, mode: crate::gamemode::Mode, max_players: u8) -> Self {
         let srk_data = SrkData::load(Path::new("server.srk")).unwrap();
         let corporations = [economy::Corporation::default(); economy::CORPORATIONS];
         let mut events = EventRing::default();
@@ -209,7 +195,7 @@ impl Sim {
             in_rx,
             out_tx,
             world: World::new(map_name),
-            gamemode,
+            mode,
             gamestate: GameState::Intermission,
             round_number: 0,
             saved_accounts: srk_data,
@@ -234,27 +220,21 @@ impl Sim {
             traffic: crate::traffic::Traffic::default(),
             tick_stats: tps::TickStats::default(),
             corp_state: Default::default(),
-            vehicle_stock: Default::default(),
             game_timer: round::ROUND_MAX_TIME,
             round_elapsed: 0,
             round_max_time: round::ROUND_MAX_TIME,
-            round_cfg: round::RoundConfig::load(Path::new("config_round.txt")),
-            versus_cfg: round::VersusConfig::load(Path::new("config_versus.txt")),
-            world_cfg: world::WorldConfig::load(Path::new("config_world.txt")),
-            world_state: world::WorldState { max_time: world::DEFAULT_MAX_TIME, ..Default::default() },
+            modes: crate::gamemode::Modes::load(),
             npcs: Vec::new(),
             admin: admin::AdminState::load(Path::new("serveradmin.txt")),
-            weekday: 0,
             missions: Default::default(),
-            team_damage: 0,
             occupied: false,
             stats: ServerStats::default(),
-            eliminator: Default::default(),
             fs: Default::default(),
-            world_missions: Default::default(),
             links: Default::default(),
-            stock_sell_rate: 0.95
+            rules: crate::gamemode::rules::ModeRules::default(),
+            do_traffic: None,
         };
+
         sim.reset_game();
         sim
     }
@@ -294,32 +274,25 @@ impl Sim {
     }
 
     fn initial_sync(&self) -> InitialSync {
+        let mode = self.mode.sync(self);
         InitialSync {
             round_number: self.round_number,
-            weekly_enabled: self.gamemode == GameMode::Round && self.round_cfg.weekly,
-            weekday: if self.gamemode == GameMode::Round { self.weekday as u8 } else { self.world.weekday as u8 },
+            weekly_enabled: mode.weekly_enabled,
+            weekday: mode.weekday,
             sun_angle: self.world.sun_angle(),
             sun_axial_tilt: self.world.sun_axial_tilt(),
-            versus_movedelay: (self.gamemode == GameMode::Versus).then_some(self.versus_cfg.movedelay as u8),
-            gamemode: self.gamemode.client_mode(),
+            versus_movedelay: mode.versus_movedelay,
+            gamemode: self.mode.client_mode(),
             map_name: self.world.map.map_name.clone(),
         }
     }
 
-    pub fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
+    pub(crate) fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Chat(EventChat { chat_type, speaker_id, volume, message: message.to_string() }) });
     }
 
     fn kick(&mut self, src: SocketAddr, reason: &str) {
         let _ = self.out_tx.send((frame_packet(KickClient { reason: reason.to_string() }), src));
-    }
-
-    pub fn events(&self) -> impl Iterator<Item = &Event> {
-        self.events.iter()
-    }
-
-    pub fn announce_event(&mut self, event: Event) {
-        self.events.push(event);
     }
 
     fn alloc_player(&mut self, account_id: u32, j: SimJoinMsg) -> Option<PlayerId> {
@@ -361,7 +334,7 @@ impl Sim {
     }
 
     /// One server tick: the inbound packets, the players' actions, the game mode, the world and the broadcast.
-    pub fn server_tick(&mut self) {
+    pub(crate) fn server_tick(&mut self) {
         self.connection_timeouts();
 
         // Apply all of the `SimMsg`'s received
@@ -378,29 +351,24 @@ impl Sim {
         self.process_actions(pending);
         self.admin_reset();
 
-        if !matches!(self.gamemode, GameMode::Round | GameMode::Eliminator | GameMode::World) {
+        if self.rules.ready_start {
             self.start_round_if_all_ready();
         }
 
         self.update_shop_menus();
         self.count_corp_players();
 
-        if self.gamemode == GameMode::Round {
-            self.tick_round();
-        }
+        let mode = self.mode;
+        mode.tick(self);
 
-        if self.gamemode == GameMode::Eliminator {
-            self.tick_eliminator();
-        }
+        self.spawn_pending_traffic();
 
         if self.gamestate == GameState::InGame {
             self.simulate_traffic();
             self.do_npc();
         }
 
-        if self.gamemode == GameMode::World {
-            self.tick_world();
-        }
+        mode.tick_after_traffic(self);
 
         self.player_simulation();
 
@@ -683,12 +651,16 @@ impl Sim {
     /// the connection's 256 entry ring, and every packet carries those it has not acknowledged.
     fn link_section(client: &mut Client, ctx: &TickCtx, camera: Vec3) -> (Vec<rosa_protocol::clientbound::game::LineLinkEntry>, u8) {
         const NEAR: f32 = 4.0;
+
         if client.link_ring.len() != 256 {
             client.link_ring = vec![0; 256];
         }
+
         let mut packed: Vec<&ObjectPack> = client.packed.values().filter(|p| p.kind == 1).collect();
         packed.sort_unstable_by_key(|p| p.slot);
+
         let items: Vec<u16> = packed.iter().map(|p| p.index).collect();
+
         for item in items {
             let Some(&(pos, mask, ids)) = ctx.item_links.get(&item) else { continue };
             let d = camera - pos;
@@ -704,7 +676,9 @@ impl Sim {
                 }
             }
         }
+
         let n = client.link_count.wrapping_sub(client.link_ack);
+
         let entries = (0..n)
             .filter_map(|k| {
                 let index = client.link_ring[client.link_ack.wrapping_add(k) as usize];
@@ -742,6 +716,7 @@ impl Sim {
             let ephemeral = matches!(ev.kind, ServerEvent::Sound(_) | ServerEvent::PhoneSound(_));
             let foreign = match &ev.kind {
                 ServerEvent::UpdateCorporation(e) => e.corporation() != team,
+                ServerEvent::MissionText(e) => e.corporation != team,
                 ServerEvent::Mission(e) => e.player != player_id,
                 ServerEvent::Chat(c) => c.chat_type == ChatType::AdminChat && !client.admin_visible,
                 _ => false,
@@ -753,5 +728,25 @@ impl Sim {
 
         client.event_cursor = client.event_cursor.wrapping_add(to_send);
         (total as u32, out)
+    }
+
+    /// reset_game's map: world mode plays test2 and round and eliminator modes the round city, anything else keeps
+    /// the map it has; a different map is loaded (load_map) and the world emptied with it.
+    pub(crate) fn load_mode_map(&mut self) {
+        let Some(name) = self.rules.map else { return };
+
+        if self.world.map.map_name == name {
+            return;
+        }
+
+        match crate::world::map::Map::load_map(name.to_string()) {
+            Ok(map) => {
+                self.world.map = map;
+                self.item_grid = Default::default();
+                self.clear_world();
+                println!("[Sim] Loaded map {name}");
+            }
+            Err(e) => eprintln!("[Sim] could not load map {name}: {e}"),
+        }
     }
 }

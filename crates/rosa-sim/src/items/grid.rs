@@ -17,11 +17,11 @@ fn in_grid(c: IVec3) -> bool {
 }
 
 impl ItemGrid {
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.cells.clear();
     }
 
-    pub fn insert(&mut self, id: usize, min: IVec3, max: IVec3) {
+    pub(crate) fn insert(&mut self, id: usize, min: IVec3, max: IVec3) {
         for y in min.y..=max.y {
             for z in min.z..=max.z {
                 for x in min.x..=max.x {
@@ -38,7 +38,7 @@ impl ItemGrid {
     }
 
     /// Every item touching the blocks `min..=max`, in first-seen order.
-    pub fn query(&self, min: IVec3, max: IVec3) -> Vec<usize> {
+    pub(crate) fn query(&self, min: IVec3, max: IVec3) -> Vec<usize> {
         let mut out = Vec::new();
         let mut seen = [0u64; MAX_ITEMS / 64];
 

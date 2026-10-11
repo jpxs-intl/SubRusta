@@ -2,6 +2,7 @@ use crate::world::map::Map;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
+#[allow(unused)]
 pub enum Weekday {
     Sunday = 0,
     Monday = 1,
@@ -41,20 +42,20 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(map_name: String) -> Self {
+    pub(crate) fn new(map_name: String) -> Self {
         World { sun_angle: 1000, sun_axial_tilt: 1000, weekday: Weekday::Monday, map: Map::load_map(map_name).unwrap() }
     }
 
-    pub fn sun_angle(&self) -> u16 {
+    pub(crate) fn sun_angle(&self) -> u16 {
         self.sun_angle
     }
-    pub fn sun_axial_tilt(&self) -> u16 {
+    pub(crate) fn sun_axial_tilt(&self) -> u16 {
         self.sun_axial_tilt
     }
 
     /// The sun's angle and axial tilt (game_mode_state +0x2b4, +0x2b8), as the initial sync sends them: 16-bit angles,
     /// the top bit for negative.
-    pub fn set_sun(&mut self, angle: f32, tilt: f32) {
+    pub(crate) fn set_sun(&mut self, angle: f32, tilt: f32) {
         self.sun_angle = encode_angle(angle);
         self.sun_axial_tilt = encode_angle(tilt);
     }

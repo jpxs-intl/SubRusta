@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use rosa_physics::rotation::IDENTITY;
 use rosa_protocol::{
-    GameMode, Team,
+    Team,
     clientbound::{
         admin_list::{ADMIN_LIST_ROWS, AdminList},
         game::{ItemKind, VehicleKind, events::chat::ChatType},
@@ -47,14 +47,14 @@ pub struct AdminState {
     pub kicked: Vec<IpAddr>,
     pub pending_ban: Option<usize>,
     pub reset_requested: bool,
-    pub next_mode: Option<GameMode>,
+    pub next_mode: Option<crate::gamemode::Mode>,
     pub versus_map: i32,
 }
 
 impl AdminState {
     /// load_admin_data: every `adminphone=` number in serveradmin.txt and every `steamban=` id in serversteamban.txt
     /// beside it.
-    pub fn load(path: &std::path::Path) -> Self {
+    pub(crate) fn load(path: &std::path::Path) -> Self {
         let phones = std::fs::read_to_string(path)
             .map(|text| text.split("adminphone=").skip(1).filter_map(|rest| leading_int(rest).map(|n| n as u32)).collect())
             .unwrap_or_default();
@@ -182,7 +182,8 @@ impl Sim {
             self.admin_arm(pid, msg.get(5..).unwrap_or(""));
         }
 
-        if msg.starts_with("/cash") && let Some(p) = self.players.get_mut(pid.idx())
+        if msg.starts_with("/cash")
+            && let Some(p) = self.players.get_mut(pid.idx())
         {
             p.money = p.money.wrapping_add(100_000);
         }
@@ -210,19 +211,11 @@ impl Sim {
         }
         if msg.starts_with("/resetgame") {
             self.admin.reset_requested = true;
-            if msg.as_bytes().get(10) == Some(&b' ') {
-                match msg.as_bytes().get(11) {
-                    Some(b'r') => {
-                        self.admin.next_mode = Some(GameMode::Round);
-                        self.weekday = super::round::WEEK_DAYS;
-                    }
-                    Some(b'e') => self.admin.next_mode = Some(GameMode::Eliminator),
-                    Some(b'v') => {
-                        self.admin.next_mode = Some(GameMode::Versus);
-                        self.weekday = super::round::WEEK_DAYS;
-                    }
-                    _ => {}
-                }
+            if msg.as_bytes().get(10) == Some(&b' ')
+                && let Some(mode) = msg[11..].split_whitespace().next().and_then(crate::gamemode::by_name)
+            {
+                self.admin.next_mode = Some(mode);
+                mode.on_admin_select(self);
             }
         }
         if let Some(rest) = msg.strip_prefix("/ban ")
@@ -428,11 +421,11 @@ impl Sim {
             return;
         }
 
-        if let Some(mode) = self.admin.next_mode.filter(|m| matches!(m, GameMode::Round | GameMode::Eliminator) && *m != self.gamemode) {
+        if let Some(mode) = self.admin.next_mode.filter(|m| m.switchable() && m.name() != self.mode.name()) {
             for (_, p) in self.players.iter_mut() {
                 p.team = Team::Spectator;
             }
-            self.gamemode = mode;
+            self.mode = mode;
         }
 
         self.reset_game();

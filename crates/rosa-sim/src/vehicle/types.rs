@@ -28,37 +28,15 @@ pub struct NodeEdge {
     pub b: i32,
 }
 
-/// A deformable panel of a body built in code (+0x1458 count, +0x145c, 0x40 each): three or four corners, each a
-/// chassis node or the point a weight of the way from it to a second node.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Panel {
-    pub count: i32,
-    pub nodes: [i32; 4],
-    /// The second node of each corner (+0x14), -1 for a corner on its node.
-    pub towards: [i32; 4],
-    pub weights: [f32; 4],
-    /// 1 for the windows (+0x3c), which are left out of the parts.
-    pub window: i32,
-}
-
-/// A group of chassis nodes (+0xa86c, 0x34 each).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Part {
-    pub count: i32,
-    pub nodes: [i32; 4],
-}
-
 /// A wheel of the type (+0x1787c, 0x50 each), hung between two chassis nodes by the weights `weight_a` and `weight_b`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WheelDef {
     pub state: i32,
     pub node_a: i32,
     pub node_b: i32,
-    pub weight_a: f32,
     pub weight_b: f32,
     pub mass: f32,
     pub radius: f32,
-    pub spin_response: f32,
     /// Between its two nodes, raised by `vertical_offset`, around the chassis centroid (+0x20).
     pub local_pos: Vec3,
     pub vertical_offset: f32,
@@ -98,9 +76,6 @@ pub struct VehicleType {
     pub edges: Vec<NodeEdge>,
     /// The chassis nodes around the cage mean (+0x7864 count, +0x7868).
     pub centred_nodes: Vec<Vec3>,
-    pub panels: Vec<Panel>,
-    /// The panels that are not windows (+0xa868 count).
-    pub parts: Vec<Part>,
     /// The engine's power as a multiple of 213 (+0x17874).
     pub engine_power: f32,
     pub wheels: Vec<WheelDef>,
@@ -332,7 +307,7 @@ impl VehicleType {
 
     /// vehicle_type_add_wheel_definition: a wheel hung between nodes `a` and `b`.
     #[allow(clippy::too_many_arguments)]
-    fn add_wheel(&mut self, state: i32, a: i32, b: i32, weights: [f32; 2], radius: f32, mass: f32, spin_response: f32, vertical_offset: f32, tuning: [f32; 3]) {
+    fn add_wheel(&mut self, state: i32, a: i32, b: i32, weights: [f32; 2], radius: f32, mass: f32, vertical_offset: f32, tuning: [f32; 3]) {
         let (pa, pb) = (self.nodes[a as usize].pos, self.nodes[b as usize].pos);
         let mut local_pos = pa.lerp(pb, weights[1]);
         local_pos.y += vertical_offset;
@@ -340,11 +315,9 @@ impl VehicleType {
             state,
             node_a: a,
             node_b: b,
-            weight_a: weights[0],
             weight_b: weights[1],
             mass,
             radius,
-            spin_response,
             local_pos,
             vertical_offset,
             spring: tuning[0],
@@ -362,7 +335,7 @@ impl VehicleType {
             VehicleKind::Turbo | VehicleKind::TurboS => (0.0, 0.75),
             _ => (-0.03125, 0.625),
         };
-        let spin_response = 1.0 / (0.625 * (radius * radius));
+
         for w in body.file.wheels.iter().take(mounts) {
             let p = w.pos.0;
             let near = |pick: &dyn Fn(usize, Vec3) -> Option<f32>| {
@@ -390,7 +363,7 @@ impl VehicleType {
             let to_b = (nb - p).length();
             let to_a = (na - p).length();
             let sum = to_a + to_b;
-            self.add_wheel(0, a as i32, b as i32, [to_b / sum, to_a / sum], radius, mass, spin_response, vertical_offset, [0.25, 0.5, travel_damping]);
+            self.add_wheel(0, a as i32, b as i32, [to_b / sum, to_a / sum], radius, mass, vertical_offset, [0.25, 0.5, travel_damping]);
             if let Some(last) = self.wheels.last_mut() {
                 last.drive = drive;
             }
@@ -442,7 +415,7 @@ impl VehicleType {
 
     /// vehicletype_precompute_physics: the node masses as shares, the centroid (wheels around it), the radius around
     /// the cage centre, the cage weights of its right and forward probes and the nodes around the cage mean.
-    fn precompute_physics(&mut self, kind: VehicleKind) {
+    fn precompute_physics(&mut self) {
         let total = self.nodes.iter().fold(0.0f32, |t, n| t + n.mass);
         for n in self.nodes.iter_mut() {
             n.mass /= total;
@@ -476,10 +449,6 @@ impl VehicleType {
         let (sum, inv) = mean(positions[..c].iter());
         let mx = sum.x * inv;
         self.centred_nodes = positions.iter().map(|p| Vec3::new(p.x - mx, p.y - sum.y * inv, p.z - sum.z * inv)).collect();
-        self.parts = self.panels.iter().filter(|p| p.window != 1).map(|p| Part { count: p.count, nodes: p.nodes }).collect();
-        if kind == VehicleKind::TownCar {
-            self.parts.push(Part { count: 4, nodes: [10, 11, 13, 12] });
-        }
     }
 
     /// The body slot's collision mesh, chassis and render faces and windows.
@@ -530,7 +499,7 @@ impl VehicleType {
         t.attach_wheels(&body, VehicleKind::Helicopter, 0, 0.375, 12.0, 0);
         t.seats =
             vec![Vec3::new(-0.375, -0.5625, -0.875), Vec3::new(0.375, -0.5625, -0.875), Vec3::new(-0.375, -0.5625, 0.75), Vec3::new(0.375, -0.5625, 0.75)];
-        t.precompute_physics(VehicleKind::Helicopter);
+        t.precompute_physics();
         Some(t)
     }
 
@@ -551,19 +520,9 @@ impl VehicleType {
         if spec.kind == VehicleKind::Van2 {
             t.load_tst(&data.join("van.tst"), VehicleKind::Van2);
         }
-        t.precompute_physics(spec.kind);
+        t.precompute_physics();
         Some(t)
     }
-}
-
-/// A panel on four chassis nodes.
-fn panel(nodes: [i32; 4]) -> Panel {
-    Panel { count: 4, nodes, towards: [-1; 4], ..Default::default() }
-}
-
-/// A window panel, some of its corners part way to a second node.
-fn window(nodes: [i32; 4], towards: [i32; 4], weights: [f32; 4]) -> Panel {
-    Panel { count: 4, nodes, towards, weights, window: 1 }
 }
 
 impl VehicleType {
@@ -608,18 +567,6 @@ impl VehicleType {
                     self.add_node_edge(n, 20);
                 }
             }
-            self.panels.push(panel([e, h, g, f]));
-            self.panels.push(panel([i, l, h, e]));
-            if row == 0 {
-                self.panels.push(panel([j, i, 0, f]));
-            }
-            self.panels.push(panel([k, j, f, g]));
-            if row == 2 {
-                self.panels.push(panel([l, k, g, h]));
-            }
-            if row != 1 {
-                self.panels.push(panel([i, j, k, l]));
-            }
             f = g;
         }
         self.add_node_edges(&[10, 11, 13, 12, 16, 17, 19, 18]);
@@ -628,7 +575,7 @@ impl VehicleType {
     /// The four wheels of a saloon, hung along its lower sides.
     fn saloon_wheels(&mut self) {
         for (a, b, weights) in [(0, 2, [0.25, 0.75]), (1, 3, [0.25, 0.75]), (2, 4, [0.125, 0.875]), (3, 5, [0.125, 0.875])] {
-            self.add_wheel(0, a, b, weights, 0.375, 12.0, 128.0 / 9.0, -0.125, [0.25, 0.5, 0.25]);
+            self.add_wheel(0, a, b, weights, 0.375, 12.0, -0.125, [0.25, 0.5, 0.25]);
         }
     }
 
@@ -637,20 +584,11 @@ impl VehicleType {
         let mut t = VehicleType { controllable_state: 1, name: "Town Car 2".to_string(), price: 1000, mass: 1000.0, engine_power: 1.0, ..Default::default() };
         let z = [-3.0625, -1.3125, 1.75, 2.625];
         t.saloon(z, 1.09375, [-0.4375, 1.3125], Some(-2.1875));
-        t.panels.extend([
-            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.5, 0.4375, 0.0]),
-            window([16, 18, 12, 10], [18, -1, -1, 12], [0.5, 0.0, 0.0, 0.5625]),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
-            window([19, 17, 11, 13], [17, -1, -1, 11], [0.5, 0.0, 0.0, 0.4375]),
-            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.5, 0.5625, 0.0]),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
-            panel([16, 17, 19, 18]),
-        ]);
         t.saloon_wheels();
         t.seats = vec![Vec3::new(-0.375, -0.375, -0.25), Vec3::new(0.375, -0.375, -0.25), Vec3::new(-0.375, -0.375, 1.0), Vec3::new(0.375, -0.375, 1.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(VehicleKind::TownCar2);
+        t.precompute_physics();
         t
     }
 
@@ -659,18 +597,11 @@ impl VehicleType {
         let mut t = VehicleType { controllable_state: 1, name: "Metro".to_string(), price: 100, mass: 600.0, engine_power: 0.4375, ..Default::default() };
         let z = [-2.40625, -1.3125, 1.3125, 2.1875];
         t.saloon(z, 1.09375, [-0.4375, 0.875], None);
-        t.panels.extend([
-            window([16, 18, 12, 10], [-1; 4], [0.0; 4]),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
-            window([19, 17, 11, 13], [-1; 4], [0.0; 4]),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
-            panel([16, 17, 19, 18]),
-        ]);
         t.saloon_wheels();
         t.seats = vec![Vec3::new(-0.375, -0.375, 0.0), Vec3::new(0.375, -0.375, 0.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(VehicleKind::Metro);
+        t.precompute_physics();
         t
     }
 
@@ -679,22 +610,11 @@ impl VehicleType {
         let mut t = VehicleType { controllable_state: 1, name: "Limo".to_string(), price: 100, mass: 1500.0, engine_power: 1.0, ..Default::default() };
         let z = [-3.9375, -2.1875, 2.625, 3.5];
         t.saloon(z, 1.09375, [-1.3125, 2.1875], None);
-        t.panels.extend([
-            window([16, 18, 12, 10], [-1, 16, 10, -1], [0.0, 0.75, 0.625, 0.0]),
-            window([16, 18, 12, 10], [18, 16, 10, 12], [0.25, 0.25, 0.25, 0.375]),
-            window([16, 18, 12, 10], [18, -1, -1, 12], [0.75, 0.0, 0.0, 0.75]),
-            window([17, 16, 10, 11], [-1; 4], [0.0; 4]),
-            window([19, 17, 11, 13], [17, -1, -1, 11], [0.75, 0.0, 0.0, 0.625]),
-            window([19, 17, 11, 13], [17, 19, 13, 11], [0.25, 0.25, 0.375, 0.25]),
-            window([19, 17, 11, 13], [-1, 19, 13, -1], [0.0, 0.75, 0.75, 0.0]),
-            window([18, 19, 13, 12], [-1; 4], [0.0; 4]),
-            panel([16, 17, 19, 18]),
-        ]);
         t.saloon_wheels();
         t.seats = vec![Vec3::new(-0.375, -0.375, -1.25), Vec3::new(0.375, -0.375, -1.25), Vec3::new(-0.375, -0.375, 2.0), Vec3::new(0.375, -0.375, 2.0)];
         t.track = 1.0;
         t.wheelbase = ((z[2] - z[1]) * 0.875 + z[1]) - ((z[0] - z[1]) * 0.25 + z[1]);
-        t.precompute_physics(VehicleKind::Limo);
+        t.precompute_physics();
         t
     }
 
@@ -731,41 +651,19 @@ impl VehicleType {
                     t.add_node_edge(n, 20);
                 }
             }
-            t.panels.push(panel([e, h, g, f]));
-            t.panels.push(panel([f + 5, f + 7, h, e]));
-            if row == 0 {
-                t.panels.push(panel([f + 6, f + 5, 0, f]));
-                t.panels.push(panel([f + 8, f + 6, f, g]));
-            } else {
-                t.panels.push(panel([f + 8, f + 6, f, g]));
-                t.panels.push(panel([f + 7, f + 8, g, h]));
-                t.panels.push(panel([f + 5, f + 6, f + 8, f + 7]));
-            }
             f = g;
         }
         t.add_node_edges(&[6, 7, 9, 8, 12, 13, 15, 14]);
-        t.panels.extend([panel([12, 14, 8, 6]), panel([13, 12, 6, 7]), panel([15, 13, 7, 9]), panel([14, 15, 9, 8])]);
         t.add_node_edges(&[4, 5, 18, 19]);
         t.add_node_edges(&[12, 13, 15, 14, 16, 17, 19, 18]);
-        t.panels.extend([
-            window([16, 18, 14, 12], [-1, 16, 12, -1], [0.0, 0.7, 0.625, 0.0]),
-            window([16, 18, 14, 12], [18, 16, 12, 14], [0.3, 0.25, 0.225, 0.375]),
-            window([16, 18, 14, 12], [18, -1, -1, 14], [0.75, 0.0, 0.0, 0.775]),
-            window([17, 16, 12, 13], [-1; 4], [0.0; 4]),
-            window([19, 17, 13, 15], [17, -1, -1, 13], [0.7, 0.0, 0.0, 0.625]),
-            window([19, 17, 13, 15], [17, 19, 15, 13], [0.25, 0.3, 0.375, 0.225]),
-            window([19, 17, 13, 15], [-1, 19, 15, -1], [0.0, 0.75, 0.775, 0.0]),
-            window([18, 19, 15, 14], [-1; 4], [0.0; 4]),
-            panel([16, 17, 19, 18]),
-        ]);
         for (a, b, weights) in [(0, 2, [0.75, 0.25]), (1, 3, [0.75, 0.25]), (2, 4, [0.25, 0.75]), (3, 5, [0.25, 0.75]), (2, 4, [0.5, 0.5]), (3, 5, [0.5, 0.5])]
         {
-            t.add_wheel(0, a, b, weights, 0.375, 80.0, 512.0 / 45.0, -0.125, [0.25, 0.5, 0.5]);
+            t.add_wheel(0, a, b, weights, 0.375, 80.0, -0.125, [0.25, 0.5, 0.5]);
         }
         t.track = 1.125;
         t.wheelbase = (z[1] + (z[2] - z[1]) * 0.75) - ((z[0] - z[1]) * 0.75 + z[1]);
         t.seats = vec![Vec3::new(-0.375, 0.125, -0.875), Vec3::new(0.375, 0.125, -0.875)];
-        t.precompute_physics(VehicleKind::Truck);
+        t.precompute_physics();
         t
     }
 
@@ -801,26 +699,16 @@ impl VehicleType {
                     t.add_node_edge(n, 16);
                 }
             }
-            t.panels.push(panel([e, h, g, f]));
-            t.panels.push(panel([f + 5, f + 7, h, e]));
-            if row == 0 {
-                t.panels.push(panel([f + 6, f + 5, 0, f]));
-                t.panels.push(panel([f + 8, f + 6, f, g]));
-            } else {
-                t.panels.push(panel([f + 8, f + 6, f, g]));
-                t.panels.push(panel([f + 7, f + 8, g, h]));
-            }
-            t.panels.push(panel([f + 5, f + 6, f + 8, f + 7]));
             f = g;
         }
         t.add_node_edges(&[12, 13, 15, 14, 2, 3, 5, 4]);
         t.add_node_edges(&[12, 13, 15, 14, 8, 9, 11, 10]);
         for (a, b, weights) in [(12, 14, [0.75, 0.25]), (13, 15, [0.75, 0.25]), (12, 14, [0.25, 0.75]), (13, 15, [0.25, 0.75])] {
-            t.add_wheel(0, a, b, weights, 0.375, 80.0, 512.0 / 45.0, -0.125, [0.25, 0.5, 0.5]);
+            t.add_wheel(0, a, b, weights, 0.375, 80.0,  -0.125, [0.25, 0.5, 0.5]);
         }
         t.track = 1.125;
         t.wheelbase = ((z[2] - z[1]) * 0.75 + z[1]) - ((z[0] - z[1]) * 0.75 + z[1]);
-        t.precompute_physics(VehicleKind::Trailer);
+        t.precompute_physics();
         t
     }
 

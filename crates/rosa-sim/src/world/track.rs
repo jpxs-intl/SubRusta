@@ -107,7 +107,7 @@ fn horizontal(dx: f32, dz: f32) -> f32 {
 impl Track {
     /// level_generate_race_track: the tube track with its train spawns, the pieces linked in a loop and their
     /// weights eased, then the ramps (build_roundcity_curved_meshes).
-    pub fn race_track() -> Self {
+    pub(crate) fn race_track() -> Self {
         let mut t = Track { meshes: Vec::new(), grid: vec![Vec::new(); GRID_CELLS * GRID_CELLS], spawns: Vec::new() };
         let v = Vec3::new(-1.0, -0.0, -0.0);
         let s = TRACK_START;
@@ -449,8 +449,6 @@ pub type TrackTriangle = [Vec3; 3];
 const MAX_CANDIDATES: usize = 64;
 const MAX_TRIANGLES: usize = 1024;
 /// Which parts track_collect_triangles_in_bounds takes: a tube's rails, its bed, and its walls (all of a ramp).
-pub const RAILS: u32 = 1;
-pub const BED: u32 = 2;
 pub const WALLS: u32 = 4;
 
 fn boxes_overlap(lo: Vec3, hi: Vec3, min: Vec3, max: Vec3) -> bool {
@@ -460,7 +458,7 @@ fn boxes_overlap(lo: Vec3, hi: Vec3, min: Vec3, max: Vec3) -> bool {
 impl Track {
     /// track_collect_triangles_in_bounds: the triangles of the chosen parts of every mesh listed in the grid cells
     /// the bounds cover (a mesh in several cells is taken once per cell) whose bounds meet them.
-    pub fn collect(&self, min: Vec3, max: Vec3, parts: u32) -> Vec<TrackTriangle> {
+    pub(crate) fn collect(&self, min: Vec3, max: Vec3, parts: u32) -> Vec<TrackTriangle> {
         let mut out = Vec::new();
         if self.meshes.is_empty() {
             return out;
@@ -500,7 +498,7 @@ impl Track {
 
 impl TrackMesh {
     /// train_collect_rail_points for the rails then the bed: every triangle of both (at most 1024).
-    pub fn rail_triangles(&self) -> Vec<TrackTriangle> {
+    pub(crate) fn rail_triangles(&self) -> Vec<TrackTriangle> {
         (0..2).flat_map(|p| self.pieces[p]..self.pieces[p + 4]).take(MAX_TRIANGLES).map(|i| self.tris[i as usize].map(|v| self.verts[v as usize])).collect()
     }
 

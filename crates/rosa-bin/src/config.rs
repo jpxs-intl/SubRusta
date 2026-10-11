@@ -1,4 +1,3 @@
-use rosa_protocol::GameMode;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,7 +9,8 @@ pub struct ConfigMain {
     pub server_name: String,
     pub admin_password: String,
     pub server_password: String,
-    pub gamemode: GameMode,
+    /// The game mode by name: round, eliminator, world, sandbox, ...
+    pub gamemode: String,
     pub max_players: u8,
     pub round_time: u32,
     pub voice_chat: bool,
@@ -30,7 +30,7 @@ impl Default for ConfigMain {
             server_name: "Baro Serv".to_string(),
             admin_password: "admin".to_string(),
             server_password: "".to_string(),
-            gamemode: GameMode::Round,
+            gamemode: "round".to_string(),
             max_players: 16,
             round_time: 300, // 5 minutes
             voice_chat: false,

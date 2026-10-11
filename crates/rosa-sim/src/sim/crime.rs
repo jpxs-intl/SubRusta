@@ -1,5 +1,5 @@
 use glam::Vec3;
-use rosa_protocol::{GameMode, Team, clientbound::game::events::chat::ChatType};
+use rosa_protocol::{Team, clientbound::game::events::chat::ChatType};
 
 use super::Sim;
 use crate::{PlayerId, human::damage::damage_human};
@@ -16,7 +16,7 @@ impl Sim {
     /// (civilian or corporation, and whether the victim was in their own base), less the more criminal the victim
     /// already is. A player who reaches crimekick has their human killed.
     pub(crate) fn handle_criminal_rating(&mut self, attacker: PlayerId, victim: PlayerId, damage: i32) {
-        let cfg = self.world_cfg;
+        let cfg = self.modes.world.cfg;
         let (Some(attacker_player), Some(attacker_victim)) = (self.players.get(attacker.idx()), self.players.get(victim.idx())) else { return };
         let (Some(attacker_human), Some(victim_human)) = (attacker_player.human, attacker_victim.human) else { return };
 
@@ -24,7 +24,7 @@ impl Sim {
             return;
         }
 
-        if self.gamemode != GameMode::World {
+        if !self.rules.crime {
             return;
         }
 
@@ -86,7 +86,7 @@ impl Sim {
     /// punish_team_kill: outside world and eliminator modes, a player who hurt a teammate takes a share of the damage
     /// to their own head.
     pub(crate) fn punish_team_kill(&mut self, player: PlayerId, damage: i32) {
-        if self.players.get(player.idx()).is_none_or(|p| p.god_mode) || damage <= 0 || matches!(self.gamemode, GameMode::World | GameMode::Eliminator) {
+        if self.players.get(player.idx()).is_none_or(|p| p.god_mode) || damage <= 0 || !self.rules.punish_team_kills {
             return;
         }
         self.handle_team_kill(player, damage);
@@ -107,7 +107,7 @@ impl Sim {
 
         println!("[Sim] {}({}) team damage: {damage}", p.username, p.phone_number);
 
-        let share = self.team_damage;
+        let share = self.rules.team_damage;
         if let Some(h) = p.human.and_then(|h| self.humans.get_mut(h)) {
             damage_human(h, crate::human::BoneId::Head, damage * share / 100);
         }
@@ -125,7 +125,7 @@ impl Sim {
             return;
         }
         self.handle_criminal_rating(a, v, damage);
-        if self.gamemode != GameMode::Eliminator && self.same_team(a, v) {
+        if self.rules.punish_team_kills && self.same_team(a, v) {
             self.punish_team_kill(a, damage);
         }
     }
@@ -141,6 +141,7 @@ impl Sim {
         if driver != victim {
             self.handle_criminal_rating(driver, victim, RUN_OVER_SCORE);
         }
+
         if self.same_team(driver, victim) {
             self.punish_team_kill(driver, RUN_OVER_SCORE);
         }

@@ -10,7 +10,9 @@ use rosa_protocol::{
 use glam::Vec3;
 
 use crate::{
-    PlayerId, SimJoinMsg, gamemode::round, player::{actions::ActionQueue, voice::PlayerVoice},
+    PlayerId, SimJoinMsg,
+    gamemode::round,
+    player::{actions::ActionQueue, voice::PlayerVoice},
 };
 
 pub mod actions;
@@ -41,6 +43,7 @@ pub struct Player {
     pub player_id: PlayerId,
     pub username: String,
     pub team: Team,
+    #[allow(unused)]
     pub steam_id: u64,
     pub actions: ActionQueue,
     pub menu: MenuType,
@@ -142,11 +145,11 @@ pub struct BotBrain {
 }
 
 impl BotBrain {
-    pub fn waypoint_pos(&self, i: i32) -> Vec3 {
+    pub(crate) fn waypoint_pos(&self, i: i32) -> Vec3 {
         usize::try_from(i).ok().and_then(|i| self.waypoints.get(i)).copied().unwrap_or(Vec3::ZERO)
     }
 
-    pub fn set_waypoint(&mut self, i: usize, p: Vec3) {
+    pub(crate) fn set_waypoint(&mut self, i: usize, p: Vec3) {
         if self.waypoints.len() <= i {
             self.waypoints.resize(i + 1, Vec3::ZERO);
         }
@@ -155,7 +158,7 @@ impl BotBrain {
 }
 
 impl Player {
-    pub fn new_from_join(player_id: PlayerId, account_id: u32, j: SimJoinMsg) -> Self {
+    pub(crate) fn new_from_join(player_id: PlayerId, account_id: u32, j: SimJoinMsg) -> Self {
         let avatar_info = j.join_packet.avatar_info;
 
         Self {
@@ -221,7 +224,7 @@ impl Player {
     }
 
     /// create_player: an empty player with 50000 money, no account and a random look (head, skin, hair, eyes).
-    pub fn new_bot(player_id: PlayerId, customization: CharacterCustomization, menu: MenuType) -> Self {
+    pub(crate) fn new_bot(player_id: PlayerId, customization: CharacterCustomization, menu: MenuType) -> Self {
         Self {
             player_id,
             steam_id: 0,
@@ -274,7 +277,7 @@ impl Player {
     }
 
     /// Adds a menu button; without an extra value it shows whatever its slot last held.
-    pub fn push_button(&mut self, id: i32, text: &str, extra: Option<i32>) {
+    pub(crate) fn push_button(&mut self, id: i32, text: &str, extra: Option<i32>) {
         let k = self.menu_buttons.len();
         if self.button_extras.len() <= k {
             self.button_extras.resize(k + 1, 0);
@@ -286,7 +289,7 @@ impl Player {
         self.menu_buttons.push(MenuButton { id, text: text.to_string(), extra });
     }
 
-    pub fn process_game_packet(&mut self, msg: Box<ClientGamePacket>) {
+    pub(crate) fn process_game_packet(&mut self, msg: Box<ClientGamePacket>) {
         self.actions.ingest(msg.total_actions, msg.actions);
         self.voice.ingest(msg.voice_data);
 
@@ -312,7 +315,7 @@ impl Player {
         self.view_pitch = msg.view_pitch;
     }
 
-    pub fn make_update_player_event(&self, tick: u32) -> Event {
+    pub(crate) fn make_update_player_event(&self, tick: u32) -> Event {
         Event {
             tick_created: tick,
             kind: ServerEvent::UpdatePlayer(EventUpdatePlayer {
@@ -327,7 +330,7 @@ impl Player {
         }
     }
 
-    pub fn make_update_round_event(&self, tick: u32) -> Event {
+    pub(crate) fn make_update_round_event(&self, tick: u32) -> Event {
         Event {
             tick_created: tick,
             kind: ServerEvent::UpdatePlayerRound(EventUpdatePlayerRound {
@@ -348,11 +351,11 @@ pub struct PlayerTable {
 }
 
 impl PlayerTable {
-    pub fn next_key(&self) -> usize {
+    pub(crate) fn next_key(&self) -> usize {
         self.slots.iter().position(Option::is_none).unwrap_or(self.slots.len())
     }
 
-    pub fn insert(&mut self, p: Player) -> usize {
+    pub(crate) fn insert(&mut self, p: Player) -> usize {
         let k = self.next_key();
         if k == self.slots.len() {
             self.slots.push(Some(p));
@@ -363,33 +366,33 @@ impl PlayerTable {
         k
     }
 
-    pub fn remove(&mut self, k: usize) -> Player {
+    pub(crate) fn remove(&mut self, k: usize) -> Player {
         let p = self.slots.get_mut(k).and_then(Option::take).expect("no player in that slot");
         self.count -= 1;
         p
     }
 
-    pub fn get(&self, k: usize) -> Option<&Player> {
+    pub(crate) fn get(&self, k: usize) -> Option<&Player> {
         self.slots.get(k)?.as_ref()
     }
 
-    pub fn get_mut(&mut self, k: usize) -> Option<&mut Player> {
+    pub(crate) fn get_mut(&mut self, k: usize) -> Option<&mut Player> {
         self.slots.get_mut(k)?.as_mut()
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.count
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.count == 0
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (usize, &Player)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (usize, &Player)> {
         self.slots.iter().enumerate().filter_map(|(k, p)| Some((k, p.as_ref()?)))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut Player)> {
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (usize, &mut Player)> {
         self.slots.iter_mut().enumerate().filter_map(|(k, p)| Some((k, p.as_mut()?)))
     }
 }

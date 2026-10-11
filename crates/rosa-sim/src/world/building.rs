@@ -125,7 +125,7 @@ pub struct PatrolSpot {
 
 impl BuildingRecord {
     /// is_in_building: whether `pos` is inside the box, grown by `margin`.
-    pub fn contains(&self, pos: Vec3, margin: f32) -> bool {
+    pub(crate) fn contains(&self, pos: Vec3, margin: f32) -> bool {
         let (a, b) = (self.interior_min, self.interior_max);
         !(pos.x < a.x - margin)
             && !(b.x + margin <= pos.x)
@@ -204,12 +204,12 @@ impl Default for CorporationBase {
 
 impl CorporationBase {
     /// Whether `pos` is inside the base (x and z only).
-    pub fn contains(&self, pos: Vec3) -> bool {
+    pub(crate) fn contains(&self, pos: Vec3) -> bool {
         !(pos.x < self.interior_min.x) && !(self.interior_max.x + 0.0 <= pos.x) && !(pos.z < self.interior_min.z) && self.interior_max.z + 0.0 > pos.z
     }
 
     /// is_position_in_vault: whether `pos` is inside the vault grown by `tolerance` on every side.
-    pub fn in_vault(&self, pos: Vec3, tolerance: f32) -> bool {
+    pub(crate) fn in_vault(&self, pos: Vec3, tolerance: f32) -> bool {
         let (a, b) = (self.vault_min, self.vault_max);
         !(pos.x < a.x - tolerance)
             && !(b.x + tolerance <= pos.x)
@@ -251,7 +251,7 @@ pub struct Buildings<'a> {
 }
 
 impl<'a> Buildings<'a> {
-    pub fn new(csx: &'a CityFileCSX, build_blocks: Vec<String>, item_sets: Vec<String>, game_type: u32) -> Self {
+    pub(crate) fn new(csx: &'a CityFileCSX, build_blocks: Vec<String>, item_sets: Vec<String>, game_type: u32) -> Self {
         Self {
             csx,
             custom_names: csx.custom_blocks().map(|(n, _)| n).collect(),
@@ -268,7 +268,7 @@ impl<'a> Buildings<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn place(
+    pub(crate) fn place(
         &mut self,
         area: &mut AreaGrid,
         ground: &mut Ground,

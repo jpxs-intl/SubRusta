@@ -57,18 +57,18 @@ pub struct Cash {
 
 impl Cash {
     /// The code of bill `k`.
-    pub fn code(&self, k: i32) -> u32 {
+    pub(crate) fn code(&self, k: i32) -> u32 {
         (self.codes >> ((k * 3) & 31)) & 7
     }
 
     /// What the stack is worth.
-    pub fn value(&self) -> i32 {
+    pub(crate) fn value(&self) -> i32 {
         (0..=self.bills).map(|k| BILL_VALUES[self.code(k) as usize]).sum()
     }
 
     /// cash_separate: puts a bill of `code` in at `index` (on top past the end), moving the bills above it up; a
     /// stack holds ten.
-    pub fn insert(&mut self, index: i32, code: u32) -> bool {
+    pub(crate) fn insert(&mut self, index: i32, code: u32) -> bool {
         let c = self.bills;
         if c > 8 {
             return false;
@@ -97,7 +97,7 @@ impl Cash {
 
     /// cash_combine: takes out bill `index`, moving the bills above it down. Returns false when it was the last
     /// bill, which leaves the stack to despawn.
-    pub fn remove(&mut self, index: i32) -> bool {
+    pub(crate) fn remove(&mut self, index: i32) -> bool {
         let c = self.bills;
 
         if c == 0 {
@@ -133,7 +133,7 @@ impl Cash {
 
 impl ItemState {
     /// The state a freshly created item of this type starts in.
-    pub fn new(kind: ItemKind, ty: &ItemType) -> Self {
+    pub(crate) fn new(kind: ItemKind, ty: &ItemType) -> Self {
         let left = ty.magazine_ammo;
         match kind {
             ItemKind::Bandage => Self::Bandage { usage_left: left, progress: 0 },
@@ -152,7 +152,7 @@ impl ItemState {
     }
 
     /// Item +0x144: what is left of a used-up item, 0 for the rest.
-    pub fn left(&self) -> i32 {
+    pub(crate) fn left(&self) -> i32 {
         match self {
             Self::Stock { left } | Self::Bandage { usage_left: left, .. } | Self::Burger { bites_left: left } => *left,
             Self::Gun { rounds, .. } => *rounds,
@@ -162,7 +162,7 @@ impl ItemState {
     }
 
     /// Sets item +0x144 (what is left), for the states that keep it.
-    pub fn set_left(&mut self, v: i32) {
+    pub(crate) fn set_left(&mut self, v: i32) {
         match self {
             Self::Stock { left } | Self::Bandage { usage_left: left, .. } | Self::Burger { bites_left: left } => *left = v,
             Self::Gun { rounds, .. } => *rounds = v,
@@ -171,19 +171,19 @@ impl ItemState {
         }
     }
 
-    pub fn cash(&self) -> Option<&Cash> {
+    pub(crate) fn cash(&self) -> Option<&Cash> {
         if let Self::Cash(c) = self { Some(c) } else { None }
     }
 
-    pub fn cash_mut(&mut self) -> Option<&mut Cash> {
+    pub(crate) fn cash_mut(&mut self) -> Option<&mut Cash> {
         if let Self::Cash(c) = self { Some(c) } else { None }
     }
 
-    pub fn phone(&self) -> Option<&Phone> {
+    pub(crate) fn phone(&self) -> Option<&Phone> {
         if let Self::Phone(p) = self { Some(p) } else { None }
     }
 
-    pub fn phone_mut(&mut self) -> Option<&mut Phone> {
+    pub(crate) fn phone_mut(&mut self) -> Option<&mut Phone> {
         if let Self::Phone(p) = self { Some(p) } else { None }
     }
 }

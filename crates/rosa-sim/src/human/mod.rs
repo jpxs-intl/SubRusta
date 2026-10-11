@@ -28,11 +28,7 @@ pub struct Bone {
     pub vel: Vec3,
     pub rot: RotMatrix,
     pub ang_vel: Vec3,
-    pub margin: f32,
-    pub half_extents: Vec3,
     pub mass: f32,
-    pub inertia: Vec3,
-    pub inv_inertia: Vec3,
     pub min_inertia: f32,
     pub angles: Vec3,
     pub networked_rot: RotMatrix,
@@ -47,9 +43,7 @@ pub struct Bone {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Joint {
-    pub bond: usize,
-    pub parent: usize,
-    pub child: usize,
+    pub bond: usize
 }
 
 #[derive(Clone, Debug, Default)]
@@ -59,27 +53,9 @@ pub struct AttachmentGroup {
     pub prev_centroid: Vec3,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct AttachmentLink {
-    pub a: usize,
-    pub b: usize,
-    pub shared_body: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct AttachmentChain {
-    pub end: usize,
-    pub middle: usize,
-    pub other: usize,
-    pub body_a: usize,
-    pub body_b: usize,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct Attachments {
-    pub groups: Vec<AttachmentGroup>,
-    pub links: Vec<AttachmentLink>,
-    pub chains: Vec<AttachmentChain>,
+    pub groups: Vec<AttachmentGroup>
 }
 
 pub struct HumanHealth {
@@ -110,8 +86,6 @@ pub struct Human {
     pub stocks: i32,
     pub team: Option<Team>,
     pub customization: CharacterCustomization,
-    // left eye offset, left eye scale, right eye offset, right eye scale
-    pub face_shape: [Vec3; 4],
     pub health: HumanHealth,
     pub stamina: i32,
     pub max_stamina: i32,
@@ -189,7 +163,6 @@ pub struct Human {
     pub nearby_vehicles: Vec<usize>,
     /// Whether the human is bleeding (record 0x6d80): a hit starts it, bandaging or death stops it.
     pub bleeding: bool,
-    pub unk_6adc: Vec3,
     pub pos: Vec3,
     pub aabb_min: Vec3,
     pub aabb_max: Vec3,
@@ -197,7 +170,6 @@ pub struct Human {
     pub grid_max: [i32; 3],
     pub bones: Vec<Bone>,
     pub joints: Vec<Joint>,
-    pub attachments: Attachments,
     pub locomotion: Locomotion,
 }
 

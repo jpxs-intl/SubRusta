@@ -12,8 +12,6 @@ use crate::world::{
 
 pub struct Map {
     pub map_name: String,
-    pub city: CityFileSBC,
-    pub city_data: CityFileCSX,
     pub level: Level,
     pub ground: Ground,
     /// The streets, lanes and route graph traffic drives on.
@@ -21,7 +19,7 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn load_map(map_name: String) -> Result<Self, LoaderError> {
+    pub(crate) fn load_map(map_name: String) -> Result<Self, LoaderError> {
         let name = format!("data/{}", map_name);
         let dir = Path::new(&name);
 
@@ -59,6 +57,6 @@ impl Map {
 
         println!("[Map] Loading complete!");
 
-        Ok(Self { map_name, city, city_data, level, ground, streets })
+        Ok(Self { map_name, level, ground, streets })
     }
 }

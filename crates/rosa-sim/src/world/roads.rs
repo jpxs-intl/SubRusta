@@ -49,7 +49,7 @@ pub struct RoadNetwork {
 }
 
 impl RoadNetwork {
-    pub fn from_city(city: &rosa_map::file_types::sbc::CityFileSBC) -> Self {
+    pub(crate) fn from_city(city: &rosa_map::file_types::sbc::CityFileSBC) -> Self {
         let inters: Vec<IVec3> = city.intersections.iter().map(|i| i.0.as_ivec3()).collect();
         let streets: Vec<(usize, usize, i32, i32)> = city
             .streets
@@ -59,16 +59,16 @@ impl RoadNetwork {
         Self::build(&inters, &streets)
     }
 
-    pub fn intersection_fields(&self) -> Vec<(IVec3, [i32; 4], [i32; 4])> {
+    pub(crate) fn intersection_fields(&self) -> Vec<(IVec3, [i32; 4], [i32; 4])> {
         self.intersections.iter().map(|it| (it.pos, [it.ext_px, it.ext_pz, it.ext_nx, it.ext_nz], it.streets.map(|s| s.map_or(-1, |s| s as i32)))).collect()
     }
 
     /// Each street's two intersections and its left and right lane counts, in city file order.
-    pub fn street_ends(&self) -> Vec<(usize, usize, i32, i32)> {
+    pub(crate) fn street_ends(&self) -> Vec<(usize, usize, i32, i32)> {
         self.streets.iter().map(|s| (s.i0, s.i1, s.left, s.right)).collect()
     }
 
-    pub fn build(city_inters: &[IVec3], city_streets: &[(usize, usize, i32, i32)]) -> Self {
+    pub(crate) fn build(city_inters: &[IVec3], city_streets: &[(usize, usize, i32, i32)]) -> Self {
         let mut intersections: Vec<Intersection> =
             city_inters.iter().map(|&p| Intersection { pos: IVec3::new(p.x, p.y - 1, p.z), ..Default::default() }).collect();
 
@@ -97,7 +97,7 @@ impl RoadNetwork {
         Self { intersections, streets }
     }
 
-    pub fn compute_world_bounds(&mut self) {
+    pub(crate) fn compute_world_bounds(&mut self) {
         for it in &mut self.intersections {
             for lane in [&mut it.ext_px, &mut it.ext_pz, &mut it.ext_nx, &mut it.ext_nz] {
                 if *lane > 0 {
@@ -107,14 +107,14 @@ impl RoadNetwork {
         }
     }
 
-    pub fn bounds(&self) -> Option<(i32, i32, i32, i32)> {
+    pub(crate) fn bounds(&self) -> Option<(i32, i32, i32, i32)> {
         let first = self.intersections.first()?;
         Some(self.intersections.iter().fold((first.pos.x, first.pos.x, first.pos.z, first.pos.z), |(a, b, c, d), it| {
             (a.min(it.pos.x), b.max(it.pos.x), c.min(it.pos.z), d.max(it.pos.z))
         }))
     }
 
-    pub fn city_block(&self, id: usize) -> Option<CityBlock> {
+    pub(crate) fn city_block(&self, id: usize) -> Option<CityBlock> {
         let it = &self.intersections;
         let st = &self.streets;
         let a = it.get(id)?;
@@ -153,7 +153,7 @@ impl RoadNetwork {
         })
     }
 
-    pub fn build_blocks(&self, ground: &mut Ground, area: &mut AreaGrid, dims: &dyn BlockDims) {
+    pub(crate) fn build_blocks(&self, ground: &mut Ground, area: &mut AreaGrid, dims: &dyn BlockDims) {
         for s in &self.streets {
             self.street_build_blocks(ground, area, dims, s);
         }

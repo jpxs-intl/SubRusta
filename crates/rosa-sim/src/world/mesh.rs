@@ -17,7 +17,7 @@ pub enum Degree {
 }
 
 impl Degree {
-    pub fn from_i32(v: i32) -> Option<Self> {
+    pub(crate) fn from_i32(v: i32) -> Option<Self> {
         match v {
             1 => Some(Self::Linear),
             2 => Some(Self::Quadratic),
@@ -41,9 +41,7 @@ pub fn bezier(deg: Option<Degree>, t: f32, p0: f32, p1: f32, p2: f32, p3: f32) -
 pub struct BlockMesh {
     pub verts: Vec<Vec3>,
     pub quads: Vec<[i32; 4]>,
-    pub mats: Vec<u32>,
     pub walls: Vec<[Vec3; 4]>,
-    pub dims: IVec3,
 }
 
 #[derive(Default)]
@@ -56,21 +54,21 @@ pub struct MeshBuilder {
 }
 
 impl MeshBuilder {
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.pos.clear();
         self.quads.clear();
         self.flags.clear();
         self.walls.clear();
     }
 
-    pub fn set_corners(&mut self, p0: [f32; 3], p3: [f32; 3], p15: [f32; 3], p12: [f32; 3]) {
+    pub(crate) fn set_corners(&mut self, p0: [f32; 3], p3: [f32; 3], p15: [f32; 3], p12: [f32; 3]) {
         self.ctrl[0] = Vec3::from(p0);
         self.ctrl[3] = Vec3::from(p3);
         self.ctrl[15] = Vec3::from(p15);
         self.ctrl[12] = Vec3::from(p12);
     }
 
-    pub fn append_bezier(&mut self, u_seg: i32, u_deg: Option<Degree>, v_seg: i32, v_deg: Option<Degree>, face_flags: u32) {
+    pub(crate) fn append_bezier(&mut self, u_seg: i32, u_deg: Option<Degree>, v_seg: i32, v_deg: Option<Degree>, face_flags: u32) {
         let first = self.pos.len() as i32;
         let mut sv = 0.0f32;
         for _ in 0..=v_seg {
@@ -116,7 +114,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn add_box(&mut self, p: &[Vec3; 8], tex: u32, mask: u32) {
+    pub(crate) fn add_box(&mut self, p: &[Vec3; 8], tex: u32, mask: u32) {
         for (r, f) in CUBE_FACES.iter().enumerate() {
             if mask & (1 << r) == 0 {
                 continue;
@@ -129,7 +127,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn rotate_grid(&mut self, turns: i32, mut flags: u32) -> u32 {
+    pub(crate) fn rotate_grid(&mut self, turns: i32, mut flags: u32) -> u32 {
         for _ in 0..turns.max(0) {
             for p in &mut self.ctrl {
                 (p.x, p.z) = (1.0 - p.z, p.x);
@@ -145,7 +143,7 @@ impl MeshBuilder {
         flags
     }
 
-    pub fn face_by_direction(&mut self, dir: i32, off: Vec3) {
+    pub(crate) fn face_by_direction(&mut self, dir: i32, off: Vec3) {
         let flags = match dir {
             0 => {
                 self.set_corners([0.0, Q, 0.0], [1.0, Q, 0.0], [1.0, Q, 1.0], [0.0, Q, 1.0]);
@@ -166,7 +164,7 @@ impl MeshBuilder {
         self.append_bezier(1, Some(Degree::Linear), 1, Some(Degree::Linear), flags | dir as u32);
     }
 
-    pub fn inset_face(&mut self, dir: i32, mask: u32) {
+    pub(crate) fn inset_face(&mut self, dir: i32, mask: u32) {
         const E: f32 = 0.9375;
         let flags = match dir {
             0 => {
@@ -211,7 +209,7 @@ impl MeshBuilder {
         self.append_bezier(1, Some(Degree::Linear), 1, Some(Degree::Linear), flags | dir as u32);
     }
 
-    pub fn box_geometry(&mut self, turns: i32, mask: u32, codes: &[i32; 6], o: Vec3, s: Vec3) {
+    pub(crate) fn box_geometry(&mut self, turns: i32, mask: u32, codes: &[i32; 6], o: Vec3, s: Vec3) {
         for (r, f) in CUBE_FACES.iter().enumerate() {
             if mask & (1 << r) == 0 {
                 continue;
@@ -236,7 +234,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn turn(&mut self, dims: IVec3) -> IVec3 {
+    pub(crate) fn turn(&mut self, dims: IVec3) -> IVec3 {
         let d = dims.z as f32;
         for p in &mut self.pos {
             (p.x, p.z) = (d - p.z, p.x);
@@ -268,7 +266,7 @@ impl MeshBuilder {
         IVec3::new(dims.z, dims.y, dims.x)
     }
 
-    pub fn finalize(&mut self, dims: IVec3) -> BlockMesh {
+    pub(crate) fn finalize(&mut self) -> BlockMesh {
         let mut k = 0usize;
 
         for i in 0..self.quads.len() {
@@ -287,7 +285,7 @@ impl MeshBuilder {
             }
         }
 
-        BlockMesh { verts: self.pos.clone(), quads: self.quads.clone(), mats: self.flags.iter().map(|f| f & 4095).collect(), walls: self.walls.clone(), dims }
+        BlockMesh { verts: self.pos.clone(), quads: self.quads.clone(), walls: self.walls.clone() }
     }
 }
 

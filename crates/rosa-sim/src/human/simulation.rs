@@ -53,68 +53,77 @@ pub(crate) fn simulate_human(
     keep_bodies: bool,
 ) -> HumanTick {
     find_nearby_vehicles(h, touch);
+
     let nearby = h.nearby_vehicles.clone();
     let seated = h.vehicle;
     health_sim(id, h, ticks, out);
+
     if ticks & 0x1f == 0 {
         if h.stamina > h.max_stamina {
             h.stamina = h.max_stamina;
         }
+
         let cap = if h.max_stamina > 127 { 127 } else { h.max_stamina };
+
         if cap > h.stamina {
             h.stamina += 1;
         }
     }
-    let v = h.unk_6adc;
-    let len = v.length();
-    h.unk_6adc = if len > (1.0 / 1024.0) {
-        let k = 63.0 / 64.0;
-        v * k
-    } else {
-        Vec3::ZERO
-    };
+
     if h.spawn_protection > 0 {
         h.spawn_protection -= 1;
     }
+
     let base_strength = 1.0f32;
+
     if ticks & 7 == 0 && h.pain > 0 {
         h.pain -= 1;
     }
+
     if h.eat_cooldown > 0 {
         h.eat_cooldown -= 1;
     }
+
     if h.vehicle.is_some() {
         h.yaw_offset = h.look_yaw;
         h.pitch_offset = h.look_pitch;
     } else {
         turn_towards_view(h);
     }
+
     h.strength = base_strength;
+
     if h.health.vitality <= 24 {
         h.strength = weak_strength(id, h.health.vitality, ticks, base_strength);
     }
+
     let has_item = h.inventory[0].count > 0 || h.inventory[1].count > 0;
 
     h.is_on_ground = false;
+
     for (j, bone) in h.bones.iter_mut().enumerate() {
         bone.strength = if seated.is_some() && (j == 0 || j > 9) { 0.0 } else { base_strength };
         bone.ground_contact = 0;
+
         if (j == BoneId::HandLeft as usize || j == BoneId::HandRight as usize)
             && let Some(b) = bodies.get_mut(bone.body)
         {
             b.mass = 1.5;
         }
     }
+
     for bone in &h.bones {
         if let Some(b) = bodies.get_mut(bone.body) {
             b.settled = bone.strength == 0.0;
         }
     }
+
     calculate_center_of_mass(h);
 
     let mut heading = IDENTITY;
     let axis = heading[1];
     rotate_orientation(&mut heading, axis, h.view_yaw);
+
     let r2 = heading[2];
     for (k, foot) in [BoneId::FootLeft as usize, BoneId::FootRight as usize].into_iter().enumerate() {
         let f = &mut h.locomotion.feet[k];
@@ -123,32 +132,38 @@ pub(crate) fn simulate_human(
         let (p, q) = (h.bones[0].pos, h.bones[foot].pos);
         let s = ((r2.x * (p.x - q.x) + r2.y * (p.y - q.y)) + (p.z - q.z) * r2.z) + 0.1875;
         let mut pitch = 0.0;
+
         if 0.0 > s {
             pitch = s * 3.0;
             if -90.0_f64.to_radians() > pitch as f64 {
                 pitch = -90.0_f32.to_radians();
             }
         }
+
         h.locomotion.feet[k].plant_pitch = pitch;
     }
 
     if let Some(vid) = seated {
         simulate_seated(h, bodies, map, touch, vid, has_item, base_strength);
+
         if h.health.vitality <= 0 || h.health.health <= 49 {
             fall_out(h, touch, vid);
         }
+
         if h.input_flags & GRAB != 0 && h.last_input_flags & GRAB == 0 {
             h.seat_exit = 1;
         }
     } else {
         walk_and_collide(h, bodies, map, touch, &nearby, out);
     }
+
     if h.health.vitality > 0 {
         hand_grab_and_inventory(h, id, bodies, touch, out);
         action_simulation(h, id, bodies, touch, out);
     } else {
         drop_everything(h, bodies, touch, noise_seed);
     }
+
     for bone in h.bones.iter_mut() {
         let Some(b) = bodies.get(bone.body) else { continue };
         bone.pos = b.pos;
@@ -156,10 +171,13 @@ pub(crate) fn simulate_human(
         bone.rot = b.rot;
         bone.ang_vel = b.ang_vel;
     }
+
     calculate_arm_angles(h, bodies, map, touch, noise_seed);
+
     if let Some(lift) = simulate_movement(h, bodies, &Surface { map, vehicles: touch.vehicles, vehicle_types: touch.vehicle_types, nearby: &nearby }, ticks) {
         lift_held_items(h, bodies, touch, lift);
     }
+
     if h.health.vitality <= 0 || h.health.health <= 49 {
         joint_limits(h, bodies);
     }
@@ -168,6 +186,7 @@ pub(crate) fn simulate_human(
     if -32.0 > h.bones[0].pos.y {
         h.health.vitality = -100;
     }
+
     if h.vehicle.is_none() {
         bone_track_contacts(h, bodies, &map.level.area.track);
         bone_item_contacts(h, bodies, touch);
@@ -177,6 +196,7 @@ pub(crate) fn simulate_human(
     let result = despawn_timer(h, out, keep_bodies);
     h.last_input_flags = h.input_flags;
     update_networked_bones(h);
+
     result
 }
 

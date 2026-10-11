@@ -35,7 +35,7 @@ pub struct DirStack {
 }
 
 impl DirStack {
-    pub fn current(&self) -> i32 {
+    pub(crate) fn current(&self) -> i32 {
         self.path.get(self.depth as usize).copied().unwrap_or(0)
     }
 }
@@ -117,12 +117,12 @@ pub fn put_text(line: &mut [u8; COLUMNS], s: &[u8]) {
 }
 
 impl Computer {
-    pub fn line_mut(&mut self) -> &mut [u8; COLUMNS] {
+    pub(crate) fn line_mut(&mut self) -> &mut [u8; COLUMNS] {
         &mut self.lines[self.current_line as usize & (LINES - 1)]
     }
 
     /// Writes `text` across the first 62 columns of line `l`, the rest spaces, in `color`, ended at column 62.
-    pub fn banner(&mut self, l: usize, text: &[u8], color: u8) {
+    pub(crate) fn banner(&mut self, l: usize, text: &[u8], color: u8) {
         let n = text_len(text);
         for k in 0..62 {
             self.lines[l][k] = if k < n { text[k] } else { b' ' };

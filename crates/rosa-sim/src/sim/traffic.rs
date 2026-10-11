@@ -1,11 +1,8 @@
 use glam::Vec3;
 use rosa_math::vector::Vector;
-use rosa_protocol::{
-    GameMode, Team,
-    clientbound::game::{
-        TrafficEntry,
-        events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor},
-    },
+use rosa_protocol::clientbound::game::{
+    TrafficEntry,
+    events::{Event, ServerEvent, update_vehicle_type_color::EventUpdateVehicleTypeColor},
 };
 
 use super::Sim;
@@ -21,8 +18,8 @@ use crate::{
     vehicle::spawn_vehicle,
 };
 
-/// reset_game makes this many cars when the map has streets.
-const TRAFFIC_CARS: i32 = 128;
+/// The cars reset_game, a round and an eliminator hunt start with.
+pub(crate) const TRAFFIC_CARS: u32 = 128;
 /// A car becomes a real vehicle within 96 of a player (16 of a bot), and stays one 4 further out.
 const PLAYER_RANGE: f32 = 96.0;
 const BOT_RANGE: f32 = 16.0;
@@ -53,10 +50,14 @@ pub(crate) fn vehicle_pos(c: &crate::traffic::TrafficCar, types: &[crate::vehicl
 impl Sim {
     /// The shop and traffic part of reset_game: srand(time), the dealerships and gun stores restocked, and 128 cars when
     /// the map has streets (none for races).
+    ///
+    /// This is called immediately after `Sim` is created.
     pub(crate) fn reset_game(&mut self) {
+        self.rules = self.mode.rules(self);
         self.load_mode_map();
 
         self.ticks_since_reset = 0;
+        self.do_traffic = None;
 
         for (_, p) in self.players.iter_mut() {
             p.items_bought = 0;
@@ -67,16 +68,11 @@ impl Sim {
 
         self.traffic = Traffic::new(&map.streets, map.map_name == "round");
         self.missions.counter = 0;
-        self.world_state.memos = 0;
+        self.modes.world.state.memos = 0;
         self.fs.reset();
         self.load_newspaper();
         self.init_mission_spots();
         self.admin.pending_ban = None;
-        self.team_damage = match self.gamemode {
-            GameMode::Round => self.round_cfg.teamdamage,
-            GameMode::Versus => crate::sim::crime::VERSUS_TEAM_DAMAGE,
-            _ => 0,
-        };
 
         for c in &mut self.corp_state {
             for m in &mut c.missions {
@@ -85,30 +81,9 @@ impl Sim {
             }
         }
 
-        if self.gamemode == GameMode::Round {
-            self.reset_round();
-        }
+        self.mode.reset(self);
 
-        if self.gamemode == GameMode::Eliminator {
-            self.reset_eliminator();
-        }
-
-        if self.gamemode == GameMode::World {
-            self.reset_corporation_rounds();
-        }
-
-        if self.gamemode == GameMode::World {
-            self.gamestate = rosa_protocol::clientbound::game::GameState::Intermission;
-            self.game_timer = 0;
-            self.round_elapsed = 0;
-            self.reset_world_players();
-        }
-
-        if self.gamemode == GameMode::Sandbox {
-            self.gamestate = rosa_protocol::clientbound::game::GameState::InGame;
-        }
-
-        self.traffic.coop = self.gamemode == GameMode::CoOp;
+        self.traffic.coop = self.rules.coop_traffic;
         self.world.map.level.area.reset_dynamic();
 
         if self.world.map.map_name == "test2" {
@@ -117,27 +92,28 @@ impl Sim {
 
         self.roll_weather();
 
-        if self.gamemode == GameMode::World {
-            self.respawn_world();
-        }
-
         self.restock_dealerships();
         self.stock_gun_stores();
 
-        let map = &self.world.map;
-        if !matches!(self.gamemode, GameMode::Racing | GameMode::Round | GameMode::Eliminator | GameMode::World) && !map.streets.streets.is_empty() {
-            create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
-        }
-
-        if self.gamemode == GameMode::World {
-            for k in 0..Team::CORPORATIONS.len() {
-                self.set_team_door(k, true);
-            }
-
-            self.apply_team_doors();
-        }
+        self.do_traffic = self.rules.reset_traffic;
 
         self.announce_players();
+    }
+
+    /// The traffic a mode asked for (do_traffic), made once.
+    pub(crate) fn spawn_pending_traffic(&mut self) {
+        if let Some(count) = self.do_traffic.take() {
+            self.spawn_traffic(count);
+        }
+    }
+
+    /// create_traffic3: `count` cars, when the map has streets.
+    fn spawn_traffic(&mut self, count: u32) {
+        let map = &self.world.map;
+
+        if !map.streets.streets.is_empty() {
+            create_traffic(&mut self.traffic, map, &self.vehicle_types, self.rules.parked_cars, count);
+        }
     }
 
     /// The end of reset_game: the share prices and every player again, since the event list starts over.
@@ -365,10 +341,4 @@ pub(crate) fn traffic_section(
     client.signal_cursor = client.signal_cursor.wrapping_add(1);
     let lights = traffic.signals.get(at as usize).map_or([0; 4], |s| [s.lights[0], s.lights[1], s.lights[2], s.lights[3]]);
     (entries, (at, lights))
-}
-
-impl Sim {
-    pub fn run_simulate_traffic(&mut self) {
-        self.simulate_traffic();
-    }
 }

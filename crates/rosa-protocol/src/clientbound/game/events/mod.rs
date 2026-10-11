@@ -1,8 +1,8 @@
 use crate::{
     clientbound::game::events::{
         bullet::EventBullet, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, chat::EventChat, explosion::EventExplosion,
-        item_set_cell::EventItemSetCell, mission::EventMission, phone_sound::EventPhoneSound, sound::EventSound, team_door::EventTeamDoor,
-        update_corporation::EventUpdateCorporation, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer,
+        item_set_cell::EventItemSetCell, mission::EventMission, mission_text::EventMissionText, phone_sound::EventPhoneSound, sound::EventSound,
+        team_door::EventTeamDoor, update_corporation::EventUpdateCorporation, update_phone::EventUpdatePhone, update_player::EventUpdatePlayer,
         update_player_round::EventUpdatePlayerRound, update_stock::EventUpdateStock, update_vehicle::EventUpdateVehicle,
         update_vehicle_type_color::EventUpdateVehicleTypeColor,
     },
@@ -16,6 +16,7 @@ pub mod chat;
 pub mod explosion;
 pub mod item_set_cell;
 pub mod mission;
+pub mod mission_text;
 pub mod phone_sound;
 pub mod sound;
 pub mod team_door;
@@ -42,6 +43,7 @@ pub enum ServerEvent {
     Explosion(EventExplosion),
     ItemSetCell(EventItemSetCell),
     Mission(EventMission),
+    MissionText(EventMissionText),
     PhoneSound(EventPhoneSound),
     Sound(EventSound),
     TeamDoor(EventTeamDoor),
@@ -80,6 +82,7 @@ impl WireWrite for Event {
             ServerEvent::PhoneSound(e) => (19, e),
             ServerEvent::Explosion(e) => (20, e),
             ServerEvent::Mission(e) => (21, e),
+            ServerEvent::MissionText(e) => (22, e),
             ServerEvent::Empty => {
                 w.bits(23, 6);
 

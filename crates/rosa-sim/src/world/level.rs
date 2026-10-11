@@ -20,7 +20,6 @@ use crate::{
 pub struct Level {
     pub area: AreaGrid,
     pub tables: BlockTable,
-    pub dims: StaticDims,
     pub meshes: BlockMeshes,
     /// The building records (bases, shops, banks, labs) in placement order.
     pub buildings: Vec<crate::world::building::BuildingRecord>,
@@ -170,5 +169,5 @@ pub fn build_level(
 
     let bases = std::mem::take(&mut buildings.bases);
     let buildings = buildings.records;
-    Level { area, tables, dims, meshes, buildings, bases }
+    Level { area, tables, meshes, buildings, bases }
 }

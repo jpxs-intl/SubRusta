@@ -98,17 +98,3 @@ pub fn write_world_ppm(area: &AreaGrid, ground: &Ground, path: &str, step: u32) 
     write!(f, "P6\n{w} {h}\n255\n")?;
     f.write_all(&buf)
 }
-
-pub fn terrain_height_world(base: &[f32], wx: f32, wz: f32) -> f32 {
-    let fx = ((wx + 4096.0) / 8.0).clamp(0.0, (2049 - 2) as f32);
-    let fz = ((wz + 4096.0) / 8.0).clamp(0.0, (2049 - 2) as f32);
-    let (x0, z0) = (fx.floor() as usize, fz.floor() as usize);
-    let (tx, tz) = (fx - x0 as f32, fz - z0 as f32);
-
-    let h00 = base[z0 * 2049 + x0];
-    let h10 = base[z0 * 2049 + x0 + 1];
-    let h01 = base[(z0 + 1) * 2049 + x0];
-    let h11 = base[(z0 + 1) * 2049 + x0 + 1];
-
-    (1.0 - tx) * (h00 * (1.0 - tz) + h01 * tz) + tx * (tz * h11 + (1.0 - tz) * h10)
-}

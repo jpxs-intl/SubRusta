@@ -63,7 +63,6 @@ pub struct TrafficCar {
     /// The street being driven (+0x590, -1 while crossing an intersection), the end it was entered from (+0x594) and
     /// the intersection being crossed (+0x598).
     pub street: i32,
-    pub slot: i32,
     pub intersection: i32,
     /// The lane driven (+0x59c), the lane being moved to (+0x5a0) and the lane to take on the next street (+0x5a4).
     pub lane: i32,
@@ -88,11 +87,11 @@ pub struct TrafficCar {
 }
 
 impl TrafficCar {
-    pub fn step(&self, i: i32) -> RouteStep {
+    pub(crate) fn step(&self, i: i32) -> RouteStep {
         usize::try_from(i).ok().and_then(|i| self.route.get(i)).copied().unwrap_or_default()
     }
 
-    pub fn speed(&self) -> f32 {
+    pub(crate) fn speed(&self) -> f32 {
         self.vel.length()
     }
 }
@@ -123,20 +122,13 @@ pub struct Traffic {
 }
 
 impl Traffic {
-    pub fn new(map: &StreetMap, roundcity: bool) -> Self {
+    pub(crate) fn new(map: &StreetMap, roundcity: bool) -> Self {
         Traffic {
             street_cars: vec![Vec::new(); map.streets.len()],
             signals: vec![Signals::default(); map.intersections.len()],
             roundcity,
             ..Default::default()
         }
-    }
-
-    /// The part of reset_game that empties the traffic.
-    pub fn clear(&mut self) {
-        self.cars.clear();
-        self.generations.clear();
-        self.street_cars.iter_mut().for_each(Vec::clear);
     }
 }
 

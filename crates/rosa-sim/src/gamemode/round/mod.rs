@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub mod menus;
+pub mod round_missions;
 
 /// The round corporations: Goldmen, Monsota and OXS.
 const ROUND_CORPS: usize = 3;
@@ -81,7 +82,7 @@ impl Default for RoundConfig {
 }
 
 impl RoundConfig {
-    pub fn load(path: &std::path::Path) -> Self {
+    pub(crate) fn load(path: &std::path::Path) -> Self {
         let mut c = RoundConfig::default();
         if let Ok(text) = std::fs::read_to_string(path) {
             let num = |key: &str| text.lines().find_map(|l| l.trim().strip_prefix(key)).and_then(|v| v.trim().parse::<i32>().ok());
@@ -103,7 +104,7 @@ pub struct VersusConfig {
 }
 
 impl VersusConfig {
-    pub fn load(path: &std::path::Path) -> Self {
+    pub(crate) fn load(path: &std::path::Path) -> Self {
         let mut c = VersusConfig::default();
 
         if let Ok(text) = std::fs::read_to_string(path) {
@@ -113,6 +114,27 @@ impl VersusConfig {
         }
 
         c
+    }
+}
+
+/// Round mode's state: its config (and versus's), the weekday of weekly play and the vehicles the corporations can buy.
+#[derive(Clone, Debug)]
+pub struct RoundMode {
+    pub cfg: RoundConfig,
+    pub versus: VersusConfig,
+    /// Rounds since the weekly reset.
+    pub weekday: i32,
+    pub vehicle_stock: [menus::VehicleOffer; menus::VEHICLE_STOCK],
+}
+
+impl RoundMode {
+    pub(crate) fn load() -> Self {
+        Self {
+            cfg: RoundConfig::load(std::path::Path::new("config_round.txt")),
+            versus: VersusConfig::load(std::path::Path::new("config_versus.txt")),
+            weekday: 0,
+            vehicle_stock: Default::default(),
+        }
     }
 }
 
@@ -150,7 +172,7 @@ impl Sim {
             c.player_count = 0;
         }
 
-        let round = self.gamemode == GameMode::Round;
+        let round = self.rules.count_humanless_members;
 
         for (_, p) in self.players.iter() {
             if let Some(k) = Team::CORPORATIONS.iter().position(|&t| t == p.team)
@@ -163,8 +185,6 @@ impl Sim {
 
     /// logic_round: the lobby and its timer, setting up and starting the round, the round itself and the restart.
     pub(crate) fn tick_round(&mut self) {
-        self.stock_sell_rate = 0.98;
-
         for (_, p) in self.players.iter_mut() {
             if p.team_switch_timer > 0 {
                 p.team_switch_timer -= 1;
@@ -258,16 +278,13 @@ impl Sim {
         }
         self.apply_team_doors();
         self.gamestate = GameState::InGame;
-        self.game_timer = self.round_cfg.roundtime * DAY;
+        self.game_timer = self.modes.round.cfg.roundtime * DAY;
     }
 
     /// The round set up at 5400 ticks: traffic, the vehicle stock, the missions, the managers announced, each round
     /// corporation's town car (and minivan for more than four players) and the two phones on its table.
     fn round_setup(&mut self) {
-        if !self.world.map.streets.streets.is_empty() {
-            let map = &self.world.map;
-            crate::traffic::spawn::create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, 128);
-        }
+        self.do_traffic = Some(crate::sim::traffic::TRAFFIC_CARS);
         self.randomize_corp_vehicle_stock();
         self.generate_round_missions();
         for k in 0..ROUND_CORPS {
@@ -435,7 +452,7 @@ impl Sim {
             let price = self.corporations[k].price;
             let mut best = (0, None);
             for (i, p) in self.players.iter().filter(|(_, p)| p.team == team) {
-                let worth = if self.round_cfg.weekly {
+                let worth = if self.modes.round.cfg.weekly {
                     self.saved_accounts.players.iter().find(|a| a.account_id == p.account_id).map_or(0, |a| a.money as i32)
                 } else {
                     let w = p.stocks as f32 * price + p.money as f32;
@@ -479,11 +496,11 @@ impl Sim {
 
     /// server_main's check before each pass of its loop: when people come to an empty server the game is reset as
     /// though a week had just ended.
-    pub fn check_occupied(&mut self) {
+    pub(crate) fn check_occupied(&mut self) {
         let occupied = self.players.iter().any(|(_, p)| !p.is_bot);
 
         if occupied && !self.occupied {
-            self.weekday = WEEK_DAYS;
+            self.modes.round.weekday = WEEK_DAYS;
 
             self.reset_game();
         }
@@ -498,19 +515,19 @@ impl Sim {
             corp.shares = WEEK_SHARES;
             corp.price = WEEK_PRICE;
         }
-        let startcash = self.round_cfg.startcash;
+        let startcash = self.modes.round.cfg.startcash;
         for (_, p) in self.players.iter_mut() {
             p.money = startcash;
             p.stocks = 0;
             p.saved_inventory = Default::default();
         }
-        self.weekday = 1;
+        self.modes.round.weekday = 1;
     }
 
     /// The round account bookkeeping of player_simulation: outside weekly play every player's account holds their
     /// money and their shares at 98% of the price.
     pub(crate) fn round_account_sync(&mut self) {
-        if self.round_cfg.weekly {
+        if self.modes.round.cfg.weekly {
             return;
         }
         for (_, p) in self.players.iter() {
@@ -542,8 +559,8 @@ impl Sim {
     pub(crate) fn reset_round(&mut self) {
         self.save_accounts();
         self.save_stats();
-        self.weekday += 1;
-        if self.round_cfg.weekly && self.weekday > WEEK_DAYS {
+        self.modes.round.weekday += 1;
+        if self.modes.round.cfg.weekly && self.modes.round.weekday > WEEK_DAYS {
             self.weekly_reset();
         }
 
@@ -586,6 +603,7 @@ impl Sim {
             p.is_ready = false;
             p.menu = MenuType::Lobby;
         }
+
         self.clear_world();
         self.round_number += 1;
     }
@@ -603,30 +621,9 @@ impl Sim {
         self.npcs.clear();
         self.traffic = crate::traffic::Traffic::new(&self.world.map.streets, self.world.map.map_name == "round");
         self.events = EventRing::default();
+
         for c in self.clients.values_mut() {
             c.reset_for_round();
-        }
-    }
-
-    /// reset_game's map: world mode plays test2 and round and eliminator modes the round city, anything else keeps
-    /// the map it has; a different map is loaded (load_map) and the world emptied with it.
-    pub(crate) fn load_mode_map(&mut self) {
-        let name = match self.gamemode {
-            GameMode::World | GameMode::None => "test2",
-            GameMode::Round | GameMode::Eliminator | GameMode::CoOp => "round",
-            _ => return,
-        };
-        if self.world.map.map_name == name {
-            return;
-        }
-        match crate::world::map::Map::load_map(name.to_string()) {
-            Ok(map) => {
-                self.world.map = map;
-                self.item_grid = Default::default();
-                self.clear_world();
-                println!("[Sim] Loaded map {name}");
-            }
-            Err(e) => eprintln!("[Sim] could not load map {name}: {e}"),
         }
     }
 
@@ -657,7 +654,7 @@ impl Sim {
                     if let ItemState::Key { vehicle: Some(v) } = item.state
                         && let Some(veh) = self.vehicles.get(v).filter(|v| v.health > 0)
                     {
-                        if self.gamemode == rosa_protocol::GameMode::World {
+                        if self.rules.keys_keep_vehicles {
                             keys.push((slot, v));
                             saved[slot].push(SavedItem { kind, a: v as i32, b: 0 });
                         } else {
@@ -704,7 +701,7 @@ impl Sim {
                         items::attach_child(&mut self.items, &self.item_types, id, mag);
                     }
                     id
-                } else if kind == ItemKind::Key && self.gamemode == rosa_protocol::GameMode::World {
+                } else if kind == ItemKind::Key && self.rules.keys_keep_vehicles {
                     let Some(id) = self.create_item(ItemKind::Key, pos, None, IDENTITY) else { continue };
                     let v = self.world_key_vehicle(s.a);
                     if let Some(i) = self.items.get_mut(id) {
@@ -742,7 +739,7 @@ impl Sim {
             return;
         }
 
-        let versus = self.gamemode == GameMode::Versus;
+        let versus = self.rules.free_team_switch;
         let timer = self.game_timer;
         let Some(p) = self.players.get(pid.idx()) else { return };
         if (timer > LOBBY_TEAM_TIME || versus) && p.team_switch_timer == 0 {
@@ -794,79 +791,74 @@ impl Sim {
     }
 }
 
-/// Hooks for checking the round state machine against the original server.
-impl Sim {
-    /// One logic_round call, without the player counts logic_simulation makes before it.
-    pub fn round_tick(&mut self) {
-        self.tick_round();
+/// The lobby's menu id.
+pub(crate) const LOBBY_MENU: u8 = 2;
+
+/// Round mode's hooks: the corporations' rounds with a lobby, buy menus and weekly play.
+pub struct Hooks;
+
+impl super::ModeHooks for Hooks {
+    fn name(&self) -> &'static str {
+        "round"
     }
 
-    pub fn set_game_timer(&mut self, t: i32) {
-        self.game_timer = t;
+    fn aliases(&self) -> &'static [&'static str] {
+        &["r"]
     }
 
-    /// The game state, the game timer and the round's elapsed ticks.
-    pub fn round_status(&self) -> (GameState, i32, i32) {
-        (self.gamestate, self.game_timer, self.round_elapsed)
+    fn client_mode(&self) -> GameMode {
+        GameMode::Round
     }
 
-    pub fn vehicle_positions(&self) -> Vec<Vec3> {
-        self.vehicles.iter().filter_map(|(_, v)| self.bodies.get(v.body)).map(|b| b.pos).collect()
-    }
-
-    pub fn traffic_count(&self) -> usize {
-        self.traffic.cars.len()
-    }
-}
-
-/// Hooks for checking the weekly reset and account bookkeeping against the original server.
-impl Sim {
-    /// A player of `team` with `money`, `stocks`, two items kept in its first slot and an account `account`.
-    pub fn make_account_player(&mut self, team: Team, money: i32, stocks: i32, account: u32) -> PlayerId {
-        let pid = self.create_player().unwrap();
-        self.saved_accounts.get_or_create(account, "", 0, 0);
-        if let Some(a) = self.saved_accounts.get_player_data(account) {
-            a.money = 0;
+    fn rules(&self, sim: &Sim) -> super::rules::ModeRules {
+        super::rules::ModeRules {
+            map: Some("round"),
+            team_damage: sim.modes.round.cfg.teamdamage,
+            stock_sell_rate: crate::sim::economy::ROUND_SELL_RATE,
+            reset_traffic: None,
+            keep_bodies: true,
+            keep_items: true,
+            corp_buy_menus: true,
+            count_humanless_members: true,
+            saved_accounts: true,
+            intermission_lobby: true,
+            bot_lobby: true,
+            ready_start: false,
+            round_money_updates: true,
+            ..Default::default()
         }
-        let p = self.players.get_mut(pid.idx()).unwrap();
-        p.is_bot = false;
-        p.team = team;
-        p.money = money;
-        p.stocks = stocks;
-        p.account_id = account;
-        p.saved_inventory[0] = vec![SavedItem::default(); 2];
-        pid
     }
 
-    pub fn account_money(&mut self, account: u32) -> u32 {
-        self.saved_accounts.get_player_data(account).map_or(0, |a| a.money)
+    fn reset(&self, sim: &mut Sim) {
+        sim.reset_round();
     }
 
-    pub fn set_weekly(&mut self, weekly: bool) {
-        self.round_cfg.weekly = weekly;
+    fn tick(&self, sim: &mut Sim) {
+        sim.tick_round();
     }
 
-    pub fn set_startcash(&mut self, cash: i32) {
-        self.round_cfg.startcash = cash;
+    fn on_menu(&self, sim: &mut Sim, pid: PlayerId, menu: u8, button: u32) -> bool {
+        if menu != LOBBY_MENU {
+            return false;
+        }
+        sim.round_lobby(pid, button);
+        true
     }
 
-    pub fn weekday(&self) -> i32 {
-        self.weekday
+    fn joining_money(&self, sim: &Sim, money: i32) -> i32 {
+        let cfg = &sim.modes.round.cfg;
+        if cfg.weekly { cfg.startcash } else { money }
     }
 
-    pub fn set_weekday(&mut self, d: i32) {
-        self.weekday = d;
+    fn sync(&self, sim: &Sim) -> super::ModeSync {
+        super::ModeSync { weekly_enabled: sim.modes.round.cfg.weekly, weekday: sim.modes.round.weekday as u8, versus_movedelay: None }
     }
 
-    pub fn share_count(&self, k: usize) -> i32 {
-        self.corporations[k].shares
+    fn switchable(&self) -> bool {
+        true
     }
 
-    pub fn run_account_sync(&mut self) {
-        self.round_account_sync();
-    }
-
-    pub fn run_reset_game(&mut self) {
-        self.reset_game();
+    fn on_admin_select(&self, sim: &mut Sim) {
+        sim.modes.round.weekday = WEEK_DAYS;
     }
 }

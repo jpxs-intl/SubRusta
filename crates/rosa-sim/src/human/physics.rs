@@ -248,6 +248,7 @@ pub(super) fn bone_item_contacts(h: &Human, bodies: &mut RigidBodies, touch: &mu
 /// human_simulation's scan for the vehicles whose bounds overlap the human's, at most 8 in vehicle order.
 pub(super) fn find_nearby_vehicles(h: &mut Human, touch: &Touchables) {
     let (lo, hi) = (h.aabb_min, h.aabb_max);
+
     h.nearby_vehicles = touch
         .vehicles
         .iter()
@@ -387,7 +388,7 @@ pub struct OtherHuman {
 }
 
 impl OtherHuman {
-    pub fn of(h: &Human) -> Self {
+    pub(crate) fn of(h: &Human) -> Self {
         Self { aabb_min: h.aabb_min, aabb_max: h.aabb_max, bones: h.bones.iter().map(|b| (b.capsule, b.body)).collect() }
     }
 }

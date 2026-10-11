@@ -83,14 +83,14 @@ pub struct BoneTemplate {
 }
 
 impl BoneTemplate {
-    pub fn inv_inertia(&self) -> Vec3 {
+    pub(crate) fn inv_inertia(&self) -> Vec3 {
         let (s, m) = (self.half_extents, self.margin);
         let (a, b, c) = ((s.y + s.y) + m, (s.z + s.z) + m, (s.x + s.x) + m);
         let (a, b, c) = (a * a, b * b, c * c);
         Vec3::new(1.0 / ((a + b) / 9.0), 1.0 / ((b + c) / 9.0), 1.0 / ((a + c) / 9.0))
     }
 
-    pub fn rest_offset(id: usize) -> Vec3 {
+    pub(crate) fn rest_offset(id: usize) -> Vec3 {
         let mut o = BONES[id].offset;
         let mut p = BONES[id].parent as usize;
 

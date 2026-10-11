@@ -30,7 +30,7 @@ pub struct BlockTable {
 }
 
 impl BlockTable {
-    pub fn new(custom_names: &[&str]) -> Self {
+    pub(crate) fn new(custom_names: &[&str]) -> Self {
         let custom_count = custom_names.len() as u32;
         Self {
             custom_count,
@@ -41,36 +41,36 @@ impl BlockTable {
         }
     }
 
-    pub fn custom(k: usize) -> u32 {
+    pub(crate) fn custom(k: usize) -> u32 {
         CUSTOM_BASE + 4 * k as u32
     }
 
-    pub fn custom_end(&self) -> u32 {
+    pub(crate) fn custom_end(&self) -> u32 {
         CUSTOM_BASE + 4 * self.custom_count
     }
 
-    pub fn edge_cap(&self, i: u32) -> u32 {
+    pub(crate) fn edge_cap(&self, i: u32) -> u32 {
         self.custom_end() + i
     }
 
     /// Whether `id` is one of the four turns of the base table or the safe.
-    pub fn is_base_table(&self, id: u32) -> bool {
+    pub(crate) fn is_base_table(&self, id: u32) -> bool {
         self.base_table.is_some_and(|b| (b..=b + 3).contains(&id))
     }
 
-    pub fn is_safe(&self, id: u32) -> bool {
+    pub(crate) fn is_safe(&self, id: u32) -> bool {
         self.safe.is_some_and(|b| (b..=b + 3).contains(&id))
     }
 
-    pub fn garage_door(&self) -> [u32; 4] {
+    pub(crate) fn garage_door(&self) -> [u32; 4] {
         self.garage_door.map_or([0; 4], |b| [b, b + 1, b + 2, b + 3])
     }
 
-    pub fn total_block_count(&self) -> u32 {
+    pub(crate) fn total_block_count(&self) -> u32 {
         self.next_id
     }
 
-    pub fn alloc_block_id(&mut self) -> Option<u32> {
+    pub(crate) fn alloc_block_id(&mut self) -> Option<u32> {
         let id = self.next_id;
         if id > 65535 {
             return None;
@@ -85,7 +85,7 @@ pub struct StaticDims {
 }
 
 impl StaticDims {
-    pub fn new(custom_sizes: &[IVec3]) -> Self {
+    pub(crate) fn new(custom_sizes: &[IVec3]) -> Self {
         let mut dims = vec![IVec3::ONE; CUSTOM_BASE as usize];
         for id in (24..=65).chain(642..=707) {
             dims[id] = IVec3::ZERO;

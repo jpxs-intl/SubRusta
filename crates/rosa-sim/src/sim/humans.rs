@@ -1,19 +1,15 @@
 use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_physics::{
-    RigidBodies, RotMatrix,
+    RotMatrix,
     rotation::{IDENTITY, rot_matrix_to_quaternion},
 };
-use rosa_protocol::{
-    GameMode,
-    clientbound::game::{
-        ItemKind, OwnHumanData, ServerHumanObject,
-        events::{Event, ServerEvent, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, sound::EventSound},
-    },
+use rosa_protocol::clientbound::game::{
+    ItemKind, OwnHumanData, ServerHumanObject,
+    events::{Event, ServerEvent, bullet_hit::EventBulletHit, bullet_hole::EventBulletHole, sound::EventSound},
 };
 
 use super::{Sim, economy, items::touchables};
-use crate::time::TICKS_PER_SECOND;
 use crate::{
     PlayerId,
     human::{
@@ -29,7 +25,7 @@ pub const HUMAN_SLOTS: usize = crate::human::MAX_HUMANS;
 pub const OBJECT_SLOTS: usize = 1024;
 
 impl Sim {
-    pub fn spawn_human(&mut self, pos: Vec3, rot: &RotMatrix, player: Option<PlayerId>) -> Option<usize> {
+    pub(crate) fn spawn_human(&mut self, pos: Vec3, rot: &RotMatrix, player: Option<PlayerId>) -> Option<usize> {
         let player = player.and_then(|p| self.players.get(p.idx()));
         create_human(&mut self.humans, &mut self.bodies, pos, rot, player)
     }
@@ -53,7 +49,7 @@ impl Sim {
 
     /// player_simulation: hands each player's latest controls to their human.
     pub(crate) fn player_simulation(&mut self) {
-        let held = self.gamemode == GameMode::Versus && self.round_elapsed < self.versus_cfg.movedelay * TICKS_PER_SECOND;
+        let held = self.rules.move_delay.is_some_and(|ticks| self.round_elapsed < ticks);
         for (_, player) in self.players.iter_mut() {
             if player.spawn_timer > 0 {
                 player.spawn_timer -= 1;
@@ -114,21 +110,27 @@ impl Sim {
             let driver = car.and_then(|c| self.traffic.cars.get(c)).is_some_and(|c| c.human == id as i32);
             self.humans.get_mut(id).unwrap().traffic_driver = driver;
         }
+
         let map = &mut self.world.map;
+
         let mut out = Vec::new();
         let mut touch = touchables!(self, occupied_seats(&self.humans));
         let mut deleted = Vec::new();
-        let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
+
+        let keep_bodies = self.rules.keep_bodies;
         for id in self.humans.ids() {
             let others = later_humans(&self.humans, id);
             let h = self.humans.get_mut(id).unwrap();
+
             if let HumanTick::Delete = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, self.tick, &mut self.noise_seed, keep_bodies)
             {
                 deleted.push(id);
             }
         }
+
         self.apply_human_outputs(out);
         self.apply_team_doors();
+
         for id in deleted {
             self.delete_human(id);
         }
@@ -168,27 +170,9 @@ impl Sim {
                     continue;
                 }
             };
+
             self.events.push(Event { tick_created: self.tick, kind });
         }
-    }
-
-    pub fn simulate_human_at(&mut self, id: usize, ticks: u32, noise_seed: &mut i32) -> HumanTick {
-        let map = &mut self.world.map;
-        let mut out = Vec::new();
-        let mut touch = touchables!(self, occupied_seats(&self.humans));
-        let others = later_humans(&self.humans, id);
-        let Some(h) = self.humans.get_mut(id) else { return HumanTick::Keep };
-        let keep_bodies = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
-        let result = simulate_human(id, h, &mut self.bodies, map, &mut touch, &others, &mut out, ticks, noise_seed, keep_bodies);
-        self.apply_human_outputs(out);
-        result
-    }
-
-    pub fn calculate_arm_angles_at(&mut self, id: usize, noise_seed: &mut i32) {
-        let map = &self.world.map;
-        let touch = touchables!(self, occupied_seats(&self.humans));
-        let Some(h) = self.humans.get_mut(id) else { return };
-        crate::human::arms::calculate_arm_angles(h, &mut self.bodies, map, &touch, noise_seed);
     }
 
     /// delete_human: the human's items dropped, its player left without one (an update_player event standing in for the
@@ -234,25 +218,6 @@ impl Sim {
             h.health.vitality = 0;
         }
         println!("[Sim] Killed human #{id}");
-    }
-
-    pub fn human_mut(&mut self, id: usize) -> Option<&mut Human> {
-        self.humans.get_mut(id)
-    }
-
-    pub fn human(&self, id: usize) -> Option<&Human> {
-        self.humans.get(id)
-    }
-
-    /// A human and the level and vehicles its feet stand on (without the nearby vehicles it would trace).
-    pub fn human_and_map(&mut self, id: usize) -> (&mut Human, crate::human::locomotion::Surface<'_>) {
-        let surface = crate::human::locomotion::Surface { map: &self.world.map, vehicles: &self.vehicles, vehicle_types: &self.vehicle_types, nearby: &[] };
-        (self.humans.get_mut(id).unwrap(), surface)
-    }
-
-    pub fn human_parts(&mut self, id: usize) -> (&mut Human, &mut RigidBodies, crate::human::locomotion::Surface<'_>) {
-        let surface = crate::human::locomotion::Surface { map: &self.world.map, vehicles: &self.vehicles, vehicle_types: &self.vehicle_types, nearby: &[] };
-        (self.humans.get_mut(id).unwrap(), &mut self.bodies, surface)
     }
 
     pub(crate) fn human_objects(&self) -> Vec<ServerHumanObject> {
@@ -333,14 +298,6 @@ impl Sim {
                 ))
             })
             .collect()
-    }
-
-    pub fn bodies(&self) -> &RigidBodies {
-        &self.bodies
-    }
-
-    pub fn bodies_mut(&mut self) -> &mut RigidBodies {
-        &mut self.bodies
     }
 }
 

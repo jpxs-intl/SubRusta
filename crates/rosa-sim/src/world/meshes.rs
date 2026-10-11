@@ -15,7 +15,7 @@ pub struct BlockMeshes {
 }
 
 impl BlockMeshes {
-    pub fn new(tables: &BlockTable, customs: &[&BlockFile]) -> Self {
+    pub(crate) fn new(tables: &BlockTable, customs: &[&BlockFile]) -> Self {
         let mut new_mesh = Self { meshes: Vec::new(), b: MeshBuilder::default() };
 
         for (k, f) in customs.iter().enumerate() {
@@ -27,12 +27,12 @@ impl BlockMeshes {
         new_mesh
     }
 
-    pub fn get(&self, id: u32) -> Option<&BlockMesh> {
+    pub(crate) fn get(&self, id: u32) -> Option<&BlockMesh> {
         self.meshes.get(id as usize)
     }
 
-    fn store(&mut self, id: u32, dims: IVec3) {
-        let m = self.b.finalize(dims);
+    fn store(&mut self, id: u32) {
+        let m = self.b.finalize();
 
         let id = id as usize;
 
@@ -44,11 +44,12 @@ impl BlockMeshes {
     }
 
     fn store_turns(&mut self, id: u32, dims: IVec3) {
-        self.store(id, dims);
+        self.store(id);
         let mut d = dims;
+
         for k in 1..4 {
             d = self.b.turn(d);
-            self.store(id + k, d);
+            self.store(id + k);
         }
     }
 
@@ -129,7 +130,7 @@ impl BlockMeshes {
             if i & 2 != 0 {
                 quad([1.0, Q, 1.0], [1.0, Q, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], 0);
             }
-            self.store(i, one);
+            self.store(i);
         }
 
         let mut height = 0.0f32;
@@ -156,7 +157,7 @@ impl BlockMeshes {
                     });
                     self.b.reset();
                     self.b.add_box(&p, 0, 62);
-                    self.store(slope_id(w, true, row, k).unwrap(), IVec3::new(1, (y1 >= 1.0) as i32 + 1, 1));
+                    self.store(slope_id(w, true, row, k).unwrap());
                     y += height;
                 }
             }
@@ -168,7 +169,7 @@ impl BlockMeshes {
                     self.b.reset();
                     self.b.set_corners([0.0, c0, 0.0], [1.0, c1, 0.0], [1.0, c2, 1.0], [0.0, c3, 1.0]);
                     self.b.append_bezier(1, LINEAR, 1, LINEAR, 0);
-                    self.store(slope_id(w, false, row, k).unwrap(), one);
+                    self.store(slope_id(w, false, row, k).unwrap());
                     y = y1;
                 }
             }
@@ -184,7 +185,7 @@ impl BlockMeshes {
                 [0.0, h(i.wrapping_sub(2) <= 1), 1.0],
             );
             self.b.append_bezier(1, LINEAR, 1, LINEAR, 0);
-            self.store(tables.edge_cap(i), one);
+            self.store(tables.edge_cap(i));
         }
 
         let ones = [1i32; 6];
@@ -206,7 +207,7 @@ impl BlockMeshes {
         self.store_turns(LAMP, one);
     }
 
-    pub fn build_generated(&mut self, id: u32, key: u32, portals: &PortalGroups) {
+    pub(crate) fn build_generated(&mut self, id: u32, key: u32, portals: &PortalGroups) {
         let modes: [i32; 4] = std::array::from_fn(|i| ((key >> (4 * i)) & 15) as i32);
         let group = ((key >> 18) & 15) as usize;
         let floor = key & (1 << 16) != 0;
@@ -246,7 +247,7 @@ impl BlockMeshes {
                 b.edge_face_pair(i as i32, Q, Q);
             }
         }
-        self.store(id, IVec3::ONE);
+        self.store(id);
     }
 }
 
@@ -265,7 +266,7 @@ pub struct PortalGroups {
 }
 
 impl PortalGroups {
-    pub fn load(dir: &std::path::Path, names: &[String]) -> Self {
+    pub(crate) fn load(dir: &std::path::Path, names: &[String]) -> Self {
         let groups = names.iter().take(64).map(|name| std::fs::read(dir.join(format!("{name}.sbl"))).map(|b| Self::parse(&b)).unwrap_or_default()).collect();
         Self { groups, empty: Portal::default() }
     }
@@ -298,13 +299,13 @@ impl PortalGroups {
             .collect()
     }
 
-    pub fn get(&self, group: usize, idx: usize) -> &Portal {
+    pub(crate) fn get(&self, group: usize, idx: usize) -> &Portal {
         self.groups.get(group).and_then(|g| g.get(idx)).unwrap_or(&self.empty)
     }
 }
 
 impl MeshBuilder {
-    pub fn edge_face_pair(&mut self, turns: i32, e: f32, d: f32) {
+    pub(crate) fn edge_face_pair(&mut self, turns: i32, e: f32, d: f32) {
         self.set_corners([0.0, 1.0, d], [e, 1.0, d], [e, 0.0, d], [0.0, 0.0, d]);
 
         let f = self.rotate_grid(turns, FACE_POS_Z);
@@ -315,7 +316,7 @@ impl MeshBuilder {
         self.append_bezier(1, LINEAR, 1, LINEAR, f | (((turns + 3) & 3) + 1) as u32);
     }
 
-    pub fn portal_windows(&mut self, turns: i32, p: &Portal) {
+    pub(crate) fn portal_windows(&mut self, turns: i32, p: &Portal) {
         let depth = if p.ty == 1 { 1.0 / 256.0 } else { 1.0 / 64.0 };
 
         for &[x, w, y, h] in &p.windows {
@@ -327,7 +328,7 @@ impl MeshBuilder {
         }
     }
 
-    pub fn portal_frame(&mut self, turns: i32, p: &Portal) {
+    pub(crate) fn portal_frame(&mut self, turns: i32, p: &Portal) {
         let [px, pw, py, ph] = p.rect;
         let mirror = !(p.ty == 1 && turns > 1);
         let back = if p.ty != 1 { 8 } else { 0 };

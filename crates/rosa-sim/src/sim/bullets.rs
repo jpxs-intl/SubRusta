@@ -89,13 +89,6 @@ fn fly(b: &mut Bullet) -> (Vec3, Vec3) {
 }
 
 impl Sim {
-    /// create_bullet for a bullet nobody fired.
-    pub fn spawn_bullet(&mut self, kind: i32, pos: Vec3, vel: Vec3) {
-        if create_bullet(&mut self.bullets, kind, pos, vel, None, self.bodies.gravity_scale) {
-            self.stats.bullets += 1;
-        }
-    }
-
     /// A bullet stopped by a vehicle: a tyre loses health and bursts, a window breaks, or the vehicle is hurt.
     fn bullet_hit_vehicle(&mut self, i: usize, vid: usize, hit: VehicleHit) {
         let b = self.bullets[i].clone();
@@ -140,7 +133,7 @@ impl Sim {
 
     /// bullet_simulation: every bullet slows down with drag and moves; the nearest human bone, vehicle, item or level
     /// surface on the way stops it.
-    pub fn bullet_simulation(&mut self) {
+    pub(crate) fn bullet_simulation(&mut self) {
         for i in 0..self.bullets.len() {
             let (from, to) = fly(&mut self.bullets[i]);
             let (best, target, found) = self.bullet_target(from, to, self.bullets[i].player);
@@ -316,17 +309,22 @@ impl Sim {
 
     /// bullet_TTL: every bullet loses a tick of life and is gone at 0, the last bullet taking its place (and counted
     /// down in the same pass).
-    pub fn bullet_ttl(&mut self) {
+    pub(crate) fn bullet_ttl(&mut self) {
         let mut i = 0;
+
         while i < self.bullets.len() {
             let b = &mut self.bullets[i];
+
             if b.time <= 65535 {
                 b.time -= 1;
+
                 if b.time <= 0 {
                     self.bullets.swap_remove(i);
+
                     continue;
                 }
             }
+
             i += 1;
         }
     }

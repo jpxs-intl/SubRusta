@@ -73,26 +73,14 @@ impl Sim {
 
     /// The menu part of logic_player: standing in a dealership opens its front page (menu 9), in a store, clothing
     /// store or burger shop its list (menu 10), in a bank the bank (menu 13); leaving the building closes menus 9 to 11.
-    /// In world mode a human in none of them gets the corporation base menus, and every player's buttons are rebuilt.
+    /// The mode then builds each player's base menus.
     pub(crate) fn update_shop_menus(&mut self) {
-        let world = self.gamemode == rosa_protocol::GameMode::World;
+        let mode = self.mode;
         for pid in self.players.iter().map(|(_, p)| p.player_id).collect::<Vec<_>>() {
-            let outside = self.shop_menu(pid);
-            if world {
-                if let Some(pos) = outside.flatten() {
-                    self.corp_base_menu(pid, pos);
-                }
-                self.corp_tab_menu(pid);
-            } else {
-                if let Some(pos) = outside.flatten() {
-                    self.round_base_menu(pid, pos);
-                }
-                self.round_menu_buttons(pid);
-            }
+            let outside = self.shop_menu(pid).flatten();
+            mode.base_menus(self, pid, outside);
         }
-        if world {
-            self.copy_corp_money();
-        }
+        mode.menus_done(self);
     }
 
     /// One player's shop menu. Returns None for a player without a human, and the human's position when it is in no
@@ -108,8 +96,7 @@ impl Sim {
             return None;
         }
         if p.human.is_none() {
-            use rosa_protocol::GameMode as M;
-            if matches!(self.gamemode, M::Racing | M::Round | M::Eliminator | M::CoOp | M::Versus) {
+            if self.rules.intermission_lobby {
                 p.menu = if self.gamestate == rosa_protocol::clientbound::game::GameState::Intermission { MenuType::Lobby } else { MenuType::Empty };
             }
             return None;
@@ -288,7 +275,7 @@ impl Sim {
             let e = p.make_update_player_event(self.tick);
             self.events.push(e);
         }
-        if self.gamemode == rosa_protocol::GameMode::Round
+        if self.rules.round_money_updates
             && let Some(p) = self.players.get(pid.idx())
         {
             let e = p.make_update_round_event(self.tick);
@@ -456,45 +443,5 @@ pub fn stock_gun_stores(buildings: &mut [BuildingRecord], item_types: &[ItemType
 
     for b in buildings.iter_mut().filter(|b| b.kind == GUN_STORE) {
         b.shop = stock.clone();
-    }
-}
-
-impl Sim {
-    pub fn buildings(&self) -> &[BuildingRecord] {
-        &self.world.map.level.buildings
-    }
-
-    pub fn building(&self, k: usize) -> Option<&BuildingRecord> {
-        self.world.map.level.buildings.get(k)
-    }
-
-    pub fn building_mut(&mut self, k: usize) -> Option<&mut BuildingRecord> {
-        self.world.map.level.buildings.get_mut(k)
-    }
-
-    pub fn run_dealership_buy(&mut self, pid: PlayerId, button: u32) {
-        self.dealership_buy_vehicle(pid, button);
-    }
-
-    pub fn run_sell_vehicle(&mut self, pid: PlayerId) {
-        self.player_sell_vehicle(pid);
-    }
-
-    /// Puts `item` alone in the human's right hand without linking it.
-    pub fn force_hand_item(&mut self, h: usize, item: usize) {
-        if let Some(hu) = self.humans.get_mut(h) {
-            hu.inventory[0].count = 1;
-            hu.inventory[0].items[0] = item as i32;
-        }
-    }
-}
-
-impl Sim {
-    /// The bank menu's button `button`, pressed with the menu open.
-    pub fn run_bank_action(&mut self, pid: PlayerId, button: u32) {
-        if let Some(p) = self.players.get_mut(pid.idx()) {
-            p.menu = MenuType::WorldBank2;
-        }
-        self.bank_menu_action(pid, button);
     }
 }

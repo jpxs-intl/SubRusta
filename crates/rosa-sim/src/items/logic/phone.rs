@@ -48,7 +48,7 @@ pub struct Phone {
 }
 
 impl Sim {
-    pub fn phone_update(&mut self, id: usize) {
+    pub(crate) fn phone_update(&mut self, id: usize) {
         let Some(p) = self.items.get(id).and_then(|i| i.state.phone()) else { return };
         let e = EventUpdatePhone { item_id: id as i32, phone_status: p.status as i32, display_phone_number: p.display_number, phone_texture: p.texture };
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdatePhone(e) });

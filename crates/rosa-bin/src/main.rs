@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use rosa_net::{Edge, ServerListing, masterserver::MasterServer};
-use rosa_sim::{Inbound, sim::Sim};
+use rosa_sim::{Inbound, Sim};
 use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::config::ConfigMain;
@@ -11,6 +11,10 @@ pub mod config;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ConfigMain::read_from_file();
+    let mode = rosa_sim::by_name(&config.gamemode).unwrap_or_else(|| {
+        eprintln!("[Config] unknown gamemode {:?} - using round", config.gamemode);
+        rosa_sim::by_name("round").unwrap()
+    });
 
     let (in_tx, in_rx) = mpsc::unbounded_channel::<Inbound>();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<(Vec<u8>, SocketAddr)>();
@@ -36,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::thread::Builder::new()
             .name("sim".into())
             .spawn(move || {
-                let mut sim = Sim::new(in_rx, out_tx, map_name, config.gamemode, config.max_players);
+                let mut sim = Sim::new(in_rx, out_tx, map_name, mode, config.max_players);
                 sim.set_admin_password(config.admin_password.clone());
                 sim.set_world_max_time(config.round_time as i32 * 60);
                 sim.run()
@@ -47,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_listing = ServerListing {
         build: 38,
         address: [4, 43, 217, 32],
-        gamemode: config.gamemode.client_mode(),
+        gamemode: mode.client_mode(),
         max_players: config.max_players,
         password_protected: !config.server_password.is_empty(),
         server_password: config.server_password.clone(),

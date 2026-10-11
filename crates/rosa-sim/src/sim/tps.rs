@@ -18,7 +18,7 @@ pub struct TickStats {
 }
 
 impl TickStats {
-    pub fn record(&mut self, start: Instant, work: Duration) {
+    pub(crate) fn record(&mut self, start: Instant, work: Duration) {
         if self.starts.len() == WINDOW {
             self.starts.pop_front();
             self.work.pop_front();

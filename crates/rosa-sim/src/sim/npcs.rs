@@ -217,24 +217,3 @@ impl Sim {
         }
     }
 }
-
-impl Sim {
-    pub fn npc_list(&self) -> &[Option<Npc>] {
-        &self.npcs
-    }
-
-    pub fn run_do_npc(&mut self) {
-        self.do_npc();
-    }
-
-    /// A non-bot player from create_player on the given team, with a human at `pos`.
-    pub fn npc_test_player(&mut self, team: Team, pos: Vec3) -> Option<(PlayerId, usize)> {
-        let pid = self.create_player()?;
-        let p = self.players.get_mut(pid.idx())?;
-        p.team = team;
-        p.is_bot = false;
-        let h = self.spawn_human(pos, &rosa_physics::rotation::IDENTITY, Some(pid))?;
-        self.players.get_mut(pid.idx())?.human = Some(h);
-        Some((pid, h))
-    }
-}

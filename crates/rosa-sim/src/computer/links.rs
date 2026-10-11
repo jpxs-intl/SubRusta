@@ -34,16 +34,16 @@ impl Default for LinkPool {
 
 impl LinkPool {
     /// A link in use.
-    pub fn get(&self, l: i32) -> Option<&Link> {
+    pub(crate) fn get(&self, l: i32) -> Option<&Link> {
         self.record(l).filter(|k| k.active)
     }
 
     /// A link record whether in use or not (a freed one keeps what it last held).
-    pub fn record(&self, l: i32) -> Option<&Link> {
+    pub(crate) fn record(&self, l: i32) -> Option<&Link> {
         usize::try_from(l).ok().and_then(|l| self.links.get(l))
     }
 
-    pub fn free(&mut self, l: i32) {
+    pub(crate) fn free(&mut self, l: i32) {
         if let Some(k) = usize::try_from(l).ok().and_then(|l| self.links.get_mut(l)) {
             k.active = false;
         }

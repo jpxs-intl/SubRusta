@@ -1,10 +1,7 @@
 use rosa_math::vector::Vector;
-use rosa_protocol::{
-    GameMode,
-    clientbound::game::{
-        GameState, ItemKind,
-        events::{Event, ServerEvent, bullet::EventBullet, sound::Sound},
-    },
+use rosa_protocol::clientbound::game::{
+    GameState, ItemKind,
+    events::{Event, ServerEvent, bullet::EventBullet, sound::Sound},
 };
 
 use super::Sim;
@@ -164,7 +161,7 @@ impl Sim {
     /// Items held, or left inside a gun on the ground, never despawn; anything else lying around despawns after
     /// 18000 ticks (counted twice a tick with cleanup_items), except in round and eliminator.
     fn item_despawn_rules(&mut self, id: usize) {
-        let modeless = matches!(self.gamemode, GameMode::Round | GameMode::Eliminator);
+        let modeless = self.rules.keep_items;
         let Some(item) = self.items.get(id) else { return };
         let (kind, d, held) = (item.item_type, item.despawn_time, item.parent_human != -1);
         let disk = kind.is_disk();
@@ -215,7 +212,7 @@ impl Sim {
         }
     }
 
-    pub fn mark_item_for_deletion(&mut self, item_id: usize) {
+    pub(crate) fn mark_item_for_deletion(&mut self, item_id: usize) {
         if let Some(item) = self.items.get_mut(item_id) {
             item.despawn_time = 0
         }

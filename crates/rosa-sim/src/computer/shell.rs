@@ -1,6 +1,6 @@
 use super::{COLUMNS, Computer, DISK_OP_COPY, DISK_OP_DIR, DRIVE_A, DRIVE_C, LINES, Mode, WHITE, fs, put_text, text_len};
 use crate::{
-    items::{self, state::ItemState},
+    items::state::ItemState,
     sim::Sim,
 };
 
@@ -108,7 +108,7 @@ impl Sim {
     }
 
     /// A key pressed on the computer in a player's hand.
-    pub fn computer_keypress(&mut self, id: usize, key: i32) {
+    pub(crate) fn computer_keypress(&mut self, id: usize, key: i32) {
         self.with_computer(id, |sim, c| sim.computer_key(id, c, key));
     }
 
@@ -627,40 +627,5 @@ impl Sim {
         if c.mode == Mode::Snake {
             self.snake_tick(id, c);
         }
-    }
-}
-
-impl Sim {
-    pub fn computer(&self, id: usize) -> Option<&Computer> {
-        match &self.items.get(id)?.state {
-            ItemState::Computer(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    pub fn file_system(&self) -> &fs::FileSystem {
-        &self.fs
-    }
-
-    pub fn file_system_mut(&mut self) -> &mut fs::FileSystem {
-        &mut self.fs
-    }
-
-    pub fn line_links(&self) -> &crate::computer::links::LinkPool {
-        &self.links
-    }
-
-    pub fn set_item_volume(&mut self, id: usize, volume: i32) {
-        if let Some(i) = self.items.get_mut(id) {
-            i.volume = volume;
-        }
-    }
-
-    pub fn insert_item_in(&mut self, parent: usize, child: usize) -> bool {
-        items::attach_child(&mut self.items, &self.item_types, parent, child)
-    }
-
-    pub fn run_logic_computer(&mut self, id: usize) {
-        self.with_computer(id, |sim, c| sim.logic_computer(id, c));
     }
 }

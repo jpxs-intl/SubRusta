@@ -6,17 +6,20 @@ use rosa_protocol::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-pub mod computer;
-pub mod human;
-pub mod input;
-pub mod items;
-pub mod player;
-pub mod sim;
-pub mod time;
-pub mod traffic;
-pub mod vehicle;
-pub mod world;
-pub mod gamemode;
+pub(crate) mod computer;
+pub(crate) mod gamemode;
+pub(crate) mod human;
+pub(crate) mod input;
+pub(crate) mod items;
+pub(crate) mod player;
+pub(crate) mod sim;
+pub(crate) mod time;
+pub(crate) mod traffic;
+pub(crate) mod vehicle;
+pub(crate) mod world;
+
+pub use gamemode::{Mode, ModeHooks, ModeSync, by_name, rules::ModeRules};
+pub use sim::Sim;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct PlayerId(pub u32);

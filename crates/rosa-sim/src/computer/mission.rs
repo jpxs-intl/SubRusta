@@ -94,7 +94,7 @@ impl Sim {
                     UPLOAD_ROW => b"UPLOAD FILE".to_vec(),
                     EXIT_ROW => b"EXIT".to_vec(),
                     _ => {
-                        let m = self.world_missions.missions.get(r as usize).cloned().unwrap_or_default();
+                        let m = self.modes.world.missions.missions.get(r as usize).cloned().unwrap_or_default();
                         let mut s = if m.state != 0 {
                             format!("{}. PROJECT {}                ", r + 1, m.names[3])
                         } else {
@@ -121,7 +121,7 @@ impl Sim {
             c.mission.page = 0;
             return;
         };
-        let mission = self.world_missions.missions.get(m).cloned().unwrap_or_default();
+        let mission = self.modes.world.missions.missions.get(m).cloned().unwrap_or_default();
         for row in 0..SCREEN_LINES {
             match row {
                 0 => {
@@ -337,8 +337,8 @@ impl Sim {
                 let f = c.mission.files.get(c.mission.file as usize).copied().unwrap_or(0);
                 let data = self.fs.volume(vol).and_then(|v| v.files.get(f as usize)).map_or(-1, |f| f.data);
                 for m in 0..MISSION_ROWS as usize {
-                    if self.world_missions.missions.get(m).is_some_and(|x| x.document == data) {
-                        if !self.world_missions.missions[m].teams[team].uploaded {
+                    if self.modes.world.missions.missions.get(m).is_some_and(|x| x.document == data) {
+                        if !self.modes.world.missions.missions[m].teams[team].uploaded {
                             self.file_trade(m, team);
                         }
                         c.mission.selected = m as i32;

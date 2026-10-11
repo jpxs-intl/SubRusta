@@ -1,16 +1,18 @@
 use glam::Vec3;
 use rosa_physics::rotation::{IDENTITY, rotate_orientation};
 use rosa_protocol::{
-    Team,
+    GameMode, Team,
     clientbound::game::{
         GameState, ItemKind, MenuType, VehicleKind,
-        events::{Event, ServerEvent, mission::EventMission},
+        events::{Event, ServerEvent, chat::ChatType, mission::EventMission},
     },
 };
 
-use super::{Sim, missions::MISSION_SPOTS};
-use crate::PlayerId;
 use crate::time::{TICKS_PER_MINUTE, TICKS_PER_SECOND};
+use crate::{
+    PlayerId,
+    sim::{Sim, missions::MISSION_SPOTS},
+};
 
 /// Up to eight groups of three: a target, the eliminator after them and the target's protector.
 pub const MAX_GROUPS: usize = 8;
@@ -19,7 +21,6 @@ const LOBBY_TIME: i32 = 1800;
 const ALL_READY_TIME: i32 = 180;
 const GAME_TIME: i32 = 15 * TICKS_PER_MINUTE;
 const RESTART_TIME: i32 = 20 * TICKS_PER_SECOND;
-const TRAFFIC_CARS: i32 = 128;
 /// The streets' intersections 18, 40, 50 and 51 are never spawned at (a bit mask over the first 52).
 const BLOCKED_INTERSECTIONS: u64 = 0xc000100040000;
 const LAST_MASKED_INTERSECTION: usize = 51;
@@ -102,7 +103,7 @@ impl Sim {
         self.gamestate = GameState::Intermission;
         self.game_timer = LOBBY_TIME;
         self.round_elapsed = 0;
-        self.eliminator.count = 0;
+        self.modes.eliminator.count = 0;
         self.reset_corporation_rounds();
         self.reset_lobby_players_and_world();
     }
@@ -129,18 +130,15 @@ impl Sim {
     /// The hunt begins: traffic, the groups dealt out of the ready players, everyone ready spawned at a street
     /// corner of their own and told their role, the corporations' tables stocked and their doors opened.
     fn eliminator_setup(&mut self) {
-        if !self.world.map.streets.streets.is_empty() {
-            let map = &self.world.map;
-            crate::traffic::spawn::create_traffic(&mut self.traffic, map, &self.vehicle_types, self.gamemode, TRAFFIC_CARS);
-        }
-        let e = &mut self.eliminator;
+        self.do_traffic = Some(crate::sim::traffic::TRAFFIC_CARS);
+        let e = &mut self.modes.eliminator;
         e.count = 0;
         e.groups[0].target = 0;
         e.groups[0].eliminator = 0;
         e.groups[0].protector = 0;
         let mut used = vec![false; self.world.map.streets.intersections.len()];
         let ready: Vec<i32> = self.players.iter().filter(|(_, p)| p.is_ready && !p.is_bot).map(|(i, _)| i as i32).collect();
-        self.eliminator.ready = ready.len() as i32;
+        self.modes.eliminator.ready = ready.len() as i32;
         self.deal_groups(ready);
         let spawning: Vec<PlayerId> = self.players.iter().filter(|(_, p)| p.is_ready && !p.is_bot).map(|(i, _)| PlayerId(i as u32)).collect();
         for pid in spawning {
@@ -152,10 +150,10 @@ impl Sim {
             self.corp_state[k].door_open = true;
         }
         self.apply_team_doors();
-        for i in 0..self.eliminator.count {
-            let target = self.eliminator.groups[i].target;
+        for i in 0..self.modes.eliminator.count {
+            let target = self.modes.eliminator.groups[i].target;
             let pos = self.player_human_pos(target).unwrap_or(Vec3::ZERO);
-            self.eliminator.groups[i].current = pos;
+            self.modes.eliminator.groups[i].current = pos;
         }
         self.gamestate = GameState::InGame;
         self.game_timer = GAME_TIME;
@@ -168,12 +166,12 @@ impl Sim {
         let least = (rand::random_range(0..3) + 3) as usize;
         let mut first = true;
         loop {
-            if !first && (self.eliminator.count > MAX_GROUPS - 1 || list.len() < least) {
+            if !first && (self.modes.eliminator.count > MAX_GROUPS - 1 || list.len() < least) {
                 break;
             }
             first = false;
-            let n = self.eliminator.count;
-            let g = &mut self.eliminator.groups[n];
+            let n = self.modes.eliminator.count;
+            let g = &mut self.modes.eliminator.groups[n];
             if !list.is_empty() {
                 let i = rand::random_range(0..list.len() as i32) as usize;
                 g.eliminator = list.remove(i);
@@ -186,7 +184,7 @@ impl Sim {
                     }
                 }
             }
-            self.eliminator.count += 1;
+            self.modes.eliminator.count += 1;
         }
     }
 
@@ -226,7 +224,7 @@ impl Sim {
         let p = self.players.get_mut(pid.idx()).unwrap();
         p.human = h;
         if let Some(h) = h {
-            let eliminator = self.eliminator.groups[..self.eliminator.count].iter().any(|g| g.eliminator == pid.0 as i32);
+            let eliminator = self.modes.eliminator.groups[..self.modes.eliminator.count].iter().any(|g| g.eliminator == pid.0 as i32);
             let hu = self.humans.get_mut(h).unwrap();
             if eliminator {
                 hu.health.vitality = 100;
@@ -240,8 +238,8 @@ impl Sim {
         self.events.push(e);
         let me = pid.0 as i32;
         let mut told = false;
-        for i in 0..self.eliminator.count {
-            let g = self.eliminator.groups[i];
+        for i in 0..self.modes.eliminator.count {
+            let g = self.modes.eliminator.groups[i];
             if g.eliminator == me {
                 told = true;
                 self.push_mission(me, 0, 1, 0, None);
@@ -339,9 +337,9 @@ impl Sim {
             } else {
                 5
             };
-        let n = self.eliminator.count;
-        if let Some(pos) = (0..n).filter_map(|i| self.player_human_pos(self.eliminator.groups[i].target)).last() {
-            self.eliminator.last_target = pos;
+        let n = self.modes.eliminator.count;
+        if let Some(pos) = (0..n).filter_map(|i| self.player_human_pos(self.modes.eliminator.groups[i].target)).last() {
+            self.modes.eliminator.last_target = pos;
         }
         enum Next {
             Drop,
@@ -357,14 +355,14 @@ impl Sim {
                     checked_drop = true;
                 } else {
                     for i in 0..n {
-                        let g = &mut self.eliminator.groups[i];
+                        let g = &mut self.modes.eliminator.groups[i];
                         g.revealed = g.current;
                         let g = *g;
                         if self.round_elapsed > ELIMINATOR_REVEAL_START {
                             self.push_mission(g.eliminator, 1, 0, 0, Some(g.revealed));
                         }
-                        let now = self.player_human_pos(g.target).unwrap_or(self.eliminator.last_target);
-                        self.eliminator.groups[i].current = now;
+                        let now = self.player_human_pos(g.target).unwrap_or(self.modes.eliminator.last_target);
+                        self.modes.eliminator.groups[i].current = now;
                         self.push_mission(g.protector, 1, 0, 0, Some(now));
                     }
                 }
@@ -377,8 +375,8 @@ impl Sim {
             self.eliminator_drop(ready);
             next = Next::Check;
         }
-        let groups = self.eliminator.groups;
-        let n = self.eliminator.count;
+        let groups = self.modes.eliminator.groups;
+        let n = self.modes.eliminator.count;
         let eliminators = matches!(next, Next::Check) && (0..n).any(|i| self.player_alive(groups[i].eliminator));
         if !eliminators {
             self.set_eliminator_scores(SCORE, 0, SCORE);
@@ -411,8 +409,8 @@ impl Sim {
         self.game_timer = RESTART_TIME;
         let people: Vec<i32> = self.players.iter().filter(|(_, p)| !p.is_bot).map(|(i, _)| i as i32).collect();
         for pid in people {
-            for i in 0..self.eliminator.count {
-                let g = self.eliminator.groups[i];
+            for i in 0..self.modes.eliminator.count {
+                let g = self.modes.eliminator.groups[i];
                 self.push_mission(pid, 2, i as i32, (g.eliminator << 10) + g.target + (g.protector << 20), None);
             }
         }
@@ -423,10 +421,10 @@ impl Sim {
     fn eliminator_drop(&mut self, ready: usize) {
         let r = rand::random_range(0..8);
         let v = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, DROP_SPREAD, 0.0);
-        let spot = MISSION_SPOTS[r as usize].pos;
+        let spot = MISSION_SPOTS[r as usize];
         let p = v + spot;
         self.create_item(ItemKind::Grenade, p, None, IDENTITY);
-        let spot = MISSION_SPOTS[rand::random_range(0..8) as usize].pos;
+        let spot = MISSION_SPOTS[rand::random_range(0..8) as usize];
         let (gun, mag) = random_gun();
         for j in 0..4 {
             let v = crate::human::arms::calculate_spread_vector(&mut self.noise_seed, DROP_GUN_SPREAD, 0.0);
@@ -496,40 +494,76 @@ impl Sim {
     }
 }
 
-/// Hooks for checking eliminator mode against the original server.
+/// An eliminator death adds 18000 ticks split between a third of the starting players, up to 50400.
+const DEATH_CUT_TIME: i32 = 5 * TICKS_PER_MINUTE;
+const DEATH_CUT_CAP: i32 = 50400;
+
 impl Sim {
-    pub fn eliminator_state(&self) -> EliminatorState {
-        self.eliminator
+    /// broadcast_death_cut_time: everyone hears of the death, and before the last 50400 ticks the clock gains 18000
+    /// ticks shared between a third of the players who started.
+    pub(crate) fn broadcast_death_cut_time(&mut self, pid: PlayerId) {
+        let Some(name) = self.players.get(pid.idx()).map(|p| p.username.clone()) else { return };
+        self.send_chat(&format!("{name} has died"), ChatType::EliminatorAnnouncement, -1, 0);
+        let timer = self.game_timer;
+        let thirds = self.modes.eliminator.ready / 3;
+        if timer <= DEATH_CUT_CAP && thirds > 0 {
+            self.game_timer = (DEATH_CUT_TIME / thirds + timer).min(DEATH_CUT_CAP);
+        }
+    }
+}
+
+/// Eliminator mode's hooks: the hunt, with a lobby and every death announced.
+pub struct Hooks;
+
+impl super::ModeHooks for Hooks {
+    fn name(&self) -> &'static str {
+        "eliminator"
     }
 
-    pub fn eliminator_tick(&mut self) {
-        self.tick_eliminator();
+    fn aliases(&self) -> &'static [&'static str] {
+        &["e"]
     }
 
-    pub fn round_number(&self) -> i32 {
-        self.round_number as i32
+    fn client_mode(&self) -> GameMode {
+        GameMode::Eliminator
     }
 
-    pub fn set_round_elapsed(&mut self, e: i32) {
-        self.round_elapsed = e;
+    fn rules(&self, _sim: &Sim) -> super::rules::ModeRules {
+        super::rules::ModeRules {
+            map: Some("round"),
+            reset_traffic: None,
+            parked_cars: true,
+            keep_bodies: true,
+            keep_items: true,
+            punish_team_kills: false,
+            door_knocks: false,
+            intermission_lobby: true,
+            ready_start: false,
+            ..Default::default()
+        }
     }
 
-    /// The events from `from` on as the gdb harness prints them: the type id, with a mission event's fields.
-    pub fn eliminator_events(&self, from: u16) -> Vec<String> {
-        let bits = |p: [f32; 3]| format!("{:x},{:x},{:x}", p[0].to_bits(), p[1].to_bits(), p[2].to_bits());
-        (0..self.events.count.wrapping_sub(from))
-            .filter_map(|i| self.events.get(from.wrapping_add(i)))
-            .map(|e| match &e.kind {
-                ServerEvent::Mission(m) => format!("21:{},{},{},{}@{}", m.player, m.kind, m.role, m.value, bits(m.pos)),
-                ServerEvent::UpdateVehicleTypeColor(_) => "3".into(),
-                ServerEvent::UpdatePhone(_) => "6".into(),
-                ServerEvent::UpdatePlayer(_) => "7".into(),
-                ServerEvent::UpdatePlayerRound(_) => "8".into(),
-                ServerEvent::TeamDoor(_) => "10".into(),
-                ServerEvent::UpdateCorporation(_) => "12".into(),
-                ServerEvent::UpdateStock(_) => "13".into(),
-                _ => "?".into(),
-            })
-            .collect()
+    fn reset(&self, sim: &mut Sim) {
+        sim.reset_eliminator();
+    }
+
+    fn tick(&self, sim: &mut Sim) {
+        sim.tick_eliminator();
+    }
+
+    fn on_menu(&self, sim: &mut Sim, pid: PlayerId, menu: u8, button: u32) -> bool {
+        if menu != super::round::LOBBY_MENU {
+            return false;
+        }
+        sim.round_lobby(pid, button);
+        true
+    }
+
+    fn on_death(&self, sim: &mut Sim, pid: PlayerId) {
+        sim.broadcast_death_cut_time(pid);
+    }
+
+    fn switchable(&self) -> bool {
+        true
     }
 }

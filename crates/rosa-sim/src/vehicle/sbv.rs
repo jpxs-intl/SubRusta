@@ -11,7 +11,6 @@ const MAX_MESH_EDGES: usize = 256;
 #[derive(Clone, Debug)]
 pub struct VehicleBody {
     pub file: VehicleBodyFile,
-    pub centred: Vec<Vec3>,
     pub mesh: ConvexHull,
 }
 
@@ -25,7 +24,7 @@ fn register_unique_pair(edges: &mut Vec<[usize; 2]>, a: usize, b: usize) {
 
 impl VehicleBody {
     /// load_sbv: reads `path`; None if it cannot be read.
-    pub fn load(path: &std::path::Path) -> Option<Self> {
+    pub(crate) fn load(path: &std::path::Path) -> Option<Self> {
         let mut file = VehicleBodyFile::load(path).ok()?;
         let positions: Vec<Vec3> = file.nodes.iter().map(|n| n.pos.0).collect();
         let centred = match file.offset {
@@ -54,6 +53,6 @@ impl VehicleBody {
         }
         let faces = file.faces.iter().map(|f| std::array::from_fn(|k| f.indices.get(k).map_or(0, |&i| i as usize))).collect();
         let mesh = ConvexHull::new(centred.clone(), faces, edges);
-        Some(Self { file, centred, mesh })
+        Some(Self { file, mesh })
     }
 }

@@ -1,5 +1,5 @@
 use rosa_protocol::{
-    GameMode, Team,
+    Team,
     clientbound::game::{ItemKind, MenuType, events::chat::ChatType},
 };
 
@@ -78,12 +78,12 @@ impl Sim {
     /// randomize_corp_vehicle_stock: each vehicle still on sale is sold off with a 1 in 8 chance, then every empty slot
     /// gets a random type and colour at its list price.
     pub(crate) fn randomize_corp_vehicle_stock(&mut self) {
-        for o in self.vehicle_stock.iter_mut().filter(|o| o.active) {
+        for o in self.modes.round.vehicle_stock.iter_mut().filter(|o| o.active) {
             if rand::random_ratio(1, 8) {
                 o.active = false;
             }
         }
-        for o in self.vehicle_stock.iter_mut().filter(|o| !o.active) {
+        for o in self.modes.round.vehicle_stock.iter_mut().filter(|o| !o.active) {
             let kind = crate::vehicle::types::random_stock_vehicle();
             let price = self.vehicle_types.get(kind as usize).map_or(0, |t| t.price);
             let color = rand::random_range(0..VEHICLE_COLORS);
@@ -91,12 +91,22 @@ impl Sim {
         }
     }
 
+    /// The base menus of every mode but world: the buy menus at a corporation's base (for a human in no shop or bank),
+    /// and the vehicle and manager pages' buttons.
+    pub(crate) fn round_base_menus(&mut self, pid: PlayerId, outside: Option<glam::Vec3>) {
+        if let Some(pos) = outside {
+            self.round_base_menu(pid, pos);
+        }
+        self.round_menu_buttons(pid);
+    }
+
     /// The round mode part of logic_player for a human in no shop or bank: a corporation member inside their base gets
     /// the weapons page when no menu is open; anywhere else the menu closes.
     pub(crate) fn round_base_menu(&mut self, pid: PlayerId, pos: glam::Vec3) {
-        let at_base = matches!(self.gamemode, GameMode::Round | GameMode::Versus)
+        let at_base = self.rules.corp_buy_menus
             && self.players.get(pid.idx()).and_then(|p| team_index(p.team)).is_some_and(|k| self.world.map.level.bases[k].contains(pos));
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
+
         if !at_base {
             p.menu = MenuType::Empty;
         } else if p.menu == MenuType::Empty {
@@ -111,7 +121,7 @@ impl Sim {
         let mut buttons = Vec::new();
         match p.menu as u8 {
             17 => {
-                for (i, o) in self.vehicle_stock.iter().enumerate() {
+                for (i, o) in self.modes.round.vehicle_stock.iter().enumerate() {
                     if !o.active {
                         buttons.push((SOLD, "SOLD".to_string(), Some(0)));
                         continue;
@@ -213,7 +223,7 @@ impl Sim {
     /// A vehicle from the stock, parked in the first free space of the buyer's base (who must be inside it), its key
     /// into a pocket.
     fn round_buy_vehicle(&mut self, pid: PlayerId, human: Buyer, slot: usize) {
-        let offer = self.vehicle_stock[slot];
+        let offer = self.modes.round.vehicle_stock[slot];
         let Some(p) = self.players.get(pid.idx()) else { return };
         let Some(k) = team_index(p.team) else { return };
         if !offer.active || p.money < offer.price {
@@ -233,7 +243,7 @@ impl Sim {
         p.money -= offer.price;
         let e = p.make_update_round_event(self.tick);
         self.events.push(e);
-        self.vehicle_stock[slot].active = false;
+        self.modes.round.vehicle_stock[slot].active = false;
     }
 
     /// corporation_spawn_vehicle: a vehicle in the first free car space of the corporation's base.
@@ -277,7 +287,7 @@ impl Sim {
             self.delete_human(h);
         }
 
-        self.sell_all_stocks(pid);
+        self.sell_all_stocks(tid);
 
         let Some(t) = self.players.get_mut(tid.idx()) else { return };
         t.team = Team::Spectator;
@@ -349,30 +359,5 @@ impl Sim {
                 }
             }
         }
-    }
-}
-
-/// Hooks for checking the round buy menus against the original server.
-impl Sim {
-    pub fn press_buy_button(&mut self, pid: PlayerId, packed: u32) {
-        self.round_buy_menu(pid, packed);
-    }
-
-    pub fn restock_round_vehicles(&mut self) {
-        self.randomize_corp_vehicle_stock();
-    }
-
-    pub fn vehicle_offers(&self) -> &[VehicleOffer] {
-        &self.vehicle_stock
-    }
-
-    pub fn vehicle_count(&self) -> usize {
-        self.vehicles.iter().count()
-    }
-}
-
-impl Sim {
-    pub fn world_bases(&self) -> &[crate::world::building::CorporationBase] {
-        &self.world.map.level.bases
     }
 }

@@ -1,15 +1,18 @@
 use rosa_map::file_types::srk::SrkPlayerData;
 use rosa_protocol::{
-    GameMode, Team,
-    clientbound::game::events::{Event, ServerEvent, chat::ChatType, update_stock::EventUpdateStock},
+    Team,
+    clientbound::game::events::{Event, ServerEvent, update_stock::EventUpdateStock},
 };
 
 use super::Sim;
-use crate::time::{TICKS_PER_MINUTE, TICKS_PER_SECOND};
+use crate::time::TICKS_PER_SECOND;
 use crate::{PlayerId, player::Player};
 
 pub const CORPORATIONS: usize = 6;
 const MAX_STOCKS: i32 = 9999;
+/// The share of the price a sale pays: 95%, or 98% in round mode.
+pub(crate) const SELL_RATE: f32 = 0.95;
+pub(crate) const ROUND_SELL_RATE: f32 = 0.98;
 const TAX_FREE: i32 = 10000;
 const TAX_RATE: f32 = 0.05;
 const STOCK_TAX_FREE: f32 = 10000.0;
@@ -20,26 +23,24 @@ pub struct Corporation {
     /// Shares held by players.
     pub shares: i32,
     pub price: f32,
-    /// Subtracted from each running project's spend when a share's sale price is worked out.
-    pub unk_14: i32,
 }
 
 impl Default for Corporation {
     fn default() -> Self {
-        Self { shares: 100, price: 100.0, unk_14: 0 }
+        Self { shares: 100, price: 100.0 }
     }
 }
 
 impl Sim {
     /// sell_all_stocks: sells all of a players stocks
-    pub fn sell_all_stocks(&mut self, pid: PlayerId) {
+    pub(crate) fn sell_all_stocks(&mut self, pid: PlayerId) {
         let held = self.players.get(pid.idx()).map_or(0, |p| p.stocks);
         self.sell_stocks(pid, held);
     }
 
-    /// player_sell_stocks: sells `n` of the player's shares at `sim.stock_sell_rate` of the price less what the
+    /// player_sell_stocks: sells `n` of the player's shares at `stock_sell_rate` of the price less what the
     /// corporation's running projects have spent per share.
-    pub fn sell_stocks(&mut self, pid: PlayerId, n: i32) {
+    pub(crate) fn sell_stocks(&mut self, pid: PlayerId, n: i32) {
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         let Some(c) = corporation_of(player.team) else { return };
 
@@ -55,16 +56,16 @@ impl Sim {
 
         for m in self.corp_state.get(c).map_or(&[][..], |p| &p.missions[..]) {
             if m.active && m.provided_cash > 0 && shares > 0 {
-                price -= (m.provided_cash - corp.unk_14).max(0) as f32 / shares as f32;
+                price -= m.provided_cash.max(0) as f32 / shares as f32;
             }
         }
         player.stocks = held - n;
-        player.money = ((price * self.stock_sell_rate) * n as f32 + player.money as f32) as i32;
+        player.money = ((price * self.rules.stock_sell_rate) * n as f32 + player.money as f32) as i32;
         corp.shares = shares - n;
     }
 
     /// purchase_stocks: buys up to `n` shares (never past 9999 held) if the player has more money than they cost.
-    pub fn purchase_stocks(&mut self, pid: PlayerId, n: i32) {
+    pub(crate) fn purchase_stocks(&mut self, pid: PlayerId, n: i32) {
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
         let Some(c) = corporation_of(player.team) else { return };
 
@@ -159,17 +160,6 @@ pub fn sanitize_name(raw: &[u8]) -> String {
     if name.is_empty() { "Noname".into() } else { name }
 }
 
-/// The money a player has on joining: world mode tops it up to mincash, versus sets it to 250 and weekly round play
-/// to the round's startcash.
-pub fn joining_money(mode: GameMode, money: i32, mincash: i32, weekly_startcash: Option<i32>) -> i32 {
-    match (mode, weekly_startcash) {
-        (GameMode::World, _) if money < mincash => mincash,
-        (GameMode::Versus, _) => 250,
-        (GameMode::Round, Some(cash)) => cash,
-        _ => money,
-    }
-}
-
 const SUIT_MODEL: u8 = 1;
 const CASUAL_MODEL: u8 = 0;
 const SUIT_COLORS: [u8; CORPORATIONS] = [6, 10, 11, 2, 1, 2];
@@ -183,9 +173,6 @@ fn keeps_suit(suit: u8) -> bool {
 pub const WORLD_TIME_START: i32 = 1728010;
 const WORLD_RESPAWN_BASE: i32 = 20 * TICKS_PER_SECOND;
 const WORLD_RESPAWN_PER_CRIME: i32 = 30;
-/// An eliminator death adds 18000 ticks split between a third of the starting players, up to 50400.
-const DEATH_CUT_TIME: i32 = 5 * TICKS_PER_MINUTE;
-const DEATH_CUT_CAP: i32 = 50400;
 
 impl Sim {
     /// update_suitcolor_model: moves the player to another team and dresses them for it (the corporation's suit and
@@ -259,26 +246,25 @@ impl Sim {
     /// The death bookkeeping of human_simulation for a dead human's player: world mode sells their shares and sets
     /// the respawn wait, every mode taxes their wealth, then the player loses the human.
     pub(crate) fn settle_death(&mut self, pid: PlayerId) {
-        let mode = self.gamemode;
         let tick = self.tick;
         let real = pid.idx() <= 255;
 
-        if mode == GameMode::World && real {
+        if self.rules.shares_follow_human && real {
             self.sell_all_stocks(pid);
         }
 
-        let player = self.players.get_mut(pid.idx()).unwrap();
+        let Some(player) = self.players.get_mut(pid.idx()) else { return };
         if real {
             wealth_tax(player, &mut self.corporations);
             self.events.push(player.make_update_round_event(tick));
         }
 
-        if mode == GameMode::Eliminator && real {
-            self.broadcast_death_cut_time(pid);
+        if real {
+            self.mode.on_death(self, pid);
         }
 
-        if mode == GameMode::World {
-            if !self.world_cfg.respawnteam {
+        if self.rules.respawn_wait {
+            if !self.modes.world.cfg.respawnteam {
                 self.set_player_team(pid, Team::Spectator);
             }
             let Some(player) = self.players.get_mut(pid.idx()) else { return };
@@ -291,18 +277,6 @@ impl Sim {
         self.events.push(player.make_update_player_event(tick));
     }
 
-    /// broadcast_death_cut_time: everyone hears of the death, and before the last 50400 ticks the clock gains 18000
-    /// ticks shared between a third of the players who started.
-    fn broadcast_death_cut_time(&mut self, pid: PlayerId) {
-        let Some(name) = self.players.get(pid.idx()).map(|p| p.username.clone()) else { return };
-        self.send_chat(&format!("{name} has died"), ChatType::EliminatorAnnouncement, -1, 0);
-        let timer = self.game_timer;
-        let thirds = self.eliminator.ready / 3;
-        if timer <= DEATH_CUT_CAP && thirds > 0 {
-            self.game_timer = (DEATH_CUT_TIME / thirds + timer).min(DEATH_CUT_CAP);
-        }
-    }
-
     /// create_account_from_join_ticket: the joining player's account, made new (1000 money, startcash in world mode,
     /// 1000 corporate rating and a random look) if this server has not seen them, and brought up to date with what the
     /// master server says about them.
@@ -310,7 +284,7 @@ impl Sim {
         let accounts = &mut self.saved_accounts;
         if !accounts.players.iter().any(|a| a.account_id == auth.account_id) {
             let mut a = SrkPlayerData::new(auth.account_id, &auth.player_name, auth.phone_number, auth.steam_id);
-            a.money = if self.gamemode == GameMode::World { self.world_cfg.startcash as u32 } else { NEW_ACCOUNT_MONEY };
+            a.money = if self.rules.world_start_cash { self.modes.world.cfg.startcash as u32 } else { NEW_ACCOUNT_MONEY };
             a.corp_rating = NEW_ACCOUNT_RATING;
             a.eye_color = rand::random_range(0..3) as u32;
             a.hair_color = rand::random_range(0..8) as u32;
@@ -335,9 +309,8 @@ impl Sim {
     /// The account part of server_recv_and_dispatch's join and restore_account_data: round and world mode players
     /// get their saved money and ratings back, then the mode's starting money applies.
     pub(crate) fn restore_account(&mut self, pid: PlayerId) {
-        let mode = self.gamemode;
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        if matches!(mode, GameMode::Round | GameMode::World)
+        if self.rules.saved_accounts
             && let Some(a) = self.saved_accounts.get_player_data(player.account_id)
         {
             player.money = a.money as i32;
@@ -349,15 +322,16 @@ impl Sim {
             player.spawn_timer = self.account_spawn_timers.get(&player.account_id).copied().unwrap_or(0);
         }
         self.reclaim_humans(pid);
-        let weekly_startcash = self.round_cfg.weekly.then_some(self.round_cfg.startcash);
-        let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        player.money = joining_money(mode, player.money, self.world_cfg.mincash, weekly_startcash);
+        let Some(money) = self.players.get(pid.idx()).map(|p| p.money) else { return };
+        let money = self.mode.joining_money(self, money);
+        if let Some(player) = self.players.get_mut(pid.idx()) {
+            player.money = money;
+        }
     }
 
     /// A returning player takes back every human still holding their account: its team becomes theirs, and in world
     /// mode they buy back the shares it remembers.
     fn reclaim_humans(&mut self, pid: PlayerId) {
-        let mode = self.gamemode;
         let Some(account) = self.players.get(pid.idx()).map(|p| p.account_id) else { return };
 
         for id in self.humans.ids() {
@@ -372,7 +346,7 @@ impl Sim {
             player.ghost_human = false;
             player.team = team;
 
-            if mode == GameMode::World {
+            if self.rules.shares_follow_human {
                 self.purchase_stocks(pid, stocks);
             } else {
                 player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
@@ -385,7 +359,6 @@ impl Sim {
     /// The economy part of delete_player: the leaving player's shares are sold and their account updated, and their
     /// human remembers the account.
     pub(crate) fn settle_leave(&mut self, pid: PlayerId) {
-        let mode = self.gamemode;
         if let Some(p) = self.players.get(pid.idx()).filter(|p| p.is_bot) {
             let (human, account) = (p.human, p.account_id);
             if let Some(h) = human.and_then(|h| self.humans.get_mut(h)).filter(|h| h.player == Some(pid)) {
@@ -402,7 +375,7 @@ impl Sim {
             if self.corp_state[k].manager != Some(pid) {
                 continue;
             }
-            if mode == GameMode::World {
+            if self.rules.world_corporations {
                 self.update_corp_player_ratings(k);
             }
             self.corp_state[k].manager = None;
@@ -443,22 +416,5 @@ impl Sim {
 
         let Some(player) = self.players.get(pid.idx()) else { return };
         self.events.push(player.make_update_round_event(tick));
-    }
-}
-
-/// Hooks for checking stats.txt against the original server.
-impl Sim {
-    pub fn set_stats(&mut self, missions: u32, bullets: u32) {
-        self.stats.missions = missions;
-        self.stats.bullets = bullets;
-    }
-
-    pub fn set_accounts(&mut self, accounts: Vec<rosa_map::file_types::srk::SrkPlayerData>) {
-        self.saved_accounts.player_count = accounts.len() as u32;
-        self.saved_accounts.players = accounts;
-    }
-
-    pub fn write_stats(&self) {
-        self.save_stats();
     }
 }

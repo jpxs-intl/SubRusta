@@ -47,23 +47,20 @@ pub struct Ground {
 }
 
 impl Ground {
-    pub fn new(base: Vec<f32>, roundcity: bool) -> Self {
+    pub(crate) fn new(base: Vec<f32>, roundcity: bool) -> Self {
         assert_eq!(base.len(), TDIM * TDIM, "generate_grass must be {TDIM}x{TDIM}");
         Self { base, roadmap: HashMap::new(), mask: vec![u64::MAX; MASK * MASK / 64], bounds: None, roundcity, blocks: Vec::new() }
     }
 
-    pub fn base(&self) -> &[f32] {
-        &self.base
-    }
-    pub fn roundcity(&self) -> bool {
+    pub(crate) fn roundcity(&self) -> bool {
         self.roundcity
     }
 
-    pub fn set_street_bounds(&mut self, bounds: (i32, i32, i32, i32)) {
+    pub(crate) fn set_street_bounds(&mut self, bounds: (i32, i32, i32, i32)) {
         self.bounds = Some(bounds);
     }
 
-    pub fn stamp_roadmap(&mut self, x: i32, z: i32, height: f32) {
+    pub(crate) fn stamp_roadmap(&mut self, x: i32, z: i32, height: f32) {
         if self.roundcity || !(0..=4094).contains(&x) || !(0..=4094).contains(&z) {
             return;
         }
@@ -102,7 +99,7 @@ impl Ground {
         (self.mask[i >> 6] >> (i & 63)) & 1 != 0
     }
 
-    pub fn build_city_blocks(&mut self, roads: &RoadNetwork) {
+    pub(crate) fn build_city_blocks(&mut self, roads: &RoadNetwork) {
         if self.roundcity {
             return;
         }
@@ -292,7 +289,7 @@ impl Ground {
         self.blocks.push(Block { nx0: x0 + 4096, nz0: z0 + 4096, w, d, h });
     }
 
-    pub fn vertex(&self, nx: i32, nz: i32) -> f32 {
+    pub(crate) fn vertex(&self, nx: i32, nz: i32) -> f32 {
         for b in self.blocks.iter().rev() {
             let (lx, lz) = (nx - b.nx0, nz - b.nz0);
             if lx >= 0 && lz >= 0 && lx <= b.w && lz <= b.d {
@@ -314,7 +311,7 @@ impl Ground {
         (0..NAV).contains(&ix) && (0..NAV).contains(&iz) && self.covered(ix >> 2, iz >> 2)
     }
 
-    pub fn height_at(&self, wx: f32, wz: f32) -> Option<f32> {
+    pub(crate) fn height_at(&self, wx: f32, wz: f32) -> Option<f32> {
         let (lx, lz) = (wx - ORIGIN, wz - ORIGIN);
         let (ix, iz) = (lx.floor() as i32, lz.floor() as i32);
         if !self.cell_ok(ix, iz) {
@@ -328,7 +325,7 @@ impl Ground {
         Some(if tx >= tz { h00 + (h10 - h00) * tx + (h11 - h10) * tz } else { h00 + (h11 - h01) * tx + (h01 - h00) * tz })
     }
 
-    pub fn line_intersect_landscape(&self, start: Vec3, end: Vec3) -> Option<TraceHit> {
+    pub(crate) fn line_intersect_landscape(&self, start: Vec3, end: Vec3) -> Option<TraceHit> {
         let (s, e) = ([start.x, start.y, start.z], [end.x, end.y, end.z]);
         let origin = [ORIGIN, 0.0, ORIGIN];
         let mut cur = [0i32; 3];

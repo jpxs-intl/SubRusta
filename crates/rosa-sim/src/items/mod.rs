@@ -129,7 +129,7 @@ macro_rules! touchables {
 pub(crate) use touchables;
 
 impl Sim {
-    pub fn create_item(&mut self, item_type: ItemKind, pos: Vec3, vel: Option<Vec3>, rot: RotMatrix) -> Option<usize> {
+    pub(crate) fn create_item(&mut self, item_type: ItemKind, pos: Vec3, vel: Option<Vec3>, rot: RotMatrix) -> Option<usize> {
         let ty = &self.item_types[item_type as usize];
         let inertia = 1.0 / ty.inv_inertia;
         let body = self.bodies.create(RigidBodyType::Item, pos, rot, vel, inertia, ty.mass)?;
@@ -199,7 +199,7 @@ impl Sim {
     }
 
     /// delete_item: takes the item out of its holder's inventory first.
-    pub fn delete_item(&mut self, id: usize) {
+    pub(crate) fn delete_item(&mut self, id: usize) {
         if self.items.get(id).is_some_and(|i| i.set_origin.is_some() && i.health > 0) {
             self.return_set_item(id);
         }
@@ -299,27 +299,14 @@ impl Sim {
         }
     }
 
-    pub fn item_mut(&mut self, id: usize) -> Option<&mut Item> {
-        self.items.get_mut(id)
-    }
-
-    pub fn set_game_state(&mut self, state: rosa_protocol::clientbound::game::GameState) {
-        self.gamestate = state;
-    }
-
-    pub fn item_body(&self, id: usize) -> Option<(&Item, &rosa_physics::RigidBody)> {
-        let item = self.items.get(id)?;
-        Some((item, self.bodies.get(item.body)?))
-    }
-
     /// Main physics logic, step the physics then solve bonds, cleanup items and vehicles.
-    pub fn physics_tick(&mut self) {
+    pub(crate) fn physics_tick(&mut self) {
         self.physics_step();
         self.physics_solve();
     }
 
     /// The first part of physics_simulation: the bodies moved, then vehicles, humans and items simulated.
-    pub fn physics_step(&mut self) {
+    pub(crate) fn physics_step(&mut self) {
         for (_, h) in self.humans.iter_mut() {
             h.progress_bar = 0;
         }
@@ -341,7 +328,7 @@ impl Sim {
     }
 
     /// The rest of physics_simulation: the bonds solved and the items left over cleaned up.
-    pub fn physics_solve(&mut self) {
+    pub(crate) fn physics_solve(&mut self) {
         self.solve_bonds();
         self.cleanup_items();
         self.cleanup_vehicles();
