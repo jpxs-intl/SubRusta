@@ -1,5 +1,4 @@
 use glam::Vec3;
-use rayon::prelude::*;
 
 use crate::{
     Bond, Table,
@@ -161,9 +160,22 @@ impl RigidBodies {
     pub fn simulate(&mut self) {
         let gravity = GRAVITY * self.gravity_scale;
 
-        self.bodies.par_iter_mut().for_each(|(_, b)| {
+        // self.bodies.par_iter_mut().for_each(|(_, b)| {
+        //     if b.settled {
+        //         return;
+        //     }
+        //
+        //     let vy = b.vel.y - gravity;
+        //     b.vel.y = vy;
+        //     b.pos.x += b.vel.x;
+        //     b.pos.y += vy;
+        //     b.pos.z += b.vel.z;
+        //     b.ang_vel = rk4_rotation(&mut b.rot, b.ang_momentum, b.inv_inertia);
+        // });
+
+        for (_, b) in self.bodies.iter_mut() {
             if b.settled {
-                return;
+                continue;
             }
 
             let vy = b.vel.y - gravity;
@@ -172,7 +184,7 @@ impl RigidBodies {
             b.pos.y += vy;
             b.pos.z += b.vel.z;
             b.ang_vel = rk4_rotation(&mut b.rot, b.ang_momentum, b.inv_inertia);
-        });
+        }
     }
 
     pub fn add_impulse(&mut self, id: usize, offset: Vec3, impulse: Vec3) {
@@ -231,15 +243,14 @@ impl RigidBodies {
     /// and after (apply_vehicle_wheel_forces) each pass over the bonds.
     pub fn solve_bonds_with(&mut self, mut step: impl FnMut(&mut Table<RigidBody>, SolverStep)) {
         let Self { bodies, bonds, .. } = self;
-        {
-            let bodies: &Table<RigidBody> = bodies;
 
-            bonds.par_iter_mut().for_each(|(_, bond)| match bond {
+        for (_, bond) in bonds.iter_mut() {
+            match bond {
                 Bond::Joint(j) => j.prepare(bodies),
                 Bond::ItemPoint(j) => j.prepare(bodies),
                 Bond::ItemAngular(j) => j.prepare(bodies),
                 _ => {}
-            });
+            }
         }
 
         for (_, b) in bodies.iter_mut() {

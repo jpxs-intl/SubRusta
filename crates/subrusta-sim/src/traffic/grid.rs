@@ -47,14 +47,16 @@ pub fn add_cars(traffic: &mut Traffic, map: &StreetMap) {
         let kept = c.physical_street != -1 && map.streets.get(c.physical_street as usize).is_some_and(|st| inside(st.bounds_min, st.bounds_max, p));
         if !kept {
             c.physical_street = -1;
-            for (k, st) in map.streets.iter().enumerate() {
+            for &k in map.street_buckets.near(p) {
+                let st = &map.streets[k as usize];
                 if inside(st.bounds_min, st.bounds_max, p) {
                     c.physical_street = k as i32;
                 }
             }
         }
         c.physical_intersection = -1;
-        for (k, i) in map.intersections.iter().enumerate() {
+        for &k in map.intersection_buckets.near(p) {
+            let i = &map.intersections[k as usize];
             if p.x >= i.bounds_min.x && i.bounds_max.x >= p.x && p.z >= i.bounds_min.z && i.bounds_max.z >= p.z {
                 c.physical_intersection = k as i32;
             }

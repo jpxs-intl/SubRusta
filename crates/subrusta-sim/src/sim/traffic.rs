@@ -6,6 +6,7 @@ use subrusta_protocol::clientbound::game::{
 };
 
 use super::Sim;
+use super::tps::timed;
 use crate::{
     traffic::{
         DRIVEN, LOOP_STREET, LOOP_STREET_2, TAKEN, Traffic,
@@ -138,14 +139,15 @@ impl Sim {
 
         update_signals(&mut self.traffic, &self.world.map.streets);
 
-        let map = &self.world.map;
-        add_cars(&mut self.traffic, &map.streets);
+        timed!(self, "traffic: grid", add_cars(&mut self.traffic, &self.world.map.streets));
 
-        for id in 0..self.traffic.cars.len() {
-            if self.traffic.cars[id].is_bot == DRIVEN {
-                ai_traffic_car(&mut self.traffic, &map.streets, id);
+        timed!(self, "traffic: ai", {
+            for id in 0..self.traffic.cars.len() {
+                if self.traffic.cars[id].is_bot == DRIVEN {
+                    ai_traffic_car(&mut self.traffic, &self.world.map.streets, id);
+                }
             }
-        }
+        });
 
         for c in &mut self.traffic.cars {
             if let Some(v) = usize::try_from(c.vehicle).ok().and_then(|v| self.vehicles.get(v)) {
@@ -156,13 +158,15 @@ impl Sim {
         self.traffic_states();
         self.traffic_spawns();
 
-        for id in 0..self.traffic.cars.len() {
-            if self.traffic.cars[id].vehicle == -1 {
-                move_virtual_car(&mut self.traffic, &self.world.map, &self.vehicle_types, id);
-            } else {
-                self.drive_traffic_vehicle(id);
+        timed!(self, "traffic: move", {
+            for id in 0..self.traffic.cars.len() {
+                if self.traffic.cars[id].vehicle == -1 {
+                    move_virtual_car(&mut self.traffic, &self.world.map, &self.vehicle_types, id);
+                } else {
+                    self.drive_traffic_vehicle(id);
+                }
             }
-        }
+        });
     }
 
     /// The vehicles a player drove off with free hands this tick: their cars stop driving themselves.

@@ -82,6 +82,58 @@ pub struct StreetMap {
     /// The grid extent of the intersections (level_data +0x44, +0x50; only x and z are set).
     pub min: IVec3,
     pub max: IVec3,
+    /// The intersections and streets binned by their bounds, for finding the ones a point is in.
+    pub intersection_buckets: Buckets,
+    pub street_buckets: Buckets,
+}
+
+/// The side of a bucket.
+const BUCKET_SIZE: f32 = 64.0;
+
+/// Boxes binned on a coarse x/z grid, so a point is only tested against the boxes near it. Each cell lists, in index
+/// order, every box whose x/z footprint overlaps it.
+#[derive(Clone, Debug, Default)]
+pub struct Buckets {
+    origin: [f32; 2],
+    nx: i32,
+    nz: i32,
+    cells: Vec<Vec<u32>>,
+}
+
+impl Buckets {
+    fn new(boxes: &[(Vec3, Vec3)]) -> Self {
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for (a, b) in boxes {
+            lo = [lo[0].min(a.x), lo[1].min(a.z)];
+            hi = [hi[0].max(b.x), hi[1].max(b.z)];
+        }
+        if lo[0] > hi[0] || lo[1] > hi[1] {
+            return Self::default();
+        }
+        let nx = ((hi[0] - lo[0]) / BUCKET_SIZE) as i32 + 1;
+        let nz = ((hi[1] - lo[1]) / BUCKET_SIZE) as i32 + 1;
+        let mut buckets = Self { origin: lo, nx, nz, cells: vec![Vec::new(); (nx * nz) as usize] };
+        for (i, (a, b)) in boxes.iter().enumerate() {
+            let (Some((x0, z0)), Some((x1, z1))) = (buckets.cell(*a), buckets.cell(*b)) else { continue };
+            for x in x0..=x1 {
+                for z in z0..=z1 {
+                    buckets.cells[(x * nz + z) as usize].push(i as u32);
+                }
+            }
+        }
+        buckets
+    }
+
+    fn cell(&self, p: Vec3) -> Option<(i32, i32)> {
+        let x = ((p.x - self.origin[0]) / BUCKET_SIZE).floor();
+        let z = ((p.z - self.origin[1]) / BUCKET_SIZE).floor();
+        (x >= 0.0 && z >= 0.0 && x < self.nx as f32 && z < self.nz as f32).then_some((x as i32, z as i32))
+    }
+
+    /// The boxes whose x/z footprint may hold `p`, in index order.
+    pub fn near(&self, p: Vec3) -> &[u32] {
+        self.cell(p).map_or(&[], |(x, z)| &self.cells[(x * self.nz + z) as usize])
+    }
 }
 
 fn normalized(v: Vec3) -> Vec3 {
@@ -120,6 +172,10 @@ impl StreetMap {
             map.streets.push(map.street(i0, i1, left, right));
         }
         map.build_route_graph();
+        let bounds: Vec<(Vec3, Vec3)> = map.intersections.iter().map(|i| (i.bounds_min, i.bounds_max)).collect();
+        map.intersection_buckets = Buckets::new(&bounds);
+        let bounds: Vec<(Vec3, Vec3)> = map.streets.iter().map(|s| (s.bounds_min, s.bounds_max)).collect();
+        map.street_buckets = Buckets::new(&bounds);
         map
     }
 

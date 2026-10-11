@@ -768,7 +768,9 @@ pub fn vehicle_types(data: &std::path::Path) -> Vec<VehicleType> {
     let mut types = vec![VehicleType::default(); VEHICLE_TYPES];
 
     let loaded: Vec<_> = SBV_TYPES.par_iter().filter_map(|spec| VehicleType::from_sbv(spec, data).map(|t| (spec.kind, t))).collect();
-    for (kind, t) in loaded { types[kind as usize] = t; }
+    for (kind, t) in loaded {
+        types[kind as usize] = t;
+    }
 
     types[VehicleKind::TownCar2 as usize] = VehicleType::town_car_2();
     types[VehicleKind::Metro as usize] = VehicleType::metro();

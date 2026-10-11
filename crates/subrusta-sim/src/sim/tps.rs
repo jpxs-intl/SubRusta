@@ -42,6 +42,68 @@ impl TickStats {
     }
 }
 
+/// How many ticks the phase timings cover before they are printed (about ten seconds).
+const REPORT_TICKS: u32 = 625;
+
+/// Runs `$body`, adding how long it took to the phase `$name` of `$sim`'s timings.
+macro_rules! timed {
+    ($sim:expr, $name:expr, $body:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $body;
+        $sim.phase_times.add($name, start.elapsed());
+        result
+    }};
+}
+pub(crate) use timed;
+
+/// How long each phase of the tick takes, printed every REPORT_TICKS ticks, slowest first, when the SUBRUSTA_TIMINGS
+/// environment variable is set.
+#[derive(Default)]
+pub struct PhaseTimes {
+    enabled: bool,
+    ticks: u32,
+    /// Each phase's name, total time and longest single tick.
+    phases: Vec<(&'static str, Duration, Duration)>,
+}
+
+impl PhaseTimes {
+    pub(crate) fn from_env() -> Self {
+        Self { enabled: std::env::var_os("SUBRUSTA_TIMINGS").is_some(), ..Default::default() }
+    }
+
+    pub(crate) fn add(&mut self, name: &'static str, time: Duration) {
+        if !self.enabled {
+            return;
+        }
+        
+        match self.phases.iter_mut().find(|p| p.0 == name) {
+            Some(p) => {
+                p.1 += time;
+                p.2 = p.2.max(time);
+            }
+            None => self.phases.push((name, time, time)),
+        }
+    }
+
+    pub(crate) fn end_tick(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        self.ticks += 1;
+        if self.ticks < REPORT_TICKS {
+            return;
+        }
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        self.phases.sort_by_key(|p| std::cmp::Reverse(p.1));
+        println!("[Timings] {} ticks, per tick:", self.ticks);
+        for (name, total, max) in &self.phases {
+            println!("[Timings]   {name:<28} {:>8.3} ms avg {:>8.3} ms max", ms(*total) / self.ticks as f64, ms(*max));
+        }
+        self.phases.clear();
+        self.ticks = 0;
+    }
+}
+
 impl Sim {
     /// Test command (/tps): the measured tick rate against the 62.5 the 16 ms tick aims for, and how long ticks take.
     pub(crate) fn tps_command(&mut self) {

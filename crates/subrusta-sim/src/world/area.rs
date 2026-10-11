@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use glam::{IVec3, Vec3};
 
 pub const CELLS: usize = 512;
@@ -9,6 +7,10 @@ pub const CUBE: u32 = 2 << 29;
 pub const MESH: u32 = 4 << 29;
 pub const FOOTPRINT: u32 = 6 << 29;
 pub const ALL_FACES: u8 = 255;
+/// No page or record in an index slot.
+const NONE: u32 = u32::MAX;
+/// A 64-cell chunk holds 8 x 8 x 8 blocks of 8 cells.
+const PAGE: usize = 512;
 
 pub struct BlockRecord {
     pub layer0: [u32; CELLS],
@@ -38,7 +40,10 @@ pub struct AreaGrid {
     pub block_size: f32,
     pub chunks: IVec3,
     records: Vec<Box<BlockRecord>>,
-    index: HashMap<IVec3, u32>,
+    /// Each 64-cell chunk's page in `block_records`, or NONE for a chunk without blocks.
+    chunk_pages: Vec<u32>,
+    /// Per page, the record of each of the chunk's 512 blocks, or NONE.
+    block_records: Vec<u32>,
     /// line_intersect_result.unk21: the face of the last custom shape a capsule touched (its wall index | 0x10000 for
     /// a breakable wall). The binary keeps it in a global that only custom shape hits overwrite.
     pub face_attr: u32,
@@ -50,7 +55,41 @@ pub struct AreaGrid {
 
 impl AreaGrid {
     pub(crate) fn new(chunks: IVec3, origin: Vec3, block_size: f32) -> Self {
-        Self { origin, block_size, chunks, records: Vec::new(), index: HashMap::new(), face_attr: 0, item_sets: Default::default(), track: Default::default() }
+        Self {
+            origin,
+            block_size,
+            chunks,
+            records: Vec::new(),
+            chunk_pages: vec![NONE; (chunks.x * chunks.y * chunks.z) as usize],
+            block_records: Vec::new(),
+            face_attr: 0,
+            item_sets: Default::default(),
+            track: Default::default(),
+        }
+    }
+
+    #[inline]
+    fn chunk_slot(&self, x: i32, y: i32, z: i32) -> usize {
+        (((x >> 6) * self.chunks.y + (y >> 6)) * self.chunks.z + (z >> 6)) as usize
+    }
+
+    #[inline]
+    fn block_slot(x: i32, y: i32, z: i32) -> usize {
+        ((((x >> 3) & 7) << 6) | (((y >> 3) & 7) << 3) | ((z >> 3) & 7)) as usize
+    }
+
+    /// The record of the block holding cell (x, y, z), if it has one.
+    #[inline]
+    fn record_id(&self, x: i32, y: i32, z: i32) -> Option<usize> {
+        if !self.in_range(x, y, z) {
+            return None;
+        }
+        let page = self.chunk_pages[self.chunk_slot(x, y, z)];
+        if page == NONE {
+            return None;
+        }
+        let id = self.block_records[page as usize * PAGE + Self::block_slot(x, y, z)];
+        (id != NONE).then_some(id as usize)
     }
 
     #[inline]
@@ -59,27 +98,24 @@ impl AreaGrid {
     }
 
     pub(crate) fn record(&self, x: i32, y: i32, z: i32) -> Option<&BlockRecord> {
-        if !self.in_range(x, y, z) {
-            return None;
-        }
-        self.index.get(&IVec3::new(x >> 3, y >> 3, z >> 3)).map(|&i| &*self.records[i as usize])
+        self.record_id(x, y, z).map(|i| &*self.records[i])
     }
 
     fn record_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut BlockRecord> {
         if !self.in_range(x, y, z) {
             return None;
         }
-        let key = IVec3::new(x >> 3, y >> 3, z >> 3);
-        let i = match self.index.get(&key) {
-            Some(&i) => i,
-            None => {
-                let i = self.records.len() as u32;
-                self.records.push(BlockRecord::new());
-                self.index.insert(key, i);
-                i
-            }
-        };
-        Some(&mut self.records[i as usize])
+        let chunk = self.chunk_slot(x, y, z);
+        if self.chunk_pages[chunk] == NONE {
+            self.chunk_pages[chunk] = (self.block_records.len() / PAGE) as u32;
+            self.block_records.resize(self.block_records.len() + PAGE, NONE);
+        }
+        let slot = self.chunk_pages[chunk] as usize * PAGE + Self::block_slot(x, y, z);
+        if self.block_records[slot] == NONE {
+            self.block_records[slot] = self.records.len() as u32;
+            self.records.push(BlockRecord::new());
+        }
+        Some(&mut self.records[self.block_records[slot] as usize])
     }
 
     pub(crate) fn layer0(&self, x: i32, y: i32, z: i32) -> u32 {
@@ -115,8 +151,8 @@ impl AreaGrid {
         if !self.in_range(x, y, z) {
             return;
         }
-        if let Some(&i) = self.index.get(&IVec3::new(x >> 3, y >> 3, z >> 3)) {
-            self.records[i as usize].object[cell_index(x, y, z)] = v;
+        if let Some(i) = self.record_id(x, y, z) {
+            self.records[i].object[cell_index(x, y, z)] = v;
         }
     }
 
@@ -143,8 +179,8 @@ impl AreaGrid {
         if !self.in_range(x, y, z) {
             return;
         }
-        if let Some(&i) = self.index.get(&IVec3::new(x >> 3, y >> 3, z >> 3)) {
-            self.records[i as usize].taken[cell_index(x, y, z)] = mask;
+        if let Some(i) = self.record_id(x, y, z) {
+            self.records[i].taken[cell_index(x, y, z)] = mask;
         }
     }
 
@@ -247,10 +283,10 @@ impl AreaGrid {
             return;
         }
 
-        if let Some(&i) = self.index.get(&IVec3::new(x >> 3, y >> 3, z >> 3)) {
+        if let Some(i) = self.record_id(x, y, z) {
             let c = cell_index(x, y, z);
-            self.records[i as usize].layer0[c] = 0;
-            self.records[i as usize].layer1[c] = 0;
+            self.records[i].layer0[c] = 0;
+            self.records[i].layer1[c] = 0;
         }
     }
 

@@ -25,6 +25,7 @@ use subrusta_protocol::{
 };
 use tokio::sync::mpsc;
 
+use self::tps::timed;
 use self::traffic::traffic_section;
 use crate::{
     Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg,
@@ -168,6 +169,7 @@ pub struct Sim {
     pub(crate) radio_channels: Vec<Vec<usize>>,
     pub(crate) traffic: crate::traffic::Traffic,
     pub(crate) tick_stats: tps::TickStats,
+    pub(crate) phase_times: tps::PhaseTimes,
     /// Each corporation's manager, applicants and account.
     pub(crate) corp_state: [corporations::CorpState; 6],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
@@ -236,6 +238,7 @@ impl Sim {
             radio_channels: vec![Vec::new(); voice::RADIO_CHANNELS],
             traffic: crate::traffic::Traffic::default(),
             tick_stats: tps::TickStats::default(),
+            phase_times: tps::PhaseTimes::from_env(),
             corp_state: Default::default(),
             game_timer: round::ROUND_MAX_TIME,
             round_elapsed: 0,
@@ -347,51 +350,57 @@ impl Sim {
 
                 self.server_tick();
                 self.tick_stats.record(started, started.elapsed());
+                self.phase_times.add("tick (total)", started.elapsed());
+                self.phase_times.end_tick();
             }
         }
     }
 
     /// One server tick: the inbound packets, the players' actions, the game mode, the world and the broadcast.
     pub(crate) fn server_tick(&mut self) {
-        self.connection_timeouts();
+        timed!(self, "input", {
+            self.connection_timeouts();
 
-        // Apply all of the `SimMsg`'s received
-        while let Ok(inp) = self.in_rx.try_recv() {
-            self.apply(inp);
-        }
+            // Apply all of the `SimMsg`'s received
+            while let Ok(inp) = self.in_rx.try_recv() {
+                self.apply(inp);
+            }
 
-        let mut pending = HashMap::new();
+            let mut pending = HashMap::new();
 
-        for (_, player) in self.players.iter_mut() {
-            pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
-        }
+            for (_, player) in self.players.iter_mut() {
+                pending.insert(player.player_id, player.actions.drain().collect::<Vec<GameAction>>());
+            }
 
-        self.process_actions(pending);
-        self.admin_reset();
+            self.process_actions(pending);
+            self.admin_reset();
+        });
 
         if self.rules.ready_start {
             self.start_round_if_all_ready();
         }
 
-        self.update_shop_menus();
-        self.count_corp_players();
+        timed!(self, "menus", {
+            self.update_shop_menus();
+            self.count_corp_players();
+        });
 
         let mode = self.mode;
-        mode.tick(self);
+        timed!(self, "mode", mode.tick(self));
 
         self.spawn_pending_traffic();
 
         if self.gamestate == GameState::InGame {
-            self.simulate_traffic();
-            self.do_npc();
+            timed!(self, "traffic", self.simulate_traffic());
+            timed!(self, "npcs", self.do_npc());
         }
 
-        mode.tick_after_traffic(self);
+        timed!(self, "mode (after traffic)", mode.tick_after_traffic(self));
 
-        self.player_simulation();
+        timed!(self, "player simulation", self.player_simulation());
 
-        self.physics_tick();
-        self.broadcast_tick();
+        timed!(self, "physics", self.physics_tick());
+        timed!(self, "broadcast", self.broadcast_tick());
         self.send_admin_lists();
 
         for player in self.saved_accounts.players.iter_mut() {
@@ -405,12 +414,14 @@ impl Sim {
         self.events.now = self.ticks_since_reset;
 
         if matches!(self.gamestate, GameState::InGame | GameState::Idle | GameState::Intermission) {
-            self.bullet_simulation();
-            self.bullet_ttl();
+            timed!(self, "bullets", {
+                self.bullet_simulation();
+                self.bullet_ttl();
+            });
         }
 
         if self.gamestate == GameState::InGame {
-            self.run_bots();
+            timed!(self, "bots", self.run_bots());
         }
     }
 

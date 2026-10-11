@@ -17,6 +17,7 @@ pub mod sets;
 pub mod state;
 pub mod types;
 
+use crate::sim::tps::timed;
 use crate::{
     PlayerId,
     items::{grid::ItemGrid, state::ItemState, types::ItemType},
@@ -311,15 +312,17 @@ impl Sim {
             h.progress_bar = 0;
         }
 
-        self.bodies.simulate();
-        self.update_vehicle_bounds();
-        self.sync_humans();
-        self.sync_items_from_bodies();
-        self.rebuild_item_grid();
-        self.simulate_vehicles();
-        self.simulate_humans();
-        self.item_simulation();
-        self.logic_item();
+        timed!(self, "physics: integrate", self.bodies.simulate());
+        timed!(self, "physics: sync", {
+            self.update_vehicle_bounds();
+            self.sync_humans();
+            self.sync_items_from_bodies();
+            self.rebuild_item_grid();
+        });
+        timed!(self, "physics: vehicles", self.simulate_vehicles());
+        timed!(self, "physics: humans", self.simulate_humans());
+        timed!(self, "physics: items", self.item_simulation());
+        timed!(self, "physics: item logic", self.logic_item());
     }
 
     pub(crate) fn link_to_slot(&mut self, human: usize, item: usize, slot: usize) {
@@ -330,9 +333,11 @@ impl Sim {
 
     /// The rest of physics_simulation: the bonds solved and the items left over cleaned up.
     pub(crate) fn physics_solve(&mut self) {
-        self.solve_bonds();
-        self.cleanup_items();
-        self.cleanup_vehicles();
+        timed!(self, "physics: solve bonds", self.solve_bonds());
+        timed!(self, "physics: cleanup", {
+            self.cleanup_items();
+            self.cleanup_vehicles();
+        });
     }
 
     fn sync_items_from_bodies(&mut self) {
