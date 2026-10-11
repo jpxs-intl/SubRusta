@@ -1,0 +1,11 @@
+[package]
+name = "subrusta-physics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+glam.workspace = true
+
+[lints]
+workspace = true

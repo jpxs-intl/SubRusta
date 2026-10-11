@@ -1,0 +1,15 @@
+[package]
+name = "subrusta-net"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+subrusta-protocol.workspace = true
+subrusta-sim.workspace = true
+
+reqwest = "0.13.5"
+tokio.workspace = true
+
+[lints]
+workspace = true

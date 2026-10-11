@@ -1,6 +1,11 @@
 [workspace]
 resolver="3"
-members = ["crates/rosa-bin", "crates/rosa-map","crates/rosa-math", "crates/rosa-net", "crates/rosa-physics", "crates/rosa-protocol", "crates/rosa-sim"]
+members = ["crates/subrusta-bin", "crates/subrusta-map","crates/subrusta-math", "crates/subrusta-net", "crates/subrusta-physics", "crates/subrusta-protocol", "crates/subrusta-sim"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Infinity Dev"]
 
 [profile.profiling]
 inherits = "release"
@@ -13,14 +18,13 @@ approx_constant = "allow"
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.229", features = [ "derive" ] }
-# hecs = "0.11.2"
 glam = "0.34.1"
 binrw = "0.15.0"
 rand = "0.10"
 
-rosa-map = { path = "crates/rosa-map", default-features = false }
-rosa-sim = { path = "crates/rosa-sim", default-features = false }
-rosa-math = { path = "crates/rosa-math", default-features = false }
-rosa-net = { path = "crates/rosa-net", default-features = false }
-rosa-protocol = { path = "crates/rosa-protocol", default-features = false }
-rosa-physics = { path = "crates/rosa-physics", default-features = false }
+subrusta-map = { path = "crates/subrusta-map", default-features = false }
+subrusta-sim = { path = "crates/subrusta-sim", default-features = false }
+subrusta-math = { path = "crates/subrusta-math", default-features = false }
+subrusta-net = { path = "crates/subrusta-net", default-features = false }
+subrusta-protocol = { path = "crates/subrusta-protocol", default-features = false }
+subrusta-physics = { path = "crates/subrusta-physics", default-features = false }

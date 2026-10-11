@@ -1,0 +1,283 @@
+//! A human in a vehicle seat: finding a seat, the seated pose, the driver's controls and getting out.
+
+use glam::Vec3;
+use subrusta_physics::{RigidBodies, RotMatrix, rotation::rotate_orientation};
+use subrusta_protocol::clientbound::game::ItemKind;
+
+use super::{
+    BONE_COUNT, Human,
+    bones::{BONES, BoneId},
+    ik::{IkParams, three_bone_ik},
+    locomotion::{FOOT_FREE, calculate_center_of_mass},
+};
+use crate::{input::GRAB, items::Touchables};
+use crate::{
+    vehicle::{HANDBRAKE, Vehicle},
+    world::{map::Map, trace::line_intersect_level},
+};
+
+const LAST_VEHICLE_TICKS: i32 = 100;
+const SEAT_PARAMS: IkParams =
+    IkParams { length: 1.0, twist: 0.0, max_turn: 45_f32.to_radians(), clamp_max: 1.0546875_f32.to_radians(), spin_limit: [1.0 / 64.0; 3], flags: 0 };
+
+/// A vehicle's seat offset in the world, in the order human_action_simulation adds it.
+fn seat_point(v: &Vehicle, s: Vec3) -> Vec3 {
+    let (p, [r0, r1, r2]) = (v.pos, v.rot);
+    p + s.x * r0 + s.y * r1 + r2 * s.z
+}
+
+/// The pickup action with nothing in reach (human_action_simulation): the free seat nearest a point ahead of the head,
+/// within 1.375.
+pub(super) fn find_seat(h: &Human, touch: &Touchables) -> Option<(usize, usize)> {
+    let head = &h.bones[BoneId::Head as usize];
+    let (p, r2) = (head.pos, head.rot[2]);
+    let at = r2 * -(3.0 / 4.0) + p;
+    let mut best = 11.0 / 8.0;
+    let mut seat = None;
+    for (vid, v) in touch.vehicles.iter() {
+        for (k, &s) in v.seats.iter().enumerate() {
+            let q = seat_point(v, s);
+            let (dx, dy, dz) = (q.x - at.x, q.y - at.y, q.z - at.z);
+            let d = (dz * dz + (dx * dx + dy * dy)).sqrt();
+            if best > d && !touch.occupied.contains(&(vid, k)) {
+                best = d;
+                seat = Some((vid, k));
+            }
+        }
+    }
+    seat
+}
+
+/// Whether nothing the driver holds keeps them from driving: empty hands, a briefcase or a phone.
+fn hands_free(h: &Human, touch: &Touchables) -> bool {
+    h.inventory[..2]
+        .iter()
+        .all(|slot| slot.count == 0 || touch.items.get(slot.items[0] as usize).is_some_and(|i| matches!(i.item_type, ItemKind::Briefcase | ItemKind::Phone)))
+}
+
+/// The driver's controls handed to the vehicle (seat 0 of a car not driven by the traffic).
+fn drive(h: &Human, touch: &mut Touchables, vid: usize) {
+    if h.traffic_driver || h.despawn_ticks == 0 {
+        return;
+    }
+    let free = hands_free(h, touch);
+    let Some(v) = touch.vehicles.get_mut(vid) else { return };
+    let walk = h.walk_input;
+    v.gas_control = if 0.0 >= walk { walk } else { 0.0 };
+    if free {
+        v.traffic_taken |= v.traffic_car != -1;
+        v.controls = h.input_flags as i32;
+        v.gear_x = h.gear_x_input;
+        v.steer_control = h.strafe_input;
+        v.last_driver = h.player.map_or(-1, |p| p.idx() as i32);
+        v.gear_y = h.gear_y_input;
+        v.gas_control = walk;
+    }
+}
+
+/// Rows of `m` made orthonormal from the third, each scaled to `scale`.
+fn orthonormalize(m: &mut RotMatrix, scale: f32) {
+    let unit = |v: Vec3| {
+        let len = v.length();
+        if len == 0.0 {
+            Vec3::ZERO
+        } else {
+            let k = scale / len;
+            v * k
+        }
+    };
+    let [r0, _, r2] = *m;
+    let r2 = unit(r2);
+    let r1 = unit(r2.cross(r0));
+    let r0 = unit(r1.cross(r2));
+    *m = [r0, r1, r2];
+}
+
+/// The pelvis held in the seat, sliding outwards while getting out, moving and turning with the vehicle.
+fn place_pelvis(h: &Human, bodies: &mut RigidBodies, v: &Vehicle, scale: f32) {
+    let ([r0, r1, r2], pos) = (v.rot, v.pos);
+    let s = v.seats[h.seat];
+    let mut p = pos + s.x * r0;
+    if h.seat_exit > 0 {
+        let k = (s.x * h.seat_exit as f32) / 15.0;
+        p += k * r0;
+    }
+    let (sy, sz) = (0.25 + s.y, s.z);
+    let p = p + sy * r1 + sz * r2;
+    let w = bodies.get(v.body).map_or(Vec3::ZERO, |b| b.ang_vel);
+    let Some(b) = bodies.get_mut(h.bones[0].body) else { return };
+    b.pos = p;
+    b.vel = v.vel;
+    b.rot = v.rot;
+    if h.seat_exit > 0 {
+        orthonormalize(&mut b.rot, scale);
+    }
+    b.ang_vel = w;
+    let i = b.inertia;
+    let [r0, r1, r2] = b.rot;
+    let s0 = r0.dot(w) * i.x;
+    let l = 0.0 + r0 * s0;
+    let s1 = r1.dot(w) * i.y;
+    let l = r1 * s1 + l;
+    let s2 = w.dot(r2) * i.z;
+    b.ang_momentum = l + r2 * s2;
+}
+
+/// How far the legs swing out while getting out: twice the angle whose cosine is the pelvis' height above the ground
+/// (at most 1), a quarter turn when there is no ground within a unit.
+fn exit_leg_angle(h: &Human, map: &Map, scale: f32) -> f32 {
+    let p = h.bones[0].pos;
+    let end = p - UP;
+    let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, p, end) else { return 45_f32.to_radians() };
+    let d = p.y - hit.hit.pos.y;
+    let c = if d > scale { 1.0 } else { d as f64 };
+    let a = c.acos();
+    (a + a) as f32
+}
+
+const UP: Vec3 = Vec3::Y;
+
+/// The seated pose: each bone turned from its parent's orientation and placed at its joint, moving with the parent;
+/// a human holding something or getting out keeps its upper body free.
+fn pose_bones(h: &Human, bodies: &mut RigidBodies, map: &Map, has_item: bool, scale: f32) {
+    let exit_angle = (h.seat_exit != 0).then(|| exit_leg_angle(h, map, scale));
+    for j in 1..BONE_COUNT {
+        if (has_item || h.seat_exit != 0) && j <= 9 {
+            continue;
+        }
+        let t = &BONES[j];
+        let Some((pp, prot, pvel)) = bodies.get(h.bones[t.parent.index()].body).map(|b| (b.pos, b.rot, b.vel)) else { continue };
+        let mut rot = prot;
+        let turn = |rot: &mut RotMatrix, row: usize, angle: f32| {
+            let axis = rot[row];
+            rotate_orientation(rot, axis, angle);
+        };
+        match exit_angle {
+            None if j == BoneId::ThighLeft as usize || j == BoneId::ThighRight as usize => turn(&mut rot, 0, -90.0_f32.to_radians()),
+            Some(a) if j == BoneId::ThighLeft as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 - (33.75_f64.to_radians())) as f32),
+            Some(a) if j == BoneId::ThighRight as usize => turn(&mut rot, 0, ((-a * 0.5) as f64 + (11.25_f64.to_radians())) as f32),
+            Some(a) if j == BoneId::ShinLeft as usize || j == BoneId::ShinRight as usize => turn(&mut rot, 0, a),
+            _ => {}
+        }
+        if j == BoneId::Torso as usize {
+            turn(&mut rot, 1, 0.25 * h.look_yaw);
+            turn(&mut rot, 0, 0.25 * h.look_pitch);
+        } else if j == BoneId::Head as usize {
+            turn(&mut rot, 1, 0.75 * h.look_yaw);
+            turn(&mut rot, 0, 0.75 * h.look_pitch);
+        }
+        if h.seat == 0 {
+            if j == BoneId::ShoulderLeft as usize || j == BoneId::ShoulderRight as usize {
+                turn(&mut rot, 1, -h.look_yaw * 0.25);
+                turn(&mut rot, 0, -3.0 * 22.5_f32.to_radians());
+            } else if j == BoneId::ForearmLeft as usize || j == BoneId::ForearmRight as usize {
+                turn(&mut rot, 0, -22.5_f32.to_radians());
+            }
+        }
+        let (jt, o) = (t.joint, t.offset);
+        let [a0, a1, a2] = prot;
+        let p = pp + a0 * jt.x;
+        let p = a1 * jt.y + p;
+        let p = p + a2 * jt.z;
+        let d = o - jt;
+        let [c0, c1, c2] = rot;
+        let p = p + c0 * d.x;
+        let p = c1 * d.y + p;
+        let p = p + c2 * d.z;
+        if let Some(b) = bodies.get_mut(h.bones[j].body) {
+            b.rot = rot;
+            b.pos = p;
+            b.vel = pvel;
+        }
+    }
+}
+
+/// The seated part of human_simulation: the view following the vehicle, the driver's controls, the pose, and getting
+/// out once the enter key has been held long enough (or straight away when hurt). The binary lengthens the wait by a
+/// velocity at human record 0xb4, which nothing but create_human (setting it to zero) ever writes.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn simulate_seated(h: &mut Human, bodies: &mut RigidBodies, map: &Map, touch: &mut Touchables, vid: usize, has_item: bool, scale: f32) {
+    let Some(v) = touch.vehicles.get(vid) else { return };
+    let r2 = v.rot[2];
+    h.view_yaw = ((-r2.x) as f64).atan2(r2.z as f64) as f32;
+    h.view_pitch = 0.0;
+    h.locomotion.feet[0].mode = FOOT_FREE;
+    h.locomotion.feet[1].mode = FOOT_FREE;
+    if h.spawn_protection > 900 {
+        h.spawn_protection = 900;
+    }
+    if h.seat == 0 {
+        drive(h, touch, vid);
+    }
+    let Some(v) = touch.vehicles.get(vid) else { return };
+    place_pelvis(h, bodies, v, scale);
+    pose_bones(h, bodies, map, has_item, scale);
+    h.last_vehicle_cooldown = LAST_VEHICLE_TICKS;
+    h.last_vehicle = vid as i32;
+    if h.input_flags & GRAB == 0 {
+        h.seat_exit = 0;
+        return;
+    }
+    if h.seat_exit <= 0 {
+        return;
+    }
+    h.seat_exit += 1;
+    if h.seat_exit <= scale as i32 + 29 {
+        return;
+    }
+    h.look_pitch = h.view_pitch;
+    h.look_yaw = 0.0;
+    h.seat_exit = 0;
+    h.client_body_yaw = h.body_yaw;
+    leave_seat(h, touch, vid);
+    let Some(v) = touch.vehicles.get(vid) else { return };
+    let from = v.pos;
+    for j in (0..BONE_COUNT).filter(|&j| j != BoneId::FootLeft as usize && j != BoneId::FootRight as usize) {
+        if let Some(hit) = line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, from, h.bones[j].pos) {
+            let (p, n) = (hit.hit.pos, hit.hit.normal);
+            h.bones[j].pos = n * (1.0 / 16.0) + p;
+        }
+    }
+}
+
+/// Out of the seat: the vehicle left with its handbrake on.
+fn leave_seat(h: &mut Human, touch: &mut Touchables, vid: usize) {
+    h.vehicle = None;
+    touch.occupied.retain(|&o| o != (vid, h.seat));
+    if let Some(v) = touch.vehicles.get_mut(vid) {
+        v.controls = HANDBRAKE;
+    }
+}
+
+/// A seated human too hurt to stay: out at once, the view kept.
+pub(super) fn fall_out(h: &mut Human, touch: &mut Touchables, vid: usize) {
+    h.look_yaw = h.view_yaw;
+    h.look_pitch = h.view_pitch;
+    leave_seat(h, touch, vid);
+}
+
+/// walk_simulation: the legs of a seated human reaching for the floor ahead of the seat.
+pub fn walk_simulation(h: &mut Human, bodies: &mut RigidBodies) {
+    let pelvis = &h.bones[0];
+    let (p, [r0, r1, r2]) = (pelvis.pos, pelvis.rot);
+    let hip = |j: Vec3| j.x * r0 + p + j.y * r1;
+    let hips = [hip(BONES[BoneId::ThighLeft as usize].joint), hip(BONES[BoneId::ThighRight as usize].joint)];
+    h.is_standing = false;
+    h.locomotion.feet[0].mode = FOOT_FREE;
+    h.locomotion.feet[1].mode = FOOT_FREE;
+    calculate_center_of_mass(h);
+    for k in 0..2 {
+        let f = &mut h.locomotion.feet[k];
+        f.prev_plant_pitch = f.plant_pitch;
+        f.plant_pitch = 0.0;
+        let pelvis = &h.bones[0];
+        let (p, [r0, r1, r2]) = (pelvis.pos, pelvis.rot);
+        let side = if k == 0 { -(5.0 / 16.0) } else { 5.0 / 16.0 };
+        let base = side * r0 + p;
+        let target = -(3.0 / 4.0) * r2 + base + -1.0 / 8.0 * r1 - hips[k];
+        let frame = h.bones[0].rot;
+        let mut end_rot = [0.0, 0.0, 0.0, 1.0];
+        three_bone_ik(h, bodies, 0, 10 + 3 * k, target, &frame, Vec3::ZERO, &SEAT_PARAMS, &mut end_rot);
+    }
+    let _ = r2;
+}

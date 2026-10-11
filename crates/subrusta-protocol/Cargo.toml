@@ -1,0 +1,14 @@
+[package]
+name = "subrusta-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+bitflags = "2.13.2"
+
+subrusta-math.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

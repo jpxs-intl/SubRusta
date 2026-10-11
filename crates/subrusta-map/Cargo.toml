@@ -1,0 +1,14 @@
+[package]
+name = "subrusta-map"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+subrusta-math = { workspace = true, features = ["binrw"] }
+
+glam.workspace = true
+binrw.workspace = true
+
+[lints]
+workspace = true

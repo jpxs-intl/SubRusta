@@ -1,0 +1,171 @@
+use glam::Vec3;
+use subrusta_physics::rotation::{IDENTITY, rotate_orientation};
+use subrusta_protocol::clientbound::game::VehicleKind;
+
+use super::{DRIVEN, HIDDEN_STREET, LOOP_STREET, MAX_ROUTE, PARKED, RouteStep, Traffic, TrafficCar, maxss, route::plan_route};
+use crate::{vehicle::types::VehicleType, world::map::Map};
+
+/// The rounded pi the binary turns a new car with: std's pi gives a different last bit (checked by the traffic
+/// dumps).
+const SPAWN_PI: f64 = 180.0_f64.to_radians();
+const SPAWN_HALF_PI: f64 = 90.0_f64.to_radians();
+const COLORS: i32 = 6;
+const PROGRESS_STEP: f32 = 1.0 / 256.0;
+/// The ground is found by tracing 128 down from two above the street's higher end.
+const TRACE_LIFT: f32 = 2.0;
+const TRACE_DEPTH: f32 = -128.0;
+const RIDE_HEIGHT: f32 = 0.375;
+const FRONT: f32 = 3.5;
+const REAR: f32 = -0.5;
+const WHEELBASE: f32 = 3.0;
+/// The eliminator spawns some cars parked in a third lane of the flat three lane streets.
+const PARKING_LANE: i32 = 2;
+
+/// The traffic's vehicle types by a roll of 0 to 15: town cars most often, then vans and minivans, and a few
+/// hatchbacks.
+fn car_kind(roll: u32) -> VehicleKind {
+    match roll {
+        0..=2 => VehicleKind::Van,
+        3..=8 => VehicleKind::TownCar,
+        9..=12 => VehicleKind::Minivan,
+        13 => VehicleKind::Van,
+        _ => VehicleKind::Hatchback,
+    }
+}
+
+/// create_traffic3: `count` cars on random streets, ends and lanes, each partway along its lane; with `parked_cars`
+/// (eliminator) some are parked in the third lane of flat three lane streets.
+pub fn create_traffic(traffic: &mut Traffic, map: &Map, types: &[VehicleType], parked_cars: bool, count: u32) {
+    let streets = &map.streets;
+    let n = streets.streets.len() as i32;
+    for _ in 0..count {
+        let slot = rand::random_range(0..2);
+        let mut street = rand::random_range(0..n);
+        if traffic.roundcity {
+            while street == HIDDEN_STREET || street == LOOP_STREET {
+                street = rand::random_range(0..n);
+            }
+        }
+        let mut lane = rand::random_range(0..2);
+        let st = &streets.streets[street as usize];
+        let flat_three =
+            parked_cars && streets.intersections[st.intersections[0]].pos.y == streets.intersections[st.intersections[1]].pos.y && st.left_lanes == 3;
+        if flat_three {
+            lane = rand::random_range(0..3);
+        }
+        let kind = car_kind(rand::random_range(0..16));
+        let byte = rand::random_range(0..256);
+        let color = rand::random_range(0..COLORS);
+        let id = create_traffic_car(traffic, map, types, kind, color, street, slot, lane, byte as f32 * PROGRESS_STEP);
+        if lane == PARKING_LANE {
+            traffic.cars[id].is_bot = PARKED;
+        }
+    }
+}
+
+/// create_traffic_car: a car on a street's lane `lane` from the middle (towards its first intersection's side for
+/// slot 0), `progress` of the way along, on the ground, with a route to a random street.
+#[allow(clippy::too_many_arguments)]
+pub fn create_traffic_car(
+    traffic: &mut Traffic,
+    map: &Map,
+    types: &[VehicleType],
+    kind: VehicleKind,
+    color: i32,
+    street: i32,
+    slot: i32,
+    lane: i32,
+    progress: f32,
+) -> usize {
+    let streets = &map.streets;
+    let st = &streets.streets[street as usize];
+    let n = st.lanes.len() as i32;
+    let mut k = (n >> 1) - lane - 1;
+    if k < 0 {
+        k = 0;
+    }
+    if n <= k {
+        k = n - 1;
+    }
+    let mut dir = st.dir;
+    let (from, dx, dz) = if slot == 0 {
+        let l = st.lanes[(n - k - 1) as usize];
+        (l.start, l.end.x - l.start.x, l.end.z - l.start.z)
+    } else {
+        dir = -dir;
+        let l = st.lanes[k as usize];
+        (l.end, l.start.x - l.end.x, l.start.z - l.end.z)
+    };
+    let len = (dz * dz + (dx * dx + 0.0)).sqrt();
+    let p = progress * len;
+    let mut yaw = if st.north_south != 0 { -90.0_f32.to_radians() } else { -180.0_f32.to_radians() };
+    if slot == 0 {
+        yaw = (yaw as f64 + SPAWN_PI) as f32;
+    }
+    let pos = dir * p + from;
+    let ends = st.intersections.map(|i| streets.intersections[i].world_pos.y);
+    let top = maxss(ends[1], maxss(ends[0], pos.y)) + TRACE_LIFT;
+    let up = Vec3::Y;
+    let start = Vec3::new(pos.x, top, pos.z);
+    let end = Vec3::new(pos.x + up.x * TRACE_DEPTH, top + up.y * TRACE_DEPTH, TRACE_DEPTH * up.z + pos.z);
+    let ground = crate::world::trace::line_intersect_level(&map.ground, &map.level.area, &map.level.meshes, start, end).map_or(top, |h| h.hit.pos.y);
+    let wheel_y = types.get(kind as usize).and_then(|t| t.wheels.first()).map_or(0.0, |w| w.local_pos.y);
+    let left = st.left_lanes;
+    let car_lane = if slot != 0 { left - 1 - lane } else { lane + left };
+    let id = traffic.cars.len();
+    let mut car = TrafficCar {
+        kind,
+        human: -1,
+        vehicle: -1,
+        state: 0,
+        pos: Vec3::new(pos.x, (RIDE_HEIGHT - wheel_y) + ground, pos.z),
+        vel: Vec3::ZERO,
+        yaw,
+        rot: IDENTITY,
+        steer: 0.0,
+        target_speed: 0.0,
+        front: FRONT,
+        rear: REAR,
+        wheelbase: WHEELBASE,
+        bounds_min: Vec3::ZERO,
+        bounds_max: Vec3::ZERO,
+        is_bot: DRIVEN,
+        is_aggressive: 0,
+        route_index: 0,
+        route_len: 0,
+        route: [RouteStep::default(); MAX_ROUTE],
+        street,
+        intersection: -1,
+        lane: car_lane,
+        next_lane: car_lane,
+        target_lane: 0,
+        lane_change: 0.0,
+        stuck: 0,
+        physical_street: 0,
+        physical_intersection: 0,
+        front_proj: 0.0,
+        rear_proj: 0.0,
+        far: [0.0; 2],
+        near: [0.0; 2],
+        lane_mask: 0,
+        color,
+    };
+
+    let to = rand::random_range(0..streets.streets.len() as i32);
+    let to_slot = rand::random_range(0..2);
+    plan_route(&mut car, streets, street, slot, to, to_slot);
+
+    let mut rot = IDENTITY;
+    let axis = rot[1];
+    rotate_orientation(&mut rot, axis, (yaw as f64 + SPAWN_HALF_PI) as f32);
+
+    car.rot = rot;
+    traffic.cars.push(car);
+
+    if traffic.generations.len() <= id {
+        traffic.generations.resize(id + 1, 0);
+    }
+
+    traffic.generations[id] += 1;
+    id
+}

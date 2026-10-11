@@ -1,0 +1,15 @@
+[package]
+name = "subrusta-math"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+binrw = { version = "0.15", optional = true }
+glam.workspace = true
+
+[features]
+binrw = ["dep:binrw"]
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "subrusta-bin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+subrusta-protocol.workspace = true
+subrusta-net.workspace = true
+subrusta-sim.workspace = true
+
+tokio.workspace = true
+serde.workspace = true
+toml = "1.1.6"
+dirs-next = "2.0.0"
+
+[lints]
+workspace = true
