@@ -75,13 +75,13 @@ In sandbox mode, or as an admin, there are test commands as well:
 
 | Crate | Contents |
 | --- | --- |
-| `rosa-bin` | The executable: config, networking setup and the master server registration. |
-| `rosa-sim` | The game: the simulation, game modes, players, humans, vehicles, traffic, items and computers. |
-| `rosa-physics` | Rigid bodies, bonds and the collision solver. |
-| `rosa-map` | Parsers for the game's files (maps, vehicle bodies, item sets, accounts). |
-| `rosa-protocol` | The client/server packet formats. |
-| `rosa-net` | The UDP connection layer and the master server. |
-| `rosa-math` | Shared math types. |
+| `subrusta-bin` | The executable: config, networking setup and the master server registration. |
+| `subrusta-sim` | The game: the simulation, game modes, players, humans, vehicles, traffic, items and computers. |
+| `subrusta-physics` | Rigid bodies, bonds and the collision solver. |
+| `subrusta-map` | Parsers for the game's files (maps, vehicle bodies, item sets, accounts). |
+| `subrusta-protocol` | The client/server packet formats. |
+| `subrusta-net` | The UDP connection layer and the master server. |
+| `subrusta-math` | Shared math types. |
 
 ### The future
 ---
