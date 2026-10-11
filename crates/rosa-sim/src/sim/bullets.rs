@@ -276,33 +276,42 @@ impl Sim {
 
     /// A bullet stopped by a human: damage from its mass and speed (more on the head) and a push on the bone hit.
     fn bullet_hit_human(&mut self, i: usize, id: usize, hit: BoneHit) {
-        let b = self.bullets[i].clone();
-        let v = b.vel;
-        let mut damage = (b.mass * (v.length() * DAMAGE_SCALE) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
+        let bullet = self.bullets[i].clone();
+        let mut damage = (bullet.mass * (bullet.vel.length() * DAMAGE_SCALE) * TICKS_PER_SECOND - DAMAGE_FLOOR) as i32;
+
         if damage > 0 {
             let e = EventBulletHit { unk: 0, hit_type: HIT_BODY, pos: Vector(hit.pos), normal: Vector(hit.normal) };
             self.events.push(Event { tick_created: self.tick, kind: ServerEvent::BulletHit(e) });
+
             if hit.bone == BoneId::Head {
                 damage = if damage <= 24 { if damage < 10 { damage * 2 } else { damage + damage * 2 } } else { damage << 2 };
             }
         } else {
             damage = 0;
         }
+
         let victim = self.humans.get(id).and_then(|h| h.player);
-        self.score_hurt(b.player, victim, damage);
-        let Some(h) = self.humans.get_mut(id) else { return };
-        if h.is_immortal && h.down_timer > 0 {
+        self.score_hurt(bullet.player, victim, damage);
+
+        let Some(human) = self.humans.get_mut(id) else { return };
+
+        if human.is_immortal && human.down_timer > 0 {
             damage = 0;
         }
-        damage_human(h, hit.bone, damage);
-        let bone = &h.bones[hit.bone.index()];
+
+        damage_human(human, hit.bone, damage);
+
+        let bone = &human.bones[hit.bone.index()];
         let weight = if LIGHT_BONE > bone.mass { LIGHT_BONE_MASS } else { 0.5 * bone.mass };
-        let f = IMPULSE * (b.mass / (weight + b.mass));
+
+        let f = IMPULSE * (bullet.mass / (weight + bullet.mass));
         self.bullets[i].time = 0;
+
         let Some(body) = self.bodies.get_mut(bone.body) else { return };
-        body.vel = f * v + body.vel;
+        body.vel = f * bullet.vel + body.vel;
+
         let r = hit.pos - body.pos;
-        body.ang_momentum = v.cross(r) * f + body.ang_momentum;
+        body.ang_momentum = bullet.vel.cross(r) * f + body.ang_momentum;
     }
 
     /// bullet_TTL: every bullet loses a tick of life and is gone at 0, the last bullet taking its place (and counted

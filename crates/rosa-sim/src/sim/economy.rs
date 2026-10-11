@@ -13,8 +13,6 @@ const MAX_STOCKS: i32 = 9999;
 const TAX_FREE: i32 = 10000;
 const TAX_RATE: f32 = 0.05;
 const STOCK_TAX_FREE: f32 = 10000.0;
-const SELL_RATE: f32 = 0.95;
-const ROUND_SELL_RATE: f32 = 0.98;
 
 /// A corporation's share market (0x5ac0bc00 + corp * 0x18).
 #[derive(Clone, Copy, Debug)]
@@ -32,50 +30,66 @@ impl Default for Corporation {
     }
 }
 
+impl Sim {
+    /// sell_all_stocks: sells all of a players stocks
+    pub fn sell_all_stocks(&mut self, pid: PlayerId) {
+        let held = self.players.get(pid.idx()).map_or(0, |p| p.stocks);
+        self.sell_stocks(pid, held);
+    }
+
+    /// player_sell_stocks: sells `n` of the player's shares at `sim.stock_sell_rate` of the price less what the
+    /// corporation's running projects have spent per share.
+    pub fn sell_stocks(&mut self, pid: PlayerId, n: i32) {
+        let Some(player) = self.players.get_mut(pid.idx()) else { return };
+        let Some(c) = corporation_of(player.team) else { return };
+
+        let held = player.stocks;
+        if held < n {
+            return;
+        }
+
+        let corp = &mut self.corporations[c];
+
+        let shares = corp.shares;
+        let mut price = corp.price;
+
+        for m in self.corp_state.get(c).map_or(&[][..], |p| &p.missions[..]) {
+            if m.active && m.provided_cash > 0 && shares > 0 {
+                price -= (m.provided_cash - corp.unk_14).max(0) as f32 / shares as f32;
+            }
+        }
+        player.stocks = held - n;
+        player.money = ((price * self.stock_sell_rate) * n as f32 + player.money as f32) as i32;
+        corp.shares = shares - n;
+    }
+
+    /// purchase_stocks: buys up to `n` shares (never past 9999 held) if the player has more money than they cost.
+    pub fn purchase_stocks(&mut self, pid: PlayerId, n: i32) {
+        let Some(player) = self.players.get_mut(pid.idx()) else { return };
+        let Some(c) = corporation_of(player.team) else { return };
+
+        let held = player.stocks;
+        let (n, count) = if held > MAX_STOCKS {
+            (0, 0.0)
+        } else {
+            let n = if held + n > MAX_STOCKS { (MAX_STOCKS + 1) - held } else { n };
+            (n, n as f32)
+        };
+
+        let money = player.money as f32;
+        let cost = count * self.corporations[c].price;
+        if money > cost {
+            self.corporations[c].shares += n;
+            player.stocks = held + n;
+            player.money = (money - cost) as i32;
+        }
+    }
+}
+
 /// The corporation a player's team trades in, if it is one.
 pub fn corporation_of(team: Team) -> Option<usize> {
     let t = team as usize;
     (t < CORPORATIONS).then_some(t)
-}
-
-/// purchase_stocks: buys up to `n` shares (never past 9999 held) if the player has more money than they cost.
-pub fn purchase_stocks(player: &mut Player, corps: &mut [Corporation; CORPORATIONS], n: i32) {
-    let Some(c) = corporation_of(player.team) else { return };
-    let held = player.stocks;
-    let (n, count) = if held > MAX_STOCKS {
-        (0, 0.0)
-    } else {
-        let n = if held + n > MAX_STOCKS { (MAX_STOCKS + 1) - held } else { n };
-        (n, n as f32)
-    };
-    let money = player.money as f32;
-    let cost = count * corps[c].price;
-    if money > cost {
-        corps[c].shares += n;
-        player.stocks = held + n;
-        player.money = (money - cost) as i32;
-    }
-}
-
-/// player_sell_stocks: sells `n` of the player's shares at 95% (98% in round mode) of the price less what the
-/// corporation's running projects have spent per share.
-pub fn sell_stocks(player: &mut Player, corps: &mut [Corporation; CORPORATIONS], projects: &[super::corporations::CorpState], n: i32, mode: GameMode) {
-    let Some(c) = corporation_of(player.team) else { return };
-    let held = player.stocks;
-    if held < n {
-        return;
-    }
-    let shares = corps[c].shares;
-    let mut price = corps[c].price;
-    for m in projects.get(c).map_or(&[][..], |p| &p.missions[..]) {
-        if m.active && m.provided_cash > 0 && shares > 0 {
-            price -= (m.provided_cash - corps[c].unk_14).max(0) as f32 / shares as f32;
-        }
-    }
-    let rate = if mode == GameMode::Round { ROUND_SELL_RATE } else { SELL_RATE };
-    player.stocks = held - n;
-    player.money = ((price * rate) * n as f32 + player.money as f32) as i32;
-    corps[c].shares = shares - n;
 }
 
 /// wealth_tax: takes 5% of the money over 10000 and sells off a twentieth of the shares worth more than 10000.
@@ -247,19 +261,22 @@ impl Sim {
     pub(crate) fn settle_death(&mut self, pid: PlayerId) {
         let mode = self.gamemode;
         let tick = self.tick;
-        let Some(player) = self.players.get_mut(pid.idx()) else { return };
         let real = pid.idx() <= 255;
+
         if mode == GameMode::World && real {
-            let held = player.stocks;
-            sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
+            self.sell_all_stocks(pid);
         }
+
+        let player = self.players.get_mut(pid.idx()).unwrap();
         if real {
             wealth_tax(player, &mut self.corporations);
             self.events.push(player.make_update_round_event(tick));
         }
+
         if mode == GameMode::Eliminator && real {
             self.broadcast_death_cut_time(pid);
         }
+
         if mode == GameMode::World {
             if !self.world_cfg.respawnteam {
                 self.set_player_team(pid, Team::Spectator);
@@ -267,7 +284,9 @@ impl Sim {
             let Some(player) = self.players.get_mut(pid.idx()) else { return };
             player.spawn_timer = player.crim_rating * WORLD_RESPAWN_PER_CRIME + WORLD_RESPAWN_BASE;
         }
+
         let Some(player) = self.players.get_mut(pid.idx()) else { return };
+
         player.human = None;
         self.events.push(player.make_update_player_event(tick));
     }
@@ -339,19 +358,22 @@ impl Sim {
     /// mode they buy back the shares it remembers.
     fn reclaim_humans(&mut self, pid: PlayerId) {
         let mode = self.gamemode;
-        let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        let account = player.account_id;
+        let Some(account) = self.players.get(pid.idx()).map(|p| p.account_id) else { return };
+
         for id in self.humans.ids() {
-            let Some(h) = self.humans.get_mut(id) else { continue };
-            if h.account != Some(account) {
-                continue;
-            }
+            let Some(h) = self.humans.get_mut(id).filter(|h| h.account == Some(account)) else { continue };
+
             h.player = Some(pid);
+
+            let (team, stocks) = (h.team.unwrap_or(Team::Spectator), h.stocks);
+
+            let Some(player) = self.players.get_mut(pid.idx()) else { return };
             player.human = Some(id);
             player.ghost_human = false;
-            player.team = h.team.unwrap_or(Team::Spectator);
+            player.team = team;
+
             if mode == GameMode::World {
-                purchase_stocks(player, &mut self.corporations, h.stocks);
+                self.purchase_stocks(pid, stocks);
             } else {
                 player.menu = rosa_protocol::clientbound::game::MenuType::Empty;
                 player.customization.model = SUIT_MODEL;
@@ -373,13 +395,9 @@ impl Sim {
             return;
         }
         self.remove_player_from_corps(pid);
-        let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        let held = player.stocks;
-        sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
-        if pid.idx() <= 255 {
-            let held = player.stocks;
-            sell_stocks(player, &mut self.corporations, &self.corp_state, held, mode);
-        }
+
+        self.sell_all_stocks(pid);
+
         for k in 0..self.corp_state.len() {
             if self.corp_state[k].manager != Some(pid) {
                 continue;
@@ -408,19 +426,22 @@ impl Sim {
 
     /// handle_buy_menu_selection for the share menu: options 0 to 3 buy 1, 10, 100 or 1000 shares, 4 to 7 sell them.
     pub(crate) fn stock_menu_selection(&mut self, pid: PlayerId, button: u32) {
-        let mode = self.gamemode;
         let tick = self.tick;
-        let Some(player) = self.players.get_mut(pid.idx()) else { return };
-        if player.human.is_none() {
+
+        if self.players.get(pid.idx()).is_none_or(|p| p.human.is_none()) {
             return;
         }
+
         let amounts = [1, 10, 100, 1000];
         let b = (button & 0xff) as usize;
+
         match b {
-            0..4 => purchase_stocks(player, &mut self.corporations, amounts[b]),
-            4..8 => sell_stocks(player, &mut self.corporations, &self.corp_state, amounts[b - 4], mode),
+            0..4 => self.purchase_stocks(pid, amounts[b]),
+            4..8 => self.sell_stocks(pid, amounts[b - 4]),
             _ => {}
         }
+
+        let Some(player) = self.players.get(pid.idx()) else { return };
         self.events.push(player.make_update_round_event(tick));
     }
 }

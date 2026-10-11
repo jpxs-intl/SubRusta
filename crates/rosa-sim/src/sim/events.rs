@@ -233,12 +233,11 @@ impl Sim {
                     if let Some(p) = self.players.get_mut(player_id.idx()) {
                         p.menu = if p.menu == MenuType::RoundCorpStock { MenuType::Empty } else { MenuType::RoundCorpStock };
                     }
+
                     return;
                 }
                 "/heal" => {
-                    if let Some(p) = self.players.get(player_id.idx())
-                        && let Some(human) = p.human
-                    {
+                    if let Some(p) = self.players.get(player_id.idx()) && let Some(human) = p.human {
                         let human = self.humans.get_mut(human).unwrap();
 
                         human.health.chest = 100;
@@ -249,8 +248,10 @@ impl Sim {
                         human.health.right_leg = 100;
                         human.health.vitality = 100;
                         human.health.blood_level = 100;
+                        human.health.vitality = 100;
                         human.pain = 0;
                     }
+
                     return;
                 }
                 _ => {}
@@ -262,6 +263,7 @@ impl Sim {
         }
 
         let speaker = self.players.get(player_id.idx()).and_then(|p| p.human).filter(|&h| self.humans.get(h).is_some_and(|h| h.health.vitality > 0));
+
         match (self.gamestate, speaker) {
             (GameState::Intermission, _) | (_, None) => self.send_chat(&action.message, ChatType::Announce, player_id.idx() as i32, 0),
             (_, Some(human)) => self.send_chat(&action.message, ChatType::Chat, human as i32, 0),

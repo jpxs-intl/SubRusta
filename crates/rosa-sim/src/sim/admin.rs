@@ -29,7 +29,6 @@ const ARM_GUNS: [ItemKind; 5] = [ItemKind::Ak47, ItemKind::M16, ItemKind::Mp5, I
 const ARM_DEFAULT: usize = 2;
 const ARM_MAGAZINES: i32 = 4;
 const ARM_BANDAGES: usize = 2;
-const CASH_GIFT: i32 = 100000;
 /// /setmap picks one of 32 versus maps.
 const VERSUS_MAPS: i32 = 32;
 /// A connection is dropped 1800 ticks after its last packet; a kick leaves it 600 of them.
@@ -178,19 +177,22 @@ impl Sim {
         if msg.starts_with("/phone") {
             self.admin_phone(pid);
         }
+
         if msg.starts_with("/arm") {
             self.admin_arm(pid, msg.get(5..).unwrap_or(""));
         }
-        if msg.starts_with("/cash")
-            && let Some(p) = self.players.get_mut(pid.idx())
+
+        if msg.starts_with("/cash") && let Some(p) = self.players.get_mut(pid.idx())
         {
-            p.money = p.money.wrapping_add(CASH_GIFT);
+            p.money = p.money.wrapping_add(100_000);
         }
+
         if msg.starts_with("/kill")
             && let Some(h) = self.players.get(pid.idx()).and_then(|p| p.human).and_then(|h| self.humans.get_mut(h))
         {
             h.health.vitality = 0;
         }
+
         if let Some(rest) = msg.strip_prefix("/setmap ") {
             let mut n = self.admin.versus_map + 1;
             if !rest.is_empty() {
@@ -362,10 +364,12 @@ impl Sim {
         if !self.players.get(pid.idx()).is_some_and(|p| p.is_admin) {
             return;
         }
+
         let (i, value) = (account as i32, value as i32);
         if i < 0 || i as usize >= self.saved_accounts.players.len() || value < 0 {
             return;
         }
+
         let a = &mut self.saved_accounts.players[i as usize];
         let line = match kind {
             4 => {
@@ -384,6 +388,7 @@ impl Sim {
             }
             _ => return,
         };
+
         self.admin_say(&line);
     }
 

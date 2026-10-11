@@ -137,14 +137,15 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
             }
             break;
         }
-        if h.inventory[slot].count > 0 {
+        let empty = h.inventory[slot].count == 0;
+        if !empty {
             computer_and_disk(h, bodies, touch, slot);
         }
-        if slot == 0 && h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0 && h.inventory[0].count == 0 {
+        let released = h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0;
+        if slot == 0 && released && empty {
             grab_item(h, touch);
         }
-        let released = h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0;
-        if !probed && released && h.inventory[slot].count == 0 && h.input_flags & MODE_KEYS == 0 {
+        if !probed && released && empty && h.input_flags & MODE_KEYS == 0 {
             probed = true;
             let (head, [_, _, ahead]) = (h.bones[3].pos, h.bones[3].rot);
             let end = ahead * -2.5 + head;
@@ -180,8 +181,8 @@ pub fn hand_grab_and_inventory(h: &mut Human, human_id: usize, bodies: &mut Rigi
     }
 }
 
-/// A computer being used is let go once the human walks off from it; a disk is put into the computer ahead when the
-/// use key is let go.
+/// A computer being used is let go once the human walks off from it or clicks; a disk is put into the computer ahead
+/// when the use key is let go.
 fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Touchables, slot: usize) {
     let item_id = h.inventory[slot].items[0] as usize;
     let Some(item) = touch.items.get(item_id) else { return };
@@ -189,7 +190,8 @@ fn computer_and_disk(h: &mut Human, bodies: &mut RigidBodies, touch: &mut Toucha
     if kind == ItemKind::Computer {
         let (p, [_, _, r2]) = (h.bones[0].pos, h.bones[0].rot);
         let end = r2 * COMPUTER_REACH + p;
-        if point_segment_distance(p, end, pos) > COMPUTER_HOLD {
+        let clicked = h.input_flags & LEFT_MOUSE == 0 && h.last_input_flags & LEFT_MOUSE != 0;
+        if point_segment_distance(p, end, pos) > COMPUTER_HOLD || clicked {
             unlink_item(h, bodies, touch, item_id);
         }
         return;

@@ -64,14 +64,17 @@ impl Sim {
     fn memo_block(&mut self, id: usize, block: usize) {
         let Some(free) = self.links.links.iter().position(|k| !k.active) else { return };
         let Some(item) = self.items.get(id) else { return };
+
         let ItemState::Memo(buf) = &item.state else { return };
         let text = buf[block * BLOCK..(block * BLOCK + BLOCK).min(MEMO_LEN)].to_vec();
         self.links.links[free] = Link { active: true, kind: KIND_MEMO, tick: self.tick as i32, item: id as i32, line: block as i32, text, colors: Vec::new() };
+
         let Some(slot) = (0..ITEM_SLOTS).find(|&k| item.link_mask & (1 << k) == 0) else { return };
         if let Some(item) = self.items.get_mut(id) {
             item.links[slot] = free as i32;
             item.link_mask |= 1 << slot;
         }
+
         for client in self.clients.values_mut() {
             if let Some(m) = client.link_sent.get_mut(&id) {
                 *m &= !(1u64 << slot);
@@ -82,8 +85,10 @@ impl Sim {
     /// newspaper_load: readme.txt, a blank line, then the 10 accounts with the most money, joined by newlines.
     pub(crate) fn load_newspaper(&mut self) {
         let mut lines: Vec<Vec<u8>> = Vec::new();
+
         if let Ok(data) = std::fs::read("readme.txt") {
             let mut k = 0;
+
             while k < data.len() && lines.len() <= MAX_LINES {
                 let mut line = Vec::new();
                 while k < data.len() && data[k] != b'\n' && data[k] != b'\r' && line.len() < LINE_LEN - 1 {
@@ -96,24 +101,32 @@ impl Sim {
                 lines.push(line);
             }
         }
+
         lines.push(Vec::new());
         lines.push(b"Top 10 list".to_vec());
+
         let mut order: Vec<usize> = (0..self.saved_accounts.players.len()).collect();
+
         order.sort_by_key(|&i| (0x8fff_ffffu32.wrapping_sub(self.saved_accounts.players[i].money)) as i64);
+
         for (rank, &i) in order.iter().take(TOP).enumerate() {
             let a = &self.saved_accounts.players[i];
             let name: String = a.player_name.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect();
             lines.push(format!("{}. {name}   ${}", rank + 1, with_commas(a.money as i32)).into_bytes());
         }
+
         let mut paper: Vec<u8> = Vec::new();
+
         for line in &lines {
             if line.len() + paper.len() <= NEWSPAPER_LEN {
                 paper.extend_from_slice(line);
             }
+
             if paper.len() <= NEWSPAPER_LEN {
                 paper.push(b'\n');
             }
         }
+
         self.world_state.newspaper = paper;
     }
 

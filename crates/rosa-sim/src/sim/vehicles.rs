@@ -2,16 +2,12 @@ use glam::Vec3;
 use rosa_math::vector::Vector;
 use rosa_physics::rotation::{IDENTITY, rot_matrix_to_quaternion, rotate_orientation};
 use rosa_protocol::clientbound::game::{
-    ServerVehicleObject,
-    events::{Event, ServerEvent, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor},
+    ServerVehicleObject, VehicleKind, events::{Event, ServerEvent, update_vehicle::EventUpdateVehicle, update_vehicle_type_color::EventUpdateVehicleTypeColor},
 };
 
 use super::Sim;
 use crate::{
-    PlayerId,
-    items::state::ItemState,
-    vehicle::{NETWORKED_VEHICLES, spawn_vehicle},
-    world::trace::line_intersect_level,
+    PlayerId, items::state::ItemState, vehicle::{NETWORKED_VEHICLES, physics, spawn_vehicle}, world::trace::line_intersect_level,
 };
 
 const SPAWN_DISTANCE: f32 = 6.0;
@@ -194,8 +190,10 @@ impl Sim {
             if self.bodies.get(v.body).is_none() {
                 continue;
             }
-            crate::vehicle::physics::update_vehicle_bounds(v, &self.bodies, &self.vehicle_types);
+
+            physics::update_vehicle_bounds(v, &self.bodies, &self.vehicle_types);
             let (lo, hi) = (glam::IVec3::from_array(v.block_min), glam::IVec3::from_array(v.block_max));
+
             self.spawn_set_items_in(lo, hi);
         }
     }
@@ -204,9 +202,12 @@ impl Sim {
     pub(crate) fn simulate_vehicles(&mut self) {
         use crate::{human::physics::HumanOutput, vehicle::physics::VehicleOutput};
         let driven: Vec<usize> = self.humans.iter().filter(|(_, h)| h.seat == 0).filter_map(|(_, h)| h.vehicle).collect();
-        let (out, glass) = crate::vehicle::physics::vehicle_simulation(&mut self.vehicles, &mut self.bodies, &mut self.world.map, &self.vehicle_types, &driven);
+        let (out, glass) = physics::vehicle_simulation(&mut self.vehicles, &mut self.bodies, &mut self.world.map, &self.vehicle_types, &driven);
+
         self.vehicle_item_contacts();
-        crate::vehicle::physics::vehicle_vehicle_contacts(&self.vehicles, &mut self.bodies, &self.vehicle_types);
+
+        physics::vehicle_vehicle_contacts(&self.vehicles, &mut self.bodies, &self.vehicle_types);
+
         for o in out {
             match o {
                 VehicleOutput::Sound { sound, pos, volume, pitch } => self.apply_human_outputs(vec![HumanOutput::Sound { sound, pos, volume, pitch }]),
@@ -217,6 +218,7 @@ impl Sim {
                 }
             }
         }
+
         self.apply_human_outputs(glass);
     }
 
@@ -224,10 +226,12 @@ impl Sim {
     /// cannot be hurt.
     pub(crate) fn vehicle_take_damage(&mut self, id: usize, amount: i32) {
         let Some(v) = self.vehicles.get_mut(id) else { return };
-        if v.kind == rosa_protocol::clientbound::game::VehicleKind::Train || v.health <= 0 {
+        if v.kind == VehicleKind::Train || v.health <= 0 {
             return;
         }
+
         v.health -= amount;
+        
         if v.health <= 0 {
             let e = EventUpdateVehicle { vehicle_id: id as i32, kind: WRECKED, part: 0, pos: Vector(v.pos), velocity: Vector(v.vel) };
             self.events.push(Event { tick_created: self.tick, kind: ServerEvent::UpdateVehicle(e) });

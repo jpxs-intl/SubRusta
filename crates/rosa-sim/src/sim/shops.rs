@@ -340,7 +340,7 @@ impl Sim {
     }
 
     /// An item at the human, set up by `init` and put into the first of `slots` that takes it. Returns the item.
-    pub(super) fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>, init: impl FnOnce(&mut ItemState)) -> Option<usize> {
+    pub(crate) fn give_item(&mut self, human: usize, kind: u8, slots: std::ops::Range<usize>, init: impl FnOnce(&mut ItemState)) -> Option<usize> {
         let kind = ItemKind::try_from(kind).ok()?;
         let pos = self.humans.get(human).map(|h| h.pos)?;
         let item = self.create_item(kind, pos, None, IDENTITY)?;

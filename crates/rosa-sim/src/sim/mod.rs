@@ -27,7 +27,7 @@ use rosa_protocol::{
 use tokio::sync::mpsc;
 
 use self::traffic::traffic_section;
-use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, items, player::Player, world::World};
+use crate::{Client, ConnId, Inbound, Outbound, PlayerId, SimJoinMsg, SimMsg, gamemode::{round, world::{self, world_missions}}, items, player::Player, world::World};
 
 pub mod admin;
 pub mod bots;
@@ -42,15 +42,11 @@ pub mod humans;
 pub mod memos;
 pub mod missions;
 pub mod npcs;
-pub mod round;
-pub mod round_menus;
 pub mod shops;
 pub mod tps;
 pub mod traffic;
 pub mod vehicles;
 pub mod voice;
-pub mod world;
-pub mod world_missions;
 
 /// One of a client's 8 voice slots: a speaker it can hear.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,7 +161,7 @@ pub struct Sim {
     /// Each corporation's manager, applicants and account.
     pub(crate) corp_state: [corporations::CorpState; 6],
     /// The vehicles the corporations can buy in round mode.
-    pub(crate) vehicle_stock: [round_menus::VehicleOffer; round_menus::VEHICLE_STOCK],
+    pub(crate) vehicle_stock: [round::menus::VehicleOffer; round::menus::VEHICLE_STOCK],
     /// The game timer (game_mode_state +0x234), the round's elapsed ticks (+0x238) and the intermission's starting time
     /// (+0x23c).
     pub(crate) game_timer: i32,
@@ -190,6 +186,7 @@ pub struct Sim {
     pub(crate) fs: crate::computer::fs::FileSystem,
     pub(crate) world_missions: world_missions::WorldMissions,
     pub(crate) links: crate::computer::links::LinkPool,
+    pub(crate) stock_sell_rate: f32,
 }
 
 /// What stats.txt counts since the server started: mission deals (0x7d078a4) and bullets (0x7d078a0).
@@ -256,6 +253,7 @@ impl Sim {
             fs: Default::default(),
             world_missions: Default::default(),
             links: Default::default(),
+            stock_sell_rate: 0.95
         };
         sim.reset_game();
         sim
@@ -308,7 +306,7 @@ impl Sim {
         }
     }
 
-    fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
+    pub fn send_chat(&mut self, message: &str, chat_type: ChatType, speaker_id: i32, volume: i32) {
         self.events.push(Event { tick_created: self.tick, kind: ServerEvent::Chat(EventChat { chat_type, speaker_id, volume, message: message.to_string() }) });
     }
 
@@ -366,6 +364,7 @@ impl Sim {
     pub fn server_tick(&mut self) {
         self.connection_timeouts();
 
+        // Apply all of the `SimMsg`'s received
         while let Ok(inp) = self.in_rx.try_recv() {
             self.apply(inp);
         }
@@ -387,11 +386,11 @@ impl Sim {
         self.count_corp_players();
 
         if self.gamemode == GameMode::Round {
-            self.logic_round();
+            self.tick_round();
         }
 
         if self.gamemode == GameMode::Eliminator {
-            self.logic_eliminator();
+            self.tick_eliminator();
         }
 
         if self.gamestate == GameState::InGame {
@@ -400,18 +399,10 @@ impl Sim {
         }
 
         if self.gamemode == GameMode::World {
-            self.logic_world();
+            self.tick_world();
         }
 
         self.player_simulation();
-
-        if self.gamemode == GameMode::Round {
-            self.round_account_sync();
-        }
-
-        if self.gamemode == GameMode::World {
-            self.world_account_sync();
-        }
 
         self.physics_tick();
         self.broadcast_tick();
@@ -445,6 +436,7 @@ impl Sim {
                     GameAction::Item(item_action) => self.item_action(player, item_action.a as usize, item_action.b as i32),
                     GameAction::Inventory(inventory_action) => {
                         let human = self.players.get(player.idx()).and_then(|p| p.human);
+
                         if let Some(h) = human.and_then(|id| self.humans.get_mut(id)) {
                             crate::human::inventory::queue_inventory_action(h, inventory_action.a as i32, inventory_action.b as i32);
                         }
@@ -460,6 +452,7 @@ impl Sim {
         if self.gamestate != GameState::Intermission || self.players.is_empty() {
             return;
         }
+
         if self.players.iter().all(|(_, p)| p.is_ready) {
             println!("[Sim] Everyone is ready, starting the round");
 

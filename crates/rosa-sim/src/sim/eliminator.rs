@@ -83,7 +83,7 @@ fn random_gun() -> (ItemKind, ItemKind) {
 
 impl Sim {
     /// logic_eliminator: the lobby, the hunt and the restart.
-    pub(crate) fn logic_eliminator(&mut self) {
+    pub(crate) fn tick_eliminator(&mut self) {
         match self.gamestate {
             GameState::Intermission => self.eliminator_lobby(),
             GameState::InGame => self.eliminator_game(),
@@ -503,7 +503,7 @@ impl Sim {
     }
 
     pub fn eliminator_tick(&mut self) {
-        self.logic_eliminator();
+        self.tick_eliminator();
     }
 
     pub fn round_number(&self) -> i32 {

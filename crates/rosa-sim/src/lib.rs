@@ -16,6 +16,7 @@ pub mod time;
 pub mod traffic;
 pub mod vehicle;
 pub mod world;
+pub mod gamemode;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct PlayerId(pub u32);

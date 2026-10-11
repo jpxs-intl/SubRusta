@@ -334,6 +334,12 @@ impl Sim {
         self.logic_item();
     }
 
+    pub(crate) fn link_to_slot(&mut self, human: usize, item: usize, slot: usize) {
+        let Some(h) = self.humans.get_mut(human) else { return };
+        let mut touch = touchables!(self, Vec::new());
+        crate::human::inventory::link_item_to_human(h, human, &mut self.bodies, &mut touch, item, slot);
+    }
+
     /// The rest of physics_simulation: the bonds solved and the items left over cleaned up.
     pub fn physics_solve(&mut self) {
         self.solve_bonds();

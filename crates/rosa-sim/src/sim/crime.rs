@@ -17,23 +17,26 @@ impl Sim {
     /// already is. A player who reaches crimekick has their human killed.
     pub(crate) fn handle_criminal_rating(&mut self, attacker: PlayerId, victim: PlayerId, damage: i32) {
         let cfg = self.world_cfg;
-        let (Some(a), Some(v)) = (self.players.get(attacker.idx()), self.players.get(victim.idx())) else { return };
-        let (Some(attacker_human), Some(victim_human)) = (a.human, v.human) else { return };
-        if a.is_bot || v.is_bot {
+        let (Some(attacker_player), Some(attacker_victim)) = (self.players.get(attacker.idx()), self.players.get(victim.idx())) else { return };
+        let (Some(attacker_human), Some(victim_human)) = (attacker_player.human, attacker_victim.human) else { return };
+
+        if attacker_player.is_bot || attacker_victim.is_bot {
             return;
         }
+
         if self.gamemode != GameMode::World {
             return;
         }
+
         let Some(vh) = self.humans.get(victim_human) else { return };
         let (victim_pos, last_vehicle) = (vh.bones[0].pos, vh.last_vehicle);
         let owner = (last_vehicle != -1).then(|| self.vehicles.get(last_vehicle as usize)).flatten().map_or(-1, |v| v.owner);
-        let (a_team, v_team) = (a.team as i32, v.team as i32);
-        let rate = if a.team == Team::Spectator {
+        let (a_team, v_team) = (attacker_player.team as i32, attacker_victim.team as i32);
+        let rate = if attacker_player.team == Team::Spectator {
             if last_vehicle != -1 && attacker.idx() as i32 == owner && owner != -1 {
                 return;
             }
-            if v.team == Team::Spectator { cfg.crimecivciv } else { cfg.crimecivteam }
+            if attacker_victim.team == Team::Spectator { cfg.crimecivciv } else { cfg.crimecivteam }
         } else if !(0..=5).contains(&a_team) {
             cfg.crimecivciv
         } else {
@@ -43,7 +46,7 @@ impl Sim {
             if owner != -1 && self.players.get(owner as usize).is_some_and(|o| o.team as i32 == a_team) {
                 return;
             }
-            if v.team == Team::Spectator {
+            if attacker_victim.team == Team::Spectator {
                 cfg.crimeteamciv
             } else if (0..=5).contains(&v_team) && self.in_base(v_team, victim_pos) {
                 cfg.crimeteamteaminbase
@@ -52,8 +55,8 @@ impl Sim {
             }
         };
         let mut k = rate as f32 / 100.0;
-        if v.crim_rating > 0 {
-            let f = v.crim_rating as f32 / 100.0;
+        if attacker_victim.crim_rating > 0 {
+            let f = attacker_victim.crim_rating as f32 / 100.0;
             if f > 1.0 {
                 k *= 0.0;
             } else if !(0.0 > f) {

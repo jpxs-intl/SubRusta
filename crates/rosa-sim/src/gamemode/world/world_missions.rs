@@ -4,6 +4,7 @@ use rosa_protocol::{GameMode, Team};
 use super::Sim;
 use crate::computer::fs::COMPUTER_CAPACITY;
 use crate::items::state::ItemState;
+use crate::sim::memos;
 use crate::world::building::{CORPORATION_BASE, LAB};
 
 /// A lab's computers, where document missions are put (0x44da7000, 0x40c each): the building, how many missions it
@@ -564,7 +565,7 @@ impl Sim {
         }
         let expiry = self.world_time + INTEL_TIME;
         let Some(car) = self.spawn_mission_intel_car(&file, content, expiry) else { return };
-        let (hour, minute, pm) = super::memos::clock_time(expiry);
+        let (hour, minute, pm) = memos::clock_time(expiry);
         let route: Vec<i32> = {
             let c = &self.traffic.cars[car];
             c.route[..(c.route_len.max(0) as usize).min(c.route.len())].iter().map(|s| s.street).collect()

@@ -5,9 +5,14 @@ use rosa_protocol::{
     clientbound::game::{GameState, ItemKind, MenuType, events::chat::ChatType},
 };
 
-use super::{Sim, items::touchables};
-use crate::time::TICKS_PER_MINUTE;
 use crate::{PlayerId, items::state::ItemState};
+use crate::{
+    items,
+    sim::{EventRing, Sim, missions},
+    time::TICKS_PER_MINUTE,
+};
+
+pub mod menus;
 
 /// The round corporations: Goldmen, Monsota and OXS.
 const ROUND_CORPS: usize = 3;
@@ -144,7 +149,9 @@ impl Sim {
         for c in &mut self.corp_state {
             c.player_count = 0;
         }
+
         let round = self.gamemode == GameMode::Round;
+
         for (_, p) in self.players.iter() {
             if let Some(k) = Team::CORPORATIONS.iter().position(|&t| t == p.team)
                 && (p.human.is_some() || round)
@@ -155,18 +162,23 @@ impl Sim {
     }
 
     /// logic_round: the lobby and its timer, setting up and starting the round, the round itself and the restart.
-    pub(crate) fn logic_round(&mut self) {
+    pub(crate) fn tick_round(&mut self) {
+        self.stock_sell_rate = 0.98;
+
         for (_, p) in self.players.iter_mut() {
             if p.team_switch_timer > 0 {
                 p.team_switch_timer -= 1;
             }
         }
+
         match self.gamestate {
             GameState::Intermission => self.round_intermission(),
             GameState::InGame => self.round_in_game(),
             GameState::Restarting => self.round_restarting(),
             _ => {}
         }
+
+        self.round_account_sync();
     }
 
     fn round_intermission(&mut self) {
@@ -234,7 +246,7 @@ impl Sim {
             return;
         }
         for k in 0..ROUND_CORPS {
-            for slot in 0..super::missions::MISSION_SLOTS {
+            for slot in 0..missions::MISSION_SLOTS {
                 if self.corp_state[k].missions[slot].active {
                     self.push_mission_event(k, slot);
                 }
@@ -585,12 +597,12 @@ impl Sim {
         self.bodies = rosa_physics::RigidBodies::default();
         self.bodies.gravity_scale = gravity;
         self.humans = rosa_physics::Table::new(crate::human::MAX_HUMANS);
-        self.items = rosa_physics::Table::new(super::items::MAX_ITEMS);
+        self.items = rosa_physics::Table::new(items::MAX_ITEMS);
         self.vehicles = rosa_physics::Table::new(crate::vehicle::MAX_VEHICLES);
         self.bullets.clear();
         self.npcs.clear();
         self.traffic = crate::traffic::Traffic::new(&self.world.map.streets, self.world.map.map_name == "round");
-        self.events = super::EventRing::default();
+        self.events = EventRing::default();
         for c in self.clients.values_mut() {
             c.reset_for_round();
         }
@@ -689,7 +701,7 @@ impl Sim {
                         if let Some(i) = self.items.get_mut(mag) {
                             i.state.set_left(s.b);
                         }
-                        super::items::attach_child(&mut self.items, &self.item_types, id, mag);
+                        items::attach_child(&mut self.items, &self.item_types, id, mag);
                     }
                     id
                 } else if kind == ItemKind::Key && self.gamemode == rosa_protocol::GameMode::World {
@@ -723,18 +735,13 @@ impl Sim {
         }
     }
 
-    pub(crate) fn link_to_slot(&mut self, human: usize, item: usize, slot: usize) {
-        let Some(h) = self.humans.get_mut(human) else { return };
-        let mut touch = touchables!(self, Vec::new());
-        crate::human::inventory::link_item_to_human(h, human, &mut self.bodies, &mut touch, item, slot);
-    }
-
     /// The lobby buttons (menu 2) in a round's intermission: 1 to 3 join a corporation (not one that fired the
     /// account), 4 leaves to spectate (a manager stops managing), 5 readies up or, early enough, back down.
     pub(crate) fn round_lobby(&mut self, pid: PlayerId, button: u32) {
         if self.gamestate != GameState::Intermission {
             return;
         }
+
         let versus = self.gamemode == GameMode::Versus;
         let timer = self.game_timer;
         let Some(p) = self.players.get(pid.idx()) else { return };
@@ -757,10 +764,10 @@ impl Sim {
                         self.corp_state[k].manager = None;
                         self.corp_state[k].fired.clear();
                     }
-                    let mode = self.gamemode;
+
+                    self.sell_all_stocks(pid);
+
                     let p = self.players.get_mut(pid.idx()).unwrap();
-                    let held = p.stocks;
-                    super::economy::sell_stocks(p, &mut self.corporations, &self.corp_state, held, mode);
                     p.team = Team::Spectator;
                     p.manager_tab = false;
                     let e = p.make_update_round_event(self.tick);
@@ -791,7 +798,7 @@ impl Sim {
 impl Sim {
     /// One logic_round call, without the player counts logic_simulation makes before it.
     pub fn round_tick(&mut self) {
-        self.logic_round();
+        self.tick_round();
     }
 
     pub fn set_game_timer(&mut self, t: i32) {

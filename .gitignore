@@ -4,3 +4,5 @@ Cargo.lock
 map.ppm
 server.srk
 stats.txt
+config_world.txt
+config_round.txt

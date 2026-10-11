@@ -10,8 +10,7 @@ use rosa_protocol::{
 use glam::Vec3;
 
 use crate::{
-    PlayerId, SimJoinMsg,
-    player::{actions::ActionQueue, voice::PlayerVoice},
+    PlayerId, SimJoinMsg, gamemode::round, player::{actions::ActionQueue, voice::PlayerVoice},
 };
 
 pub mod actions;
@@ -62,16 +61,16 @@ pub struct Player {
     /// buttons.
     pub ghost_human: bool,
     /// What the binary still has of that deleted human (its record stays behind): purchases go into it.
-    pub ghost: Option<crate::sim::round_menus::GhostHuman>,
+    pub ghost: Option<round::menus::GhostHuman>,
     /// Ticks before the player can change team in the lobby again (player +0x88).
     pub team_switch_timer: i32,
     /// Vehicles bought this round day (player +0x6c) and the $5 and $10 bills taken from a bank since (+0x70).
     pub vehicles_bought: i32,
     pub bills_withdrawn: i32,
     /// What the player's human held at the end of the last round, slot by slot.
-    pub saved_inventory: [Vec<crate::sim::round::SavedItem>; 7],
+    pub saved_inventory: [Vec<crate::gamemode::round::SavedItem>; 7],
     /// Where the player's human stood when the world day ended (player +0x3818 on).
-    pub saved_body: Option<crate::sim::world::SavedBody>,
+    pub saved_body: Option<crate::gamemode::world::SavedBody>,
     /// The money and credit of the player's corporation, copied every tick (player +0x50 and +0x54).
     pub corp_money: i32,
     pub corp_credit: i32,

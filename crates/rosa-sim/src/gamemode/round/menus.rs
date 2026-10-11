@@ -190,10 +190,10 @@ impl Sim {
         self.buyer_give(pid, human, kind, slots, |_| {});
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
         p.money -= price;
-        if self.gamemode == GameMode::Round {
-            let e = p.make_update_round_event(self.tick);
-            self.events.push(e);
-        }
+
+        let e = p.make_update_round_event(self.tick);
+        self.events.push(e);
+
         if let Some(p) = self.players.get_mut(pid.idx()) {
             p.items_bought += 1;
         }
@@ -252,29 +252,34 @@ impl Sim {
     fn round_fire(&mut self, pid: PlayerId, human: Buyer, target: i32) {
         let Some(p) = self.players.get(pid.idx()) else { return };
         let Some(k) = team_index(p.team) else { return };
+
         if self.corp_state[k].manager != Some(pid) {
             return;
         }
+
         let Some(pos) = self.buyer_pos(pid, human) else { return };
         if !self.world.map.level.bases[k].contains(pos) || self.corp_state[k].fired.len() >= MAX_FIRED || target == pid.0 as i32 {
             return;
         }
+
         let tid = PlayerId(target as u32);
         let Some(t) = self.players.get(tid.idx()) else { return };
         if t.team != p.team {
             return;
         }
+
         self.corp_state[k].fired.push(t.account_id);
+
         let mut ghost = None;
         if let Some(h) = t.human {
             ghost = self.humans.get(h).map(|g| GhostHuman { id: h, pos: g.pos, inventory: Default::default() });
             self.strip_fired_human(h);
             self.delete_human(h);
         }
-        let mode = self.gamemode;
+
+        self.sell_all_stocks(pid);
+
         let Some(t) = self.players.get_mut(tid.idx()) else { return };
-        let held = t.stocks;
-        super::economy::sell_stocks(t, &mut self.corporations, &self.corp_state, held, mode);
         t.team = Team::Spectator;
         t.manager_tab = false;
         t.ghost_human = t.human.take().is_some();

@@ -85,23 +85,29 @@ impl Sim {
     /// shoots at what it has seen; seated, it drives its traffic car's route or watches from its window and shoots.
     pub(crate) fn player_ai(&mut self, pid: PlayerId) {
         let Some(p) = self.players.get_mut(pid.idx()) else { return };
+
         p.controls.gear_x = 0.0;
         p.controls.strafe = 0.0;
         p.controls.gear_y = 0.0;
         p.controls.walk = 0.0;
         p.input_bits = 0;
+
         if p.bot.delay > 0 {
             p.bot.delay -= 1;
             return;
         }
+
         let Some(hid) = p.human else { return };
         self.bot_reload(pid, hid);
+
         let Some(h) = self.humans.get(hid) else { return };
+
         match h.vehicle {
             None => self.bot_on_foot(pid, hid),
             Some(veh) => {
                 let seat = h.seat;
                 self.players.get_mut(pid.idx()).unwrap().control_mode = 2;
+
                 if seat != 0 {
                     self.bot_seated(pid, hid, veh, seat);
                 } else if self.gamestate != GameState::Intermission {
@@ -109,6 +115,7 @@ impl Sim {
                 } else {
                     self.players.get_mut(pid.idx()).unwrap().controls.walk = -1.0;
                 }
+
                 self.bot_check_wreck(pid, veh);
             }
         }
@@ -118,8 +125,10 @@ impl Sim {
     fn bot_check_wreck(&mut self, pid: PlayerId, veh: usize) {
         let wrecked = self.vehicles.get(veh).is_some_and(|v| v.health <= 0);
         let p = self.players.get_mut(pid.idx()).unwrap();
+
         if wrecked {
             p.bot.wrecked_ticks += 1;
+
             if p.bot.wrecked_ticks > WRECK_PATIENCE {
                 p.input_bits |= GRAB;
             }

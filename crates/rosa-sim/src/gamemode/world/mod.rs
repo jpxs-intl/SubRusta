@@ -5,9 +5,10 @@ use rosa_protocol::{
     clientbound::game::{GameState, ItemKind, MenuType, VehicleKind},
 };
 
-use super::{Sim, economy::CORPORATIONS};
-use crate::PlayerId;
+use crate::{PlayerId, items, sim::{Sim, economy::{self, CORPORATIONS}, missions}};
 use crate::time::WORLD_HOUR;
+
+pub mod world_missions;
 
 /// The world clock starts each day at 8 AM and moves 10 a tick; the day's missions are handed out a world second later,
 /// the corporations' memos and manager pay every quarter hour until 5 PM, and the day ends past 7 PM.
@@ -246,7 +247,7 @@ impl Sim {
                 continue;
             }
 
-            let worth = match super::economy::corporation_of(p.team).and_then(|c| self.corporations.get(c)) {
+            let worth = match economy::corporation_of(p.team).and_then(|c| self.corporations.get(c)) {
                 Some(c) => (p.money as f32 + p.stocks as f32 * (SALE_SHARE * c.price)) as i32,
                 None => p.money,
             };
@@ -292,7 +293,7 @@ impl Sim {
     }
 
     /// logic_world.
-    pub(crate) fn logic_world(&mut self) {
+    pub(crate) fn tick_world(&mut self) {
         self.expire_world_bots();
 
         if self.gamestate == GameState::Intermission {
@@ -351,12 +352,13 @@ impl Sim {
         }
 
         self.keep_mission_items();
+        self.world_account_sync();
     }
 
     /// The undecided missions whose deadline is now let go of their disks and, unless that decided them, fail.
     fn expire_corp_missions(&mut self, clock: i32) {
         for k in 0..CORPORATIONS {
-            for slot in 0..super::missions::MISSION_SLOTS {
+            for slot in 0..missions::MISSION_SLOTS {
                 let m = self.corp_state[k].missions[slot];
                 if !m.active || m.done || m.deadline != clock {
                     continue;
@@ -372,7 +374,7 @@ impl Sim {
     /// Each active mission's disk, while it has a despawn time, is kept from despawning.
     fn keep_mission_items(&mut self) {
         for k in 0..CORPORATIONS {
-            for slot in 0..super::missions::MISSION_SLOTS {
+            for slot in 0..missions::MISSION_SLOTS {
                 let m = self.corp_state[k].missions[slot];
                 if !m.active {
                     continue;
@@ -420,7 +422,7 @@ impl Sim {
                 if let Some(c) = self.items.get_mut(child) {
                     c.despawn_time = 0;
                 }
-                super::items::remove_link(&mut self.items, child, id);
+                items::remove_link(&mut self.items, child, id);
             }
             if let Some(i) = self.items.get_mut(id) {
                 i.despawn_time = 0;
@@ -477,7 +479,7 @@ impl Sim {
             }
         }
         self.save_stats();
-        self.events.push(super::economy::stock_event(&self.corporations, self.tick));
+        self.events.push(economy::stock_event(&self.corporations, self.tick));
     }
 
     /// Every 54000: the crime pass.
@@ -694,7 +696,7 @@ impl Sim {
     }
 
     pub fn world_tick(&mut self) {
-        self.logic_world();
+        self.tick_world();
     }
 
     pub fn world_enter_city(&mut self, pid: PlayerId) {
