@@ -1,10 +1,7 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration};
 
 use subrusta_protocol::{
-    GameMode, ServerboundPacket,
-    clientbound::{kick::KickClient, server_info::ServerInfo},
-    parse_frame,
-    serverbound::info_request::InfoRequest,
+    GameMode, ServerboundPacket, clientbound::{kick::KickClient, server_info::ServerInfo}, masterserver::AuthPacket, parse_frame, serverbound::info_request::InfoRequest,
 };
 use subrusta_sim::{ConnId, Inbound, Outbound, SimJoinMsg, SimMsg};
 use tokio::{net::UdpSocket, sync::mpsc};
@@ -73,9 +70,23 @@ impl Edge {
                 self.masterserver.register_auth(src, a);
             }
             ServerboundPacket::JoinRequest(j) => {
-                if self.masterserver.verify_join(j.account_id, j.auth_ticket).is_none() {
+                // The game only supports v4
+                // TODO: Make the game support v6
+                let IpAddr::V4(ip) = src.ip() else { return; };
+
+                let auth_packet = if ip.is_loopback() || ip.is_link_local() || ip.is_private() {
+                    AuthPacket {
+                        account_id: j.account_id,
+                        auth_ticket: j.auth_ticket,
+                        phone_number: j.phone_number,
+                        player_name: j.player_name.clone(),
+                        steam_id: 0
+                    }
+                } else if let Some(auth) = self.masterserver.verify_join(j.account_id, j.auth_ticket) {
+                    auth.clone()
+                } else {
                     return;
-                }
+                };
 
                 if j.password != self.listing.server_password {
                     let packet = KickClient { reason: "Your password is incorrect!".to_string() };
@@ -98,7 +109,7 @@ impl Edge {
                             src,
                             msg: SimMsg::Join(SimJoinMsg {
                                 join_packet: j.clone(),
-                                auth_packet: self.masterserver.verify_join(j.account_id, j.auth_ticket).unwrap().clone(),
+                                auth_packet,
                             }),
                         });
                     }
